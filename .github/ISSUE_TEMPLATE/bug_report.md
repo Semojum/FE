@@ -3,7 +3,7 @@ name: Bug report
 about: 버그 리포트 및 오류 수정
 title: "[Bug #] 오류 요약"
 labels: ''
-assignees: ''
+assignees: zziman
 
 ---
 

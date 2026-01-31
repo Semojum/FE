@@ -1,5 +1,5 @@
 ---
-name: Custom issue template
+name: Maintenance Template
 about: '리팩토링, 설정 변경, 문서 수정, 구조 정리 '
 title: "[Maintenance #] 작업 요약"
 labels: ''
