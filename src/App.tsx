@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDropzone } from 'react-dropzone';
 import {
@@ -12,20 +12,40 @@ import { useFileHandler } from './hooks/UseFileHandler';
 import FilePreviewer from './component/features/conversion/FilePreviewer';
 import Pagination from './component/features/conversion/Pagination';
 import { ConversionTab } from './types';
+import { Accept } from 'react-dropzone'; // 1. 타입 임포트
 
 const BrailleMate: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ConversionTab>('OCR 변환');
   const { fileState, handleFileDrop, setPage, setTotalPages, reset } =
     useFileHandler();
 
-  const isProcessing = false; // 실제 로직에선 상태로 관리
+  const isProcessing = false;
 
-  const { getRootProps, getInputProps } = useDropzone({
+  const acceptConfig = useMemo<Accept>(() => {
+    // 1. 반환할 객체를 Accept 타입으로 명시적 선언
+    let config: Accept;
+
+    if (activeTab === '점역 변환') {
+      config = {
+        'text/plain': ['.txt'],
+        'application/x-hwp': ['.hwp'],
+        'application/haansofthwp': ['.hwp'],
+        'application/vnd.hancom.hwp': ['.hwp'],
+      };
+    } else {
+      config = {
+        'image/*': ['.jpeg', '.jpg', '.png'],
+        'application/pdf': ['.pdf'],
+      };
+    }
+
+    // 2. 이미 Accept 타입으로 검증된 객체를 반환
+    return config;
+  }, [activeTab]);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: handleFileDrop,
-    accept: {
-      'image/*': ['.jpeg', '.jpg', '.png'],
-      'application/pdf': ['.pdf'],
-    },
+    accept: acceptConfig,
     multiple: false,
   });
 
@@ -33,7 +53,7 @@ const BrailleMate: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#F9F8F1] flex flex-col font-sans text-gray-800 antialiased">
-      {/* Header Section */}
+      {/* Header Section (동일) */}
       <header className="max-w-6xl mx-auto pt-12 px-6 w-full">
         <div className="flex items-center gap-3 mb-10">
           <div className="flex gap-1">
@@ -46,7 +66,10 @@ const BrailleMate: React.FC = () => {
           {tabs.map((tab) => (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => {
+                setActiveTab(tab);
+                reset(); // 탭 변경 시 이전 파일 상태 초기화 (권장)
+              }}
               className={`pb-4 text-lg font-semibold transition-all relative ${
                 activeTab === tab
                   ? 'text-[#5A8FBB]'
@@ -86,18 +109,29 @@ const BrailleMate: React.FC = () => {
                   </button>
                 )}
               </div>
+
               <div
-                className={`flex-1 rounded-[2rem] overflow-hidden border-2 border-dashed transition-all ${!fileState.file ? 'border-gray-200' : 'border-transparent'}`}
+                className={`flex-1 rounded-[2rem] overflow-hidden border-2 border-dashed transition-all 
+                ${!fileState.file ? (isDragActive ? 'border-[#5A8FBB] bg-blue-50/50' : 'border-gray-200') : 'border-transparent'}`}
               >
                 {!fileState.file ? (
                   <div
                     {...getRootProps()}
-                    className="w-full h-full flex flex-col items-center justify-center cursor-pointer"
+                    className="w-full h-full flex flex-col items-center justify-center cursor-pointer p-10 text-center"
                   >
                     <input {...getInputProps()} />
-                    <ImageIcon className="text-gray-400 mb-6" size={32} />
+                    {activeTab === '점역 변환' ? (
+                      <FileText className="text-gray-400 mb-6" size={32} />
+                    ) : (
+                      <ImageIcon className="text-gray-400 mb-6" size={32} />
+                    )}
                     <p className="text-gray-600 font-medium">
-                      파일을 드롭하거나 클릭하여 선택
+                      {activeTab === '점역 변환'
+                        ? '텍스트(.txt)나 한글(.hwp) 파일을 드롭하세요.'
+                        : '이미지나 PDF 파일을 드롭하세요.'}
+                    </p>
+                    <p className="text-sm text-gray-400 mt-2 underline underline-offset-4">
+                      또는 파일 선택
                     </p>
                   </div>
                 ) : (
@@ -110,7 +144,7 @@ const BrailleMate: React.FC = () => {
             </motion.div>
           </section>
 
-          {/* Interaction Icon */}
+          {/* Interaction Icon (동일) */}
           <div className="hidden md:flex items-center justify-center">
             <div className="w-12 h-12 rounded-full border border-gray-200 flex items-center justify-center bg-white shadow-sm">
               <ArrowRight
@@ -120,7 +154,7 @@ const BrailleMate: React.FC = () => {
             </div>
           </div>
 
-          {/* Right: Output Card */}
+          {/* Right: Output Card (동일) */}
           <section className="flex-1 min-w-0">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -141,7 +175,7 @@ const BrailleMate: React.FC = () => {
                   <div className="space-y-4">
                     <FileText size={48} className="text-gray-200 mx-auto" />
                     <p className="text-gray-400 font-medium leading-relaxed">
-                      변환 결과가 여기에 표시됩니다.
+                      자동으로 변환 결과가 표시됩니다.
                     </p>
                   </div>
                 )}
@@ -150,7 +184,7 @@ const BrailleMate: React.FC = () => {
           </section>
         </div>
 
-        {/* Pagination Section: 하단 중앙 독립 배치 */}
+        {/* Pagination Section (동일) */}
         <AnimatePresence>
           {fileState.fileType === 'pdf' && fileState.totalPages > 1 && (
             <motion.div

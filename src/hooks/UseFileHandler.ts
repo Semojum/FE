@@ -6,34 +6,57 @@ export const useFileHandler = () => {
     file: null,
     previewUrl: null,
     fileType: null,
+    textContent: '', // 텍스트 파일 내용을 저장할 필드 추가
     currentPage: 1,
     totalPages: 0,
   });
 
-  // useFileHandler.ts 내의 handleFileDrop 최적화 제안
-  const handleFileDrop = useCallback(
-    (acceptedFiles: File[]) => {
-      const file = acceptedFiles[0];
-      if (!file) return;
+  /**
+   * @description 파일 드롭 핸들러 (비동기 처리)
+   */
+  const handleFileDrop = useCallback(async (acceptedFiles: File[]) => {
+    const file = acceptedFiles[0];
+    if (!file) return;
 
-      // 이전 URL을 즉시 해제하여 메모리 누수 방지
-      setFileState((prev) => {
-        if (prev.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+    // 1. 파일 타입 판별 (MIME Type 및 확장자 체크)
+    let fileType: FileType = 'text';
+    if (file.type.includes('pdf')) {
+      fileType = 'pdf';
+    } else if (file.type.includes('image')) {
+      fileType = 'image';
+    } else if (file.name.endsWith('.hwp') || file.type.includes('hwp')) {
+      fileType = 'hwp';
+    } else if (file.type === 'text/plain') {
+      fileType = 'text';
+    }
 
-        const fileType: FileType = file.type.includes('pdf') ? 'pdf' : 'image';
-        const previewUrl = URL.createObjectURL(file);
+    // 2. 타입별 데이터 준비
+    let previewUrl: string | null = null;
+    let textContent: string = '';
 
-        return {
-          file,
-          previewUrl,
-          fileType,
-          currentPage: 1,
-          totalPages: 0,
-        };
-      });
-    },
-    [], // 의존성 배열을 비워 함수 재생성을 원천 차단
-  );
+    if (fileType === 'pdf' || fileType === 'image') {
+      // 이미지/PDF는 브라우저 렌더링을 위한 Blob URL 생성
+      previewUrl = URL.createObjectURL(file);
+    } else if (fileType === 'text') {
+      // 텍스트 파일은 내용을 직접 읽음
+      textContent = await file.text();
+    }
+
+    // 3. 상태 업데이트
+    setFileState((prev) => {
+      // 이전 미리보기 URL이 있다면 메모리 해제 (중요)
+      if (prev.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+
+      return {
+        file,
+        previewUrl,
+        fileType,
+        textContent,
+        currentPage: 1,
+        totalPages: 0,
+      };
+    });
+  }, []);
 
   const setPage = useCallback((page: number) => {
     setFileState((prev) => ({ ...prev, currentPage: page }));
@@ -43,16 +66,22 @@ export const useFileHandler = () => {
     setFileState((prev) => ({ ...prev, totalPages: num }));
   }, []);
 
+  /**
+   * @description 상태 초기화
+   */
   const reset = useCallback(() => {
-    if (fileState.previewUrl) URL.revokeObjectURL(fileState.previewUrl);
-    setFileState({
-      file: null,
-      previewUrl: null,
-      fileType: null,
-      currentPage: 1,
-      totalPages: 0,
+    setFileState((prev) => {
+      if (prev.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return {
+        file: null,
+        previewUrl: null,
+        fileType: null,
+        textContent: '',
+        currentPage: 1,
+        totalPages: 0,
+      };
     });
-  }, [fileState.previewUrl]);
+  }, []);
 
   // 컴포넌트 언마운트 시 메모리 정리
   useEffect(() => {
@@ -62,4 +91,4 @@ export const useFileHandler = () => {
   }, [fileState.previewUrl]);
 
   return { fileState, handleFileDrop, setPage, setTotalPages, reset };
-};;
+};
