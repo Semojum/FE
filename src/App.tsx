@@ -57,8 +57,7 @@ const BrailleMate: React.FC = () => {
       <header className="max-w-6xl mx-auto pt-12 px-6 w-full">
         <div className="flex items-center gap-3 mb-10">
           <div className="flex gap-1">
-            <div className="w-4 h-8 bg-[#8EBDD3] rounded-full" />
-            <div className="w-4 h-8 bg-[#EFB495] rounded-full mt-2" />
+            <img src={'public/braillemate.png'} alt="" />
           </div>
           <h1 className="text-3xl font-bold tracking-tight">BrailleMate</h1>
         </div>
