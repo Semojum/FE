@@ -13,6 +13,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",
+    "@types/pako": "^2.0.4",
     "@types/react": "^19.2.13",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.4",
@@ -24,8 +25,15 @@
     "vite": "^7.3.1"
   },
   "dependencies": {
+    "@ohah/hwpjs": "^0.1.0-rc.4",
+    "@ohah/hwpjs-wasm32-wasi": "^0.1.0-rc.4",
+    "buffer": "^6.0.3",
+    "cfb": "^1.2.2",
     "framer-motion": "^12.34.0",
+    "hwp.js": "^0.0.3",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.563.0",
+    "pako": "^2.1.0",
     "pdfjs-dist": "^5.4.296",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

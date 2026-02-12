@@ -1,9 +1,9 @@
 import React, { memo } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { FileText } from 'lucide-react'; // 아이콘 추가
+// FileText 아이콘은 이제 텍스트가 없을 때만 쓰거나 제거해도 됩니다.
 import { FileState } from '../../../types';
 
-// PDF Worker 설정 (기존과 동일)
+// PDF Worker 설정
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
   import.meta.url,
@@ -15,40 +15,29 @@ interface Props {
 }
 
 const FilePreviewer: React.FC<Props> = memo(({ state, onLoadSuccess }) => {
-  const { previewUrl, fileType, currentPage, textContent, file } = state;
+  const { previewUrl, fileType, currentPage, textContent } = state;
 
-  // 1. 텍스트(.txt) 파일 미리보기
-  if (fileType === 'text') {
+  // ─────────────────────────────────────────────────────────────
+  // [수정됨] 1. 텍스트(.txt) 및 한글(.hwp) 파일 텍스트 미리보기
+  // hwp 파일도 파싱된 결과가 textContent에 담겨 있으므로 텍스트로 보여줍니다.
+  // ─────────────────────────────────────────────────────────────
+  if (fileType === 'text' || fileType === 'hwp') {
     return (
       <div className="w-full h-full bg-white p-6 overflow-y-auto custom-scrollbar">
-        <pre className="text-sm text-gray-700 font-mono whitespace-pre-wrap leading-relaxed">
-          {textContent || '내용이 없는 파일입니다.'}
-        </pre>
+        {textContent ? (
+          <pre className="text-sm text-gray-700 font-mono whitespace-pre-wrap leading-relaxed">
+            {textContent}
+          </pre>
+        ) : (
+          <div className="h-full flex flex-col items-center justify-center text-gray-400">
+            <p>내용이 없거나 텍스트를 추출할 수 없습니다.</p>
+          </div>
+        )}
       </div>
     );
   }
 
-  // 2. 한글(.hwp) 파일 정보 표시 (브라우저 직접 렌더링 불가)
-  if (fileType === 'hwp') {
-    return (
-      <div className="w-full h-full flex flex-col items-center justify-center bg-gray-50 p-8">
-        <div className="w-20 h-20 bg-blue-50 rounded-2xl flex items-center justify-center mb-4 shadow-sm">
-          <FileText size={40} className="text-[#5A8FBB]" />
-        </div>
-        <h3 className="text-lg font-bold text-gray-900 mb-1 break-all text-center">
-          {file?.name}
-        </h3>
-        <p className="text-sm text-gray-400 mb-6">
-          {(file?.size ? file.size / 1024 : 0).toFixed(1)} KB
-        </p>
-        <span className="px-4 py-2 bg-[#5A8FBB]/10 text-[#5A8FBB] rounded-full text-xs font-bold tracking-wide">
-          점역 대기 중
-        </span>
-      </div>
-    );
-  }
-
-  // 3. 이미지 및 PDF 미리보기 (기존 로직)
+  // 2. 이미지 및 PDF 미리보기
   if (!previewUrl) return null;
 
   return (
