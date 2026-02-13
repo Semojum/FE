@@ -219,7 +219,11 @@ const BrailleMate: React.FC = () => {
           {
             id: `ocr-2-p${page}`,
             order: 2,
-            contents: `<table>01.jpg`,
+            contents:               '입자  질량  운동에너지\n' +
+              '----------------------------\n' +
+              'A     m      E₀\n' +
+              'B     2m     8E₀\n' +
+              'C     3m     3E₀\n',
           },
           {
             id: `ocr-3-p${page}`,
