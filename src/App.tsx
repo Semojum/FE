@@ -20,7 +20,6 @@ import {
   ConversionTab,
   ImageResolution,
   OCRResponse,
-  ProofreadingResponse,
   OriginalTextBlock,
   BrailleTranslationResponse,
 } from './types';
@@ -118,51 +117,7 @@ const BrailleMate: React.FC = () => {
     // ✅ 캐싱 로직: 이미 해당 페이지의 데이터가 로드되어 있다면 다시 덮어쓰지 않음! (사용자 수정 유지)
     if (blocksByPage[page] && blocksByPage[page].length > 0) return;
 
-    if (activeTab === '교정 변환') {
-      const mockProofData: ProofreadingResponse = {
-        job_id: 'job_1',
-        page_number: page,
-        text_list: [
-          {
-            id: `text-1-p${page}`,
-            content: `[페이지 ${page}] 대한민국은 민주공화국이다.`,
-          },
-          {
-            id: `text-2-p${page}`,
-            content: `[페이지 ${page}] 제2조 관련 내용입니다.`,
-          },
-        ],
-        optimized_text_list: [
-          {
-            id: `text-1-p${page}`,
-            order: 1,
-            contents: `[페이지 ${page}] 변환된 대한민국...`,
-          },
-          {
-            id: `text-2-p${page}`,
-            order: 2,
-            contents: `[페이지 ${page}] 변환된 제2조...`,
-          },
-        ],
-      };
-
-      setOriginalTextsByPage((prev) => ({
-        ...prev,
-        [page]: mockProofData.text_list,
-      }));
-      setBlocksForPage(
-        page,
-        mockProofData.optimized_text_list.map((item) => ({
-          id: item.id,
-          originalText: mockProofData.text_list.find((t) => t.id === item.id)
-            ?.content,
-          currentText: Array.isArray(item.contents)
-            ? item.contents.join('\n')
-            : item.contents,
-          candidates: ['대체 텍스트 예시 1', '대체 텍스트 예시 2'],
-        })),
-      );
-    } else if (activeTab === '점역 변환') {
+    else if (activeTab === '점역 변환') {
       const mockBrailleData: BrailleTranslationResponse = {
         job_id: 'job_2',
         page_number: page,
@@ -401,7 +356,7 @@ const BrailleMate: React.FC = () => {
                     className="w-full h-full flex flex-col items-center justify-center cursor-pointer p-10 text-center"
                   >
                     <input {...getInputProps()} />
-                    {activeTab === '점역 변환' || activeTab === '교정 변환' ? (
+                    {activeTab === '점역 변환' ? (
                       <FileText className="text-gray-400 mb-6" size={32} />
                     ) : (
                       <ImageIcon className="text-gray-400 mb-6" size={32} />
