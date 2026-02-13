@@ -85,8 +85,7 @@ const BrailleMate: React.FC = () => {
           {
             id: 'uuid-2',
             order: 2,
-            contents:
-              '대한민국의 주권은 국민에게 있고, 모든 권력은 국민으로부터 나온다.',
+            contents: '대한민국의 주권은 국민에게 있고, $x^2 + y^2 = z^2$',
           },
         ],
       };

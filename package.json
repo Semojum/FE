@@ -36,6 +36,7 @@
     "framer-motion": "^12.34.0",
     "hwp.js": "^0.0.3",
     "jszip": "^3.10.1",
+    "katex": "^0.16.28",
     "lucide-react": "^0.563.0",
     "pako": "^2.1.0",
     "pdfjs-dist": "^5.4.296",
