@@ -12,10 +12,12 @@ interface BlockItemProps {
   onApplyCandidate: (id: string, text: string) => void;
   onRemove: (id: string) => void;
   onAdd: (index: number) => void;
+  onSelect: (id: string) => void; // 선택 핸들러 추가
+  isSelected: boolean; // 선택 상태 스타일링용
 }
 
 const BlockItem: React.FC<BlockItemProps> = memo(
-  ({ block, index, onUpdate, onApplyCandidate, onRemove, onAdd }) => {
+  ({ block, index, onUpdate, onApplyCandidate, onRemove, onAdd, onSelect, isSelected}) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     // 드래그 제어를 위한 훅
@@ -27,7 +29,10 @@ const BlockItem: React.FC<BlockItemProps> = memo(
         id={block.id}
         dragListener={false} // 텍스트 선택을 방해하지 않도록 기본 드래그 비활성화
         dragControls={dragControls} // 핸들을 통해서만 드래그 가능하게 설정
-        className="relative mb-2" // 마진 추가
+        onPointerDown={() => onSelect(block.id)}
+        className={`relative mb-2 transition-all duration-200 ${
+          isSelected ? 'ring-2 ring-[#5A8FBB] ring-offset-2 z-10' : ''
+        }`}
         whileDrag={{
           scale: 1.02,
           zIndex: 10,
@@ -78,6 +83,7 @@ const BlockItem: React.FC<BlockItemProps> = memo(
 
             <TextareaAutosize
               value={block.currentText}
+              onFocus={() => onSelect(block.id) }
               onChange={(e) => onUpdate(block.id, e.target.value)}
               className="w-full resize-none outline-none bg-transparent p-2 text-gray-800 leading-relaxed rounded-lg focus:bg-white focus:ring-2 focus:ring-[#5A8FBB]/20 focus:shadow-sm transition-all"
               placeholder="텍스트를 입력하세요..."

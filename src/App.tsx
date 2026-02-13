@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { motion, AnimatePresence, Reorder } from 'framer-motion'; // Reorder 추가
+import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { useDropzone, Accept } from 'react-dropzone';
 import {
   FileText,
@@ -15,13 +15,26 @@ import { useTranslationBlocks } from './hooks/UseTranslationBlocks';
 import FilePreviewer from './component/features/conversion/FilePreviewer';
 import Pagination from './component/features/conversion/Pagination';
 import BlockItem from './component/features/conversion/BlockItem';
-import { ConversionTab } from './types';
+import {
+  BoundingBox,
+  ConversionTab,
+  ImageResolution,
+  OCRResponse,
+} from './types';
 
 const BrailleMate: React.FC = () => {
   // 1. 상태 및 훅 초기화
   const [activeTab, setActiveTab] = useState<ConversionTab>('OCR 변환');
   const { fileState, handleFileDrop, setPage, setTotalPages, reset } =
     useFileHandler();
+
+  // [New] BBox 및 선택 상태 관리
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  const [bboxData, setBboxData] = useState<BoundingBox[]>([]);
+  const [imgResolution, setImgResolution] = useState<ImageResolution>({
+    width: 0,
+    height: 0,
+  });
 
   const {
     blocks,
@@ -37,38 +50,73 @@ const BrailleMate: React.FC = () => {
   // 2. 탭 변경 핸들러
   const handleTabChange = (tab: ConversionTab) => {
     setActiveTab(tab);
-    reset(); // 파일 초기화
-    setBlocks([]); // 블록 데이터 초기화
+    reset();
+    setBlocks([]);
+    setBboxData([]);
+    setSelectedBlockId(null);
   };
 
-  // 3. 파일 업로드 시 Mock Data 생성 (시뮬레이션)
+  // 3. 파일 업로드 시 Mock Data 생성 (서버 응답 시뮬레이션)
   useEffect(() => {
     if (fileState.file && !isProcessing) {
-      setBlocks([
-        {
-          id: crypto.randomUUID(),
-          originalText: 'Hello World',
-          currentText: '안녕 세상',
-          candidates: ['안녕 세상', '안녕하세요 세계', '반가워요 여러분'],
-        },
-        {
-          id: crypto.randomUUID(),
-          originalText: 'This is a test document.',
-          currentText: '이것은 테스트 문서입니다.',
-          candidates: [
-            '이것은 테스트 문서입니다.',
-            '이건 시험용 문서예요.',
-            '테스트 파일입니다.',
-          ],
-        },
-      ]);
+      // 실제 구현 시에는 여기서 API 호출 (formData 전송) -> 응답 수신
+      const mockResponse: OCRResponse = {
+        job_id: 'job_20260211_xc921',
+        page_number: 1,
+        image_resolution: { width: 1240, height: 1754 }, // 원본 이미지 해상도
+        bounding_box_list: [
+          {
+            id: 'uuid-1',
+            x: 120,
+            y: 80,
+            x2: 560,
+            y2: 130,
+          },
+          {
+            id: 'uuid-2',
+            x: 120,
+            y: 140,
+            x2: 340,
+            y2: 360,
+          },
+        ],
+        text_list: [
+          { id: 'uuid-1', order: 1, contents: '대한민국은 민주공화국이다.' },
+          {
+            id: 'uuid-2',
+            order: 2,
+            contents:
+              '대한민국의 주권은 국민에게 있고, 모든 권력은 국민으로부터 나온다.',
+          },
+        ],
+      };
+
+      // 상태 업데이트
+      setImgResolution(mockResponse.image_resolution);
+      setBboxData(mockResponse.bounding_box_list);
+
+      // Block 데이터 생성 (BBox 정보 매핑 포함)
+      setBlocks(
+        mockResponse.text_list.map((textItem) => {
+          const bbox = mockResponse.bounding_box_list.find(
+            (b) => b.id === textItem.id,
+          );
+          return {
+            id: textItem.id,
+            originalText: textItem.contents,
+            currentText: textItem.contents,
+            candidates: [], // 데모용 빈 배열
+            bbox: bbox,
+          };
+        }),
+      );
     }
   }, [fileState.file, isProcessing, setBlocks]);
 
-  // 4. Dropzone 설정 (탭에 따른 파일 형식 제한)
+  // 4. Dropzone 설정
   const acceptConfig = useMemo<Accept>(() => {
     let config: Accept;
-    if (activeTab === '점역 변환' || activeTab === "교정 변환") {
+    if (activeTab === '점역 변환' || activeTab === '교정 변환') {
       config = {
         'text/plain': ['.txt'],
         'application/x-hwp': ['.hwp'],
@@ -90,11 +138,16 @@ const BrailleMate: React.FC = () => {
     multiple: false,
   });
 
-  const tabs: ConversionTab[] = ['OCR 변환', '교정 변환', '점역 변환', '통합 변환'];
+  const tabs: ConversionTab[] = [
+    'OCR 변환',
+    '교정 변환',
+    '점역 변환',
+    '통합 변환',
+  ];
 
   return (
     <div className="min-h-screen bg-[#F9F8F1] flex flex-col font-sans text-gray-800 antialiased">
-      {/* Header Section */}
+      {/* Header */}
       <header className="max-w-6xl mx-auto pt-12 px-6 w-full">
         <div className="flex items-center gap-3 mb-10">
           <div className="flex gap-1">
@@ -132,7 +185,7 @@ const BrailleMate: React.FC = () => {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-12 flex flex-col items-center w-full">
         <div className="w-full flex flex-col md:flex-row items-stretch gap-8 mb-4">
-          {/* Left: Input Card */}
+          {/* Left: Input Card & Previewer */}
           <section className="flex-1 min-w-0">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -167,31 +220,30 @@ const BrailleMate: React.FC = () => {
                     className="w-full h-full flex flex-col items-center justify-center cursor-pointer p-10 text-center"
                   >
                     <input {...getInputProps()} />
-                    {activeTab === '점역 변환' || activeTab === "교정 변환" ? (
+                    {activeTab === '점역 변환' || activeTab === '교정 변환' ? (
                       <FileText className="text-gray-400 mb-6" size={32} />
                     ) : (
                       <ImageIcon className="text-gray-400 mb-6" size={32} />
                     )}
                     <p className="text-gray-600 font-medium">
-                      {activeTab === '점역 변환' || activeTab === "교정 변환"
-                        ? '텍스트(.txt)나 한글(.hwp) 파일을 드롭하세요.'
-                        : '이미지나 PDF 파일을 드롭하세요.'}
-                    </p>
-                    <p className="text-sm text-gray-400 mt-2 underline underline-offset-4">
-                      또는 파일 선택
+                      드래그 앤 드롭 또는 클릭하여 파일 업로드
                     </p>
                   </div>
                 ) : (
+                  // [Updated] FilePreviewer에 BBox 데이터 전달
                   <FilePreviewer
                     state={fileState}
                     onLoadSuccess={setTotalPages}
+                    bboxes={bboxData}
+                    selectedBlockId={selectedBlockId}
+                    imageResolution={imgResolution}
                   />
                 )}
               </div>
             </motion.div>
           </section>
 
-          {/* Interaction Icon */}
+          {/* Center: Arrow Icon */}
           <div className="hidden md:flex items-center justify-center">
             <div className="w-12 h-12 rounded-full border border-gray-200 flex items-center justify-center bg-white shadow-sm">
               <ArrowRight
@@ -201,7 +253,7 @@ const BrailleMate: React.FC = () => {
             </div>
           </div>
 
-          {/* Right: Output Card (여기가 핵심 수정 부분) */}
+          {/* Right: Output Card & Editor */}
           <section className="flex-1 min-w-0">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -214,22 +266,20 @@ const BrailleMate: React.FC = () => {
                   점역/번역 결과
                 </h2>
                 <span className="text-sm text-gray-400">
-                  드래그하여 순서 변경 가능
+                  블록을 클릭하여 원본 위치 확인
                 </span>
               </div>
 
-              {/* 에디터 스크롤 영역 */}
               <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
                 {isProcessing ? (
                   <div className="h-full flex flex-col items-center justify-center space-y-4">
                     <Loader2 className="w-10 h-10 text-[#5A8FBB] animate-spin" />
                     <p className="font-medium text-gray-500">
-                      문서를 분석하고 분할하는 중...
+                      문서를 분석 중입니다...
                     </p>
                   </div>
                 ) : blocks.length > 0 ? (
                   <div className="pb-10">
-                    {/* [수정됨] Reorder.Group으로 감싸서 에러 해결 및 드래그 기능 활성화 */}
                     <Reorder.Group
                       axis="y"
                       values={blocks}
@@ -241,6 +291,9 @@ const BrailleMate: React.FC = () => {
                           key={block.id}
                           block={block}
                           index={index}
+                          // [Updated] 선택 상태 전달
+                          isSelected={block.id === selectedBlockId}
+                          onSelect={setSelectedBlockId}
                           onUpdate={updateBlock}
                           onApplyCandidate={applyCandidate}
                           onRemove={removeBlock}
@@ -255,7 +308,7 @@ const BrailleMate: React.FC = () => {
                     <p className="text-gray-400 font-medium leading-relaxed">
                       파일을 업로드하면
                       <br />
-                      수정 가능한 블록 형태로 결과가 표시됩니다.
+                      결과가 여기에 표시됩니다.
                     </p>
                   </div>
                 )}
@@ -264,7 +317,7 @@ const BrailleMate: React.FC = () => {
           </section>
         </div>
 
-        {/* Pagination Section */}
+        {/* Pagination */}
         <AnimatePresence>
           {fileState.fileType === 'pdf' && fileState.totalPages > 1 && (
             <motion.div
