@@ -1,14 +1,18 @@
+// component/features/conversion/BlockItem.tsx
 import React, { memo, useState } from 'react';
 import TextareaAutosize from 'react-textarea-autosize';
 import { Trash2, Plus, Sparkles, GripVertical, Code2, Eye } from 'lucide-react';
-import { Reorder, useDragControls } from 'framer-motion'; // Reorder, useDragControls 추가
-import { TranslationBlock } from '../../../types';
+import { Reorder, useDragControls } from 'framer-motion';
+import { TranslationBlock, ConversionTab } from '../../../types'; // ConversionTab 타입 임포트 필요
 import CandidateModal from './CandidateModal';
-import LatexRenderer from './LatexRenderer.tsx';
+import LatexRenderer from './LatexRenderer';
+import BrailleRenderer from './BrailleRenderer'; // [New]
 
 interface BlockItemProps {
   block: TranslationBlock;
   index: number;
+  // [New] 현재 활성화된 탭 정보 (렌더링 방식 결정)
+  mode: ConversionTab;
   onUpdate: (id: string, text: string) => void;
   onApplyCandidate: (id: string, text: string) => void;
   onRemove: (id: string) => void;
@@ -21,6 +25,7 @@ const BlockItem: React.FC<BlockItemProps> = memo(
   ({
     block,
     index,
+    mode, // [New]
     onUpdate,
     onApplyCandidate,
     onRemove,
@@ -29,11 +34,18 @@ const BlockItem: React.FC<BlockItemProps> = memo(
     isSelected,
   }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
-
-    // [New] 미리보기 모드 상태 (true: 렌더링된 수식, false: 코드 편집)
-    const [isPreviewMode, setIsPreviewMode] = useState(false);
+    // 점역 변환일 경우 기본값을 '미리보기 모드(true)'로 설정하여 점자를 바로 보여줌
+    const [isPreviewMode, setIsPreviewMode] = useState(mode === '점역 변환');
 
     const dragControls = useDragControls();
+
+    // 렌더링 헬퍼 함수
+    const renderContent = (text: string) => {
+      if (mode === '점역 변환') {
+        return <BrailleRenderer text={text} />;
+      }
+      return <LatexRenderer text={text} />;
+    };
 
     return (
       <Reorder.Item
@@ -60,34 +72,32 @@ const BlockItem: React.FC<BlockItemProps> = memo(
             }
           `}
         >
-          {/* 1. 왼쪽 컨트롤러 영역 (드래그 & 추가) */}
+          {/* 1. 왼쪽 컨트롤러 (드래그 핸들) */}
           <div className="flex flex-col gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
             <div
               onPointerDown={(e) => dragControls.start(e)}
               className="p-1.5 text-gray-300 hover:text-gray-600 cursor-grab active:cursor-grabbing hover:bg-gray-100 rounded-lg touch-none"
-              title="순서 변경"
             >
               <GripVertical size={16} />
             </div>
             <button
               onClick={() => onAdd(index)}
-              className="p-1.5 text-gray-400 hover:text-[#5A8FBB] hover:bg-blue-50 rounded-lg transition-colors"
-              title="새 블록 추가"
+              className="p-1.5 text-gray-400 hover:text-[#5A8FBB] hover:bg-blue-50 rounded-lg"
             >
               <Plus size={16} />
             </button>
           </div>
 
-          {/* 2. 메인 컨텐츠 영역 */}
+          {/* 2. 메인 컨텐츠 */}
           <div className="flex-1 min-w-0">
-            {/* 상단 정보: 원본 텍스트 & 툴바 */}
+            {/* 상단 정보: 원본 텍스트 */}
             <div className="flex justify-between items-start mb-2 min-h-[24px]">
-              {/* 원본 텍스트 (항상 렌더링된 상태로 표시) */}
               <div
                 className={`text-xs px-1 py-0.5 rounded transition-colors max-w-[80%] ${
                   isSelected ? 'text-[#5A8FBB] bg-blue-50/30' : 'text-gray-400'
                 }`}
               >
+                {/* 원본 텍스트는 항상 Latex/일반 텍스트로 렌더링 (점자가 아님) */}
                 {block.originalText ? (
                   <LatexRenderer text={block.originalText} />
                 ) : (
@@ -95,16 +105,15 @@ const BlockItem: React.FC<BlockItemProps> = memo(
                 )}
               </div>
 
-              {/* 상단 액션 버튼 그룹 */}
+              {/* 툴바 */}
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                {/* [New] 미리보기/편집 모드 토글 */}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     setIsPreviewMode(!isPreviewMode);
                   }}
                   className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
-                  title={isPreviewMode ? '편집 모드로 전환' : '렌더링 미리보기'}
+                  title={isPreviewMode ? '편집 모드로 전환' : '미리보기'}
                 >
                   {isPreviewMode ? <Code2 size={14} /> : <Eye size={14} />}
                 </button>
@@ -124,16 +133,16 @@ const BlockItem: React.FC<BlockItemProps> = memo(
               </div>
             </div>
 
-            {/* 메인 텍스트 영역 (편집기 vs 미리보기) */}
+            {/* 에디터 영역 */}
             <div className="relative min-h-[2.5rem]">
               {isPreviewMode ? (
-                // 2-A. 미리보기 모드 (렌더링된 결과)
+                // [미리보기 모드] 점자 렌더러 또는 Latex 렌더러 사용
                 <div
                   className="w-full p-2 text-gray-800 bg-gray-50/50 rounded-lg border border-transparent min-h-[42px] cursor-text"
-                  onClick={() => setIsPreviewMode(false)} // 클릭 시 편집 모드로 자동 전환
+                  onClick={() => setIsPreviewMode(false)}
                 >
                   {block.currentText ? (
-                    <LatexRenderer text={block.currentText} />
+                    renderContent(block.currentText)
                   ) : (
                     <span className="text-gray-400 italic">
                       내용을 입력하세요...
@@ -141,32 +150,31 @@ const BlockItem: React.FC<BlockItemProps> = memo(
                   )}
                 </div>
               ) : (
-                // 2-B. 편집 모드 (Textarea)
+                // [편집 모드] Textarea (점자의 경우 폰트가 지원되지 않으면 네모로 보일 수 있음. 필요시 폰트 적용)
                 <TextareaAutosize
                   value={block.currentText}
                   onFocus={() => onSelect(block.id)}
                   onChange={(e) => onUpdate(block.id, e.target.value)}
-                  className="w-full resize-none outline-none bg-transparent p-2 text-gray-800 leading-relaxed rounded-lg focus:bg-white focus:ring-2 focus:ring-[#5A8FBB]/20 focus:shadow-sm transition-all font-mono text-sm"
-                  placeholder="텍스트 또는 $LaTeX$ 수식을 입력하세요..."
+                  // 점자 모드일 때 텍스트 영역 글씨를 조금 키움
+                  className={`w-full resize-none outline-none bg-transparent p-2 text-gray-800 leading-relaxed rounded-lg focus:bg-white focus:ring-2 focus:ring-[#5A8FBB]/20 focus:shadow-sm transition-all font-mono 
+                    ${mode === '점역 변환' ? 'text-xl tracking-wider' : 'text-sm'}`}
+                  placeholder="텍스트를 입력하세요..."
                   minRows={1}
                 />
               )}
             </div>
           </div>
 
-          {/* 3. 오른쪽 컨트롤러: 삭제 버튼 */}
           <div className="opacity-0 group-hover:opacity-100 transition-opacity mt-2">
             <button
               onClick={() => onRemove(block.id)}
-              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-              title="블록 삭제"
+              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
             >
               <Trash2 size={16} />
             </button>
           </div>
         </div>
 
-        {/* 후보군 모달 */}
         <CandidateModal
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}

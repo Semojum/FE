@@ -60,3 +60,35 @@ export interface TranslationBlock {
   candidates: string[];
   bbox?: BoundingBox; // bbox 정보 추가
 }
+
+export interface OriginalTextBlock {
+  id: string;
+  content: string;
+}
+
+// [New] 교정 변환 서버 응답 타입
+export interface ProofreadingResponse {
+  job_id: string;
+  page_number: number;
+  text_list: OriginalTextBlock[]; // 원본 텍스트 (입력창용)
+  optimized_text_list: {
+    id: string;
+    order: number;
+    contents: string[] | string; // JSON 예시의 {...}를 배열이나 문자열로 처리
+    legend?: string;
+  }[]; // 변환된 텍스트 (에디터용)
+}
+
+export interface BrailleTranslationResponse {
+  job_id: string;
+  page_number: number;
+  text_list: {
+    id: string;
+    contents: string; // 주의: 교정 변환은 content였지만, 여기서는 contents입니다.
+  }[];
+  braille_text_list: {
+    id: string;
+    order: number;
+    content: string;
+  }[];
+}

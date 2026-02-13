@@ -1,7 +1,12 @@
-import React, { memo } from 'react';
+import React, { memo, useEffect, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 // FileText 아이콘은 이제 텍스트가 없을 때만 쓰거나 제거해도 됩니다.
-import { BoundingBox, FileState, ImageResolution } from '../../../types';
+import {
+  BoundingBox,
+  FileState,
+  ImageResolution,
+  OriginalTextBlock,
+} from '../../../types';
 import BBoxOverlay from './BboxOverlay.tsx';
 
 // PDF Worker 설정
@@ -13,30 +18,68 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 interface Props {
   state: FileState;
   onLoadSuccess: (numPages: number) => void;
-  // 부모로부터 전달받을 새로운 Props
   bboxes: BoundingBox[];
   selectedBlockId: string | null;
-  imageResolution: ImageResolution; // 서버에서 받은 해상도
+  imageResolution: ImageResolution;
+  // [New] 텍스트 하이라이팅을 위한 데이터
+  originalTextBlocks?: OriginalTextBlock[];
+}
 
-}const FilePreviewer: React.FC<Props> = memo(
-  ({ state, onLoadSuccess, bboxes, selectedBlockId, imageResolution }) => {
+const FilePreviewer: React.FC<Props> = memo(
+  ({
+    state,
+    onLoadSuccess,
+    bboxes,
+    selectedBlockId,
+    imageResolution,
+    originalTextBlocks,
+  }) => {
     const { previewUrl, fileType, currentPage, textContent } = state;
 
+    const activeTextRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+      if (selectedBlockId && activeTextRef.current) {
+        activeTextRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        });
+      }
+    }, [selectedBlockId]);
     // ─────────────────────────────────────────────────────────────
     // [수정됨] 1. 텍스트(.txt) 및 한글(.hwp) 파일 텍스트 미리보기
     // hwp 파일도 파싱된 결과가 textContent에 담겨 있으므로 텍스트로 보여줍니다.
     // ─────────────────────────────────────────────────────────────
     if (fileType === 'text' || fileType === 'hwp') {
       return (
-        <div className="w-full h-full bg-white p-6 overflow-y-auto custom-scrollbar">
-          {textContent ? (
-            <pre className="text-sm text-gray-700 font-mono whitespace-pre-wrap leading-relaxed">
-              {textContent}
-            </pre>
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center text-gray-400">
-              <p>내용이 없거나 텍스트를 추출할 수 없습니다.</p>
+        <div className="w-full h-full bg-white p-8 overflow-y-auto custom-scrollbar shadow-inner bg-gray-50/30">
+          {originalTextBlocks && originalTextBlocks.length > 0 ? (
+            // [A] 교정 변환 모드: 블록 단위 렌더링 & 하이라이팅
+            <div className="flex flex-col gap-4">
+              {originalTextBlocks.map((block) => {
+                const isActive = block.id === selectedBlockId;
+                return (
+                  <div
+                    key={block.id}
+                    ref={isActive ? activeTextRef : null}
+                    className={`p-3 rounded-lg border transition-all duration-300 ${
+                      isActive
+                        ? 'bg-[#5A8FBB]/10 border-[#5A8FBB] text-[#2c3e50] shadow-sm scale-[1.01]' // 활성 스타일
+                        : 'bg-white border-transparent text-gray-500 hover:bg-gray-50' // 비활성 스타일
+                    }`}
+                  >
+                    <p className="leading-relaxed whitespace-pre-wrap text-sm md:text-base font-medium">
+                      {block.content}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
+          ) : (
+            // [B] 일반 모드: 단순 텍스트 렌더링
+            <pre className="text-sm text-gray-700 font-mono whitespace-pre-wrap leading-relaxed">
+              {textContent || '내용이 없습니다.'}
+            </pre>
           )}
         </div>
       );

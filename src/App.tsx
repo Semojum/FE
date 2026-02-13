@@ -20,6 +20,9 @@ import {
   ConversionTab,
   ImageResolution,
   OCRResponse,
+  ProofreadingResponse, // 추가된 타입
+  OriginalTextBlock,
+  BrailleTranslationResponse, // 추가된 타입
 } from './types';
 
 const BrailleMate: React.FC = () => {
@@ -35,6 +38,10 @@ const BrailleMate: React.FC = () => {
     width: 0,
     height: 0,
   });
+
+  const [originalTextBlocks, setOriginalTextBlocks] = useState<
+    OriginalTextBlock[]
+  >([]);
 
   const {
     blocks,
@@ -53,64 +60,173 @@ const BrailleMate: React.FC = () => {
     reset();
     setBlocks([]);
     setBboxData([]);
+    setOriginalTextBlocks([]);
     setSelectedBlockId(null);
   };
 
   // 3. 파일 업로드 시 Mock Data 생성 (서버 응답 시뮬레이션)
   useEffect(() => {
-    if (fileState.file && !isProcessing) {
-      // 실제 구현 시에는 여기서 API 호출 (formData 전송) -> 응답 수신
-      const mockResponse: OCRResponse = {
+    if (!fileState.file || isProcessing) return;
+
+    // ─────────────────────────────────────────────────────────────
+    // CASE A: 교정 변환 (텍스트 기반 하이라이팅)
+    // ─────────────────────────────────────────────────────────────
+    if (activeTab === '교정 변환') {
+      const mockProofData: ProofreadingResponse = {
         job_id: 'job_20260211_xc921',
         page_number: 1,
-        image_resolution: { width: 1240, height: 1754 }, // 원본 이미지 해상도
-        bounding_box_list: [
+        // 원본 텍스트 목록 (좌측 미리보기용)
+        text_list: [
           {
-            id: 'uuid-1',
-            x: 120,
-            y: 80,
-            x2: 560,
-            y2: 130,
+            id: '550e8400',
+            content:
+              '대한민국은 민주공화국이다. 대한민국의 주권은 국민에게 있고, 모든 권력은 국민으로부터 나온다.',
           },
           {
-            id: 'uuid-2',
-            x: 120,
-            y: 140,
-            x2: 340,
-            y2: 360,
+            id: '6ba7b810',
+            content:
+              '제2조 ① 대한민국의 국민이 되는 요건은 법률로 정한다. ② 국가는 법률이 정하는 바에 의하여 재외국민을 보호할 의무를 진다.',
           },
         ],
-        text_list: [
-          { id: 'uuid-1', order: 1, contents: '대한민국은 민주공화국이다.' },
+        // 변환 텍스트 목록 (우측 에디터용)
+        optimized_text_list: [
           {
-            id: 'uuid-2',
+            id: '550e8400',
+            order: 1,
+            contents: ['[촉각 그래픽]', '한국은...', '대한민국은...'], // 배열 예시
+            legend: '범례..',
+          },
+          {
+            id: '6ba7b810',
             order: 2,
-            contents: '대한민국의 주권은 국민에게 있고, $x^2 + y^2 = z^2$',
+            contents: '제2조 관련 내용입니다.', // 문자열 예시
+            legend: '범례..',
           },
         ],
       };
 
-      // 상태 업데이트
-      setImgResolution(mockResponse.image_resolution);
-      setBboxData(mockResponse.bounding_box_list);
+      // 1. 원본 텍스트 블록 설정 (FilePreviewer로 전달)
+      setOriginalTextBlocks(mockProofData.text_list);
 
-      // Block 데이터 생성 (BBox 정보 매핑 포함)
+      // 2. 에디터 블록 설정
       setBlocks(
-        mockResponse.text_list.map((textItem) => {
-          const bbox = mockResponse.bounding_box_list.find(
+        mockProofData.optimized_text_list.map((item) => {
+          // contents가 배열이면 합치고, 문자열이면 그대로 사용
+          const textContent = Array.isArray(item.contents)
+            ? item.contents.join('\n')
+            : item.contents;
+
+          // 매칭되는 원본 텍스트 찾기 (선택사항)
+          const original = mockProofData.text_list.find(
+            (t) => t.id === item.id,
+          );
+
+          return {
+            id: item.id,
+            originalText: original?.content,
+            currentText: textContent,
+            candidates: [],
+            // BBox는 없음
+          };
+        }),
+      );
+    } else if (activeTab === '점역 변환') {
+      // 서버 응답 JSON 시뮬레이션
+      const mockBrailleData: BrailleTranslationResponse = {
+        job_id: 'job_20260211_xc921',
+        page_number: 1,
+        text_list: [
+          {
+            id: '550e8400-e29b-41d4-a716-446655440000',
+            contents: '대한민국은 민주공화국이다.',
+          },
+          {
+            id: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
+            contents: '대한민국의 주권은 국민에게 있고...',
+          },
+        ],
+        braille_text_list: [
+          {
+            id: '550e8400-e29b-41d4-a716-446655440000',
+            order: 1,
+            content: '⠙⠒⠓⠣⠒⠤⠃⠍⠒⠝⠀⠍⠒⠝⠨⠚⠍⠗⠕⠓⠣⠒⠤⠃⠍⠒⠝⠎⠨⠙⠢⠲\n',
+          },
+          {
+            id: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
+            order: 2,
+            content: '⠙⠒⠓⠣⠒⠤⠃⠍⠒⠝⠎⠨⠀⠨⠚⠍⠝⠃⠍⠒⠝⠀⠃⠍⠒⠝⠍⠒⠝⠍⠒⠝...\n',
+          },
+        ],
+      };
+
+      // 1. 좌측 파일 뷰어용 원본 텍스트 매핑 및 주입 (하이라이팅용)
+      // JSON의 'contents'를 OriginalTextBlock 타입의 'content'로 매핑
+      const mappedOriginalTexts = mockBrailleData.text_list.map((t) => ({
+        id: t.id,
+        content: t.contents,
+      }));
+      setOriginalTextBlocks(mappedOriginalTexts);
+
+      // BBox는 사용하지 않으므로 초기화
+      setImgResolution({ width: 0, height: 0 });
+      setBboxData([]);
+
+      // 2. 우측 에디터용 점자 블록 생성
+      setBlocks(
+        mockBrailleData.braille_text_list.map((brailleItem) => {
+          // ID로 원본 텍스트 찾기
+          const original = mockBrailleData.text_list.find(
+            (t) => t.id === brailleItem.id,
+          );
+
+          return {
+            id: brailleItem.id,
+            originalText: original?.contents, // 블록 상단에 표시될 원본 한글
+            currentText: brailleItem.content, // 점자 유니코드 텍스트
+            candidates: [],
+            bbox: undefined,
+          };
+        }),
+      );
+    }
+    // ─────────────────────────────────────────────────────────────
+    // CASE B: OCR 변환 (이미지 BBox 기반)
+    // ─────────────────────────────────────────────────────────────
+    else {
+      const mockOCRData: OCRResponse = {
+        job_id: 'job_1',
+        page_number: 1,
+        image_resolution: { width: 1240, height: 1754 },
+        bounding_box_list: [
+          { id: 'uuid-1', x: 120, y: 80, x2: 560, y2: 130 },
+          { id: 'uuid-2', x: 120, y: 140, x2: 340, y2: 360 },
+        ],
+        text_list: [
+          { id: 'uuid-1', order: 1, contents: '대한민국은 민주공화국이다.' },
+          { id: 'uuid-2', order: 2, contents: '대한민국의 주권은...' },
+        ],
+      };
+
+      setImgResolution(mockOCRData.image_resolution);
+      setBboxData(mockOCRData.bounding_box_list);
+      setOriginalTextBlocks([]); // 텍스트 블록 모드 해제
+
+      setBlocks(
+        mockOCRData.text_list.map((textItem) => {
+          const bbox = mockOCRData.bounding_box_list.find(
             (b) => b.id === textItem.id,
           );
           return {
             id: textItem.id,
             originalText: textItem.contents,
             currentText: textItem.contents,
-            candidates: [], // 데모용 빈 배열
+            candidates: [],
             bbox: bbox,
           };
         }),
       );
     }
-  }, [fileState.file, isProcessing, setBlocks]);
+  }, [fileState.file, activeTab]);
 
   // 4. Dropzone 설정
   const acceptConfig = useMemo<Accept>(() => {
@@ -236,6 +352,7 @@ const BrailleMate: React.FC = () => {
                     bboxes={bboxData}
                     selectedBlockId={selectedBlockId}
                     imageResolution={imgResolution}
+                    originalTextBlocks={originalTextBlocks}
                   />
                 )}
               </div>
@@ -290,6 +407,7 @@ const BrailleMate: React.FC = () => {
                           key={block.id}
                           block={block}
                           index={index}
+                          mode={activeTab}
                           // [Updated] 선택 상태 전달
                           isSelected={block.id === selectedBlockId}
                           onSelect={setSelectedBlockId}
