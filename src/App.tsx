@@ -249,7 +249,7 @@ const BrailleMate: React.FC = () => {
           id: item.id,
           originalText: item.contents,
           currentText: item.contents,
-          candidates: [],
+          candidates: ["123"],
           bbox: mockOCRData.bounding_box_list.find((b) => b.id === item.id),
         })),
       );
