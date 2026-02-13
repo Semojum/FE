@@ -7,11 +7,11 @@ import {
   Image as ImageIcon,
   X,
   Loader2,
+  Download,
 } from 'lucide-react';
 
-// 커스텀 훅 및 컴포넌트 임포트
 import { useFileHandler } from './hooks/UseFileHandler';
-import { useTranslationBlocks } from './hooks/UseTranslationBlocks';
+import { useTranslationBlocks } from './hooks/UseTranslationBlocks'; // 수정된 훅
 import FilePreviewer from './component/features/conversion/FilePreviewer';
 import Pagination from './component/features/conversion/Pagination';
 import BlockItem from './component/features/conversion/BlockItem';
@@ -20,234 +20,242 @@ import {
   ConversionTab,
   ImageResolution,
   OCRResponse,
-  ProofreadingResponse, // 추가된 타입
+  ProofreadingResponse,
   OriginalTextBlock,
-  BrailleTranslationResponse, // 추가된 타입
+  BrailleTranslationResponse,
 } from './types';
 
 const BrailleMate: React.FC = () => {
-  // 1. 상태 및 훅 초기화
   const [activeTab, setActiveTab] = useState<ConversionTab>('OCR 변환');
   const { fileState, handleFileDrop, setPage, setTotalPages, reset } =
     useFileHandler();
 
-  // [New] BBox 및 선택 상태 관리
+  // [Update] 상태를 '페이지별 객체'로 관리하여 전환 시 데이터 유지
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
-  const [bboxData, setBboxData] = useState<BoundingBox[]>([]);
+  const [bboxDataByPage, setBboxDataByPage] = useState<
+    Record<number, BoundingBox[]>
+  >({});
+  const [originalTextsByPage, setOriginalTextsByPage] = useState<
+    Record<number, OriginalTextBlock[]>
+  >({});
   const [imgResolution, setImgResolution] = useState<ImageResolution>({
     width: 0,
     height: 0,
   });
 
-  const [originalTextBlocks, setOriginalTextBlocks] = useState<
-    OriginalTextBlock[]
-  >([]);
-
   const {
-    blocks,
-    setBlocks,
+    blocksByPage,
+    getBlocks,
+    setBlocksForPage,
     updateBlock,
     applyCandidate,
     removeBlock,
     addBlock,
+    reorderBlocks,
+    resetAllBlocks,
   } = useTranslationBlocks();
 
-  const isProcessing = false; // API 로딩 상태 시뮬레이션
+  const isProcessing = false;
 
-  // 2. 탭 변경 핸들러
+  // 현재 페이지 번호 및 해당 페이지의 데이터 추출
+  const currentPage = fileState.currentPage;
+  const currentBlocks = getBlocks(currentPage);
+  const currentBBoxData = bboxDataByPage[currentPage] || [];
+  const currentOriginalTexts = originalTextsByPage[currentPage] || [];
+
+  // 탭 변경 핸들러
   const handleTabChange = (tab: ConversionTab) => {
     setActiveTab(tab);
     reset();
-    setBlocks([]);
-    setBboxData([]);
-    setOriginalTextBlocks([]);
+    resetAllBlocks();
+    setBboxDataByPage({});
+    setOriginalTextsByPage({});
     setSelectedBlockId(null);
   };
 
-  // 3. 파일 업로드 시 Mock Data 생성 (서버 응답 시뮬레이션)
+  // [Update] 다운로드 핸들러: 모든 페이지의 데이터를 순서대로 병합
+  const handleDownload = () => {
+    const allPages = Object.keys(blocksByPage)
+      .map(Number)
+      .sort((a, b) => a - b);
+
+    if (allPages.length === 0) return;
+
+    // 각 페이지의 텍스트를 모아서 병합 (페이지 구분선 추가)
+    const content = allPages
+      .map((page) => {
+        const pageContent = blocksByPage[page]
+          .map((b) => b.currentText)
+          .join('\n\n');
+        return `--- Page ${page} ---\n\n${pageContent}`;
+      })
+      .join('\n\n\n');
+
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const fileName =
+      activeTab === '점역 변환'
+        ? `braille_result_${dateStr}.brf`
+        : `result_${dateStr}.txt`;
+
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // 3. 페이지가 바뀔 때마다 해당 페이지의 데이터를 로드 (Mock)
   useEffect(() => {
     if (!fileState.file || isProcessing) return;
 
-    // ─────────────────────────────────────────────────────────────
-    // CASE A: 교정 변환 (텍스트 기반 하이라이팅)
-    // ─────────────────────────────────────────────────────────────
+    const page = fileState.currentPage;
+
+    // ✅ 캐싱 로직: 이미 해당 페이지의 데이터가 로드되어 있다면 다시 덮어쓰지 않음! (사용자 수정 유지)
+    if (blocksByPage[page] && blocksByPage[page].length > 0) return;
+
     if (activeTab === '교정 변환') {
       const mockProofData: ProofreadingResponse = {
-        // ... (기존 데이터와 동일)
-        job_id: 'job_20260211_xc921',
-        page_number: 1,
+        job_id: 'job_1',
+        page_number: page,
         text_list: [
           {
-            id: '550e8400',
-            content:
-              '대한민국은 민주공화국이다. 대한민국의 주권은 국민에게 있고, 모든 권력은 국민으로부터 나온다.',
+            id: `text-1-p${page}`,
+            content: `[페이지 ${page}] 대한민국은 민주공화국이다.`,
           },
           {
-            id: '6ba7b810',
-            content:
-              '제2조 ① 대한민국의 국민이 되는 요건은 법률로 정한다. ② 국가는 법률이 정하는 바에 의하여 재외국민을 보호할 의무를 진다.',
+            id: `text-2-p${page}`,
+            content: `[페이지 ${page}] 제2조 관련 내용입니다.`,
           },
         ],
         optimized_text_list: [
           {
-            id: '550e8400',
+            id: `text-1-p${page}`,
             order: 1,
-            contents: ['[촉각 그래픽]', '한국은...', '대한민국은...'],
-            legend: '범례..',
+            contents: `[페이지 ${page}] 변환된 대한민국...`,
           },
           {
-            id: '6ba7b810',
+            id: `text-2-p${page}`,
             order: 2,
-            contents: '제2조 관련 내용입니다.',
-            legend: '범례..',
+            contents: `[페이지 ${page}] 변환된 제2조...`,
           },
         ],
       };
 
-      setOriginalTextBlocks(mockProofData.text_list);
-
-      // 2. 에디터 블록 설정 (여기에 candidates 추가!)
-      setBlocks(
-        mockProofData.optimized_text_list.map((item) => {
-          const textContent = Array.isArray(item.contents)
+      setOriginalTextsByPage((prev) => ({
+        ...prev,
+        [page]: mockProofData.text_list,
+      }));
+      setBlocksForPage(
+        page,
+        mockProofData.optimized_text_list.map((item) => ({
+          id: item.id,
+          originalText: mockProofData.text_list.find((t) => t.id === item.id)
+            ?.content,
+          currentText: Array.isArray(item.contents)
             ? item.contents.join('\n')
-            : item.contents;
-
-          const original = mockProofData.text_list.find(
-            (t) => t.id === item.id,
-          );
-
-          // ID에 따라 테스트용 대체 텍스트(candidates) 주입
-          let dummyCandidates: string[] = [];
-          if (item.id === '550e8400') {
-            dummyCandidates = [
-              '[시각 자료]\n한국은...\n대한민국은...',
-              '[그림 생략]\n대한민국은 민주공화국이다.',
-              '한국은 민주주의 국가입니다.',
-            ];
-          } else if (item.id === '6ba7b810') {
-            dummyCandidates = [
-              '제2조: 국민의 요건 및 재외국민 보호',
-              '국민의 요건은 법률로 정해집니다.',
-            ];
-          }
-
-          return {
-            id: item.id,
-            originalText: original?.content,
-            currentText: textContent,
-            candidates: dummyCandidates, // 테스트 데이터 반영
-            // BBox는 없음
-          };
-        }),
+            : item.contents,
+          candidates: ['대체 텍스트 예시 1', '대체 텍스트 예시 2'],
+        })),
       );
     } else if (activeTab === '점역 변환') {
-      // 서버 응답 JSON 시뮬레이션
       const mockBrailleData: BrailleTranslationResponse = {
-        job_id: 'job_20260211_xc921',
-        page_number: 1,
+        job_id: 'job_2',
+        page_number: page,
         text_list: [
           {
-            id: '550e8400-e29b-41d4-a716-446655440000',
-            contents: '대한민국은 민주공화국이다.',
-          },
-          {
-            id: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
-            contents: '대한민국의 주권은 국민에게 있고...',
+            id: `br-1-p${page}`,
+            contents: `[페이지 ${page}] 대한민국은 민주공화국이다.`,
           },
         ],
         braille_text_list: [
           {
-            id: '550e8400-e29b-41d4-a716-446655440000',
+            id: `br-1-p${page}`,
             order: 1,
             content: '⠙⠒⠓⠣⠒⠤⠃⠍⠒⠝⠀⠍⠒⠝⠨⠚⠍⠗⠕⠓⠣⠒⠤⠃⠍⠒⠝⠎⠨⠙⠢⠲\n',
-          },
-          {
-            id: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
-            order: 2,
-            content: '⠙⠒⠓⠣⠒⠤⠃⠍⠒⠝⠎⠨⠀⠨⠚⠍⠝⠃⠍⠒⠝⠀⠃⠍⠒⠝⠍⠒⠝⠍⠒⠝...\n',
           },
         ],
       };
 
-      // 1. 좌측 파일 뷰어용 원본 텍스트 매핑 및 주입 (하이라이팅용)
-      // JSON의 'contents'를 OriginalTextBlock 타입의 'content'로 매핑
-      const mappedOriginalTexts = mockBrailleData.text_list.map((t) => ({
+      const mappedTexts = mockBrailleData.text_list.map((t) => ({
         id: t.id,
         content: t.contents,
       }));
-      setOriginalTextBlocks(mappedOriginalTexts);
-
-      // BBox는 사용하지 않으므로 초기화
+      setOriginalTextsByPage((prev) => ({ ...prev, [page]: mappedTexts }));
       setImgResolution({ width: 0, height: 0 });
-      setBboxData([]);
+      setBboxDataByPage((prev) => ({ ...prev, [page]: [] }));
 
-      // 2. 우측 에디터용 점자 블록 생성
-      setBlocks(
-        mockBrailleData.braille_text_list.map((brailleItem) => {
-          // ID로 원본 텍스트 찾기
-          const original = mockBrailleData.text_list.find(
-            (t) => t.id === brailleItem.id,
-          );
-
-          return {
-            id: brailleItem.id,
-            originalText: original?.contents, // 블록 상단에 표시될 원본 한글
-            currentText: brailleItem.content, // 점자 유니코드 텍스트
-            candidates: [],
-            bbox: undefined,
-          };
-        }),
+      setBlocksForPage(
+        page,
+        mockBrailleData.braille_text_list.map((item) => ({
+          id: item.id,
+          originalText: mockBrailleData.text_list.find((t) => t.id === item.id)
+            ?.contents,
+          currentText: item.content,
+          candidates: [],
+        })),
       );
-    }
-    // ─────────────────────────────────────────────────────────────
-    // CASE B: OCR 변환 (이미지 BBox 기반)
-    // ─────────────────────────────────────────────────────────────
-    else {
+    } else {
+      // OCR 변환
       const mockOCRData: OCRResponse = {
-        job_id: 'job_1',
-        page_number: 1,
+        job_id: 'job_3',
+        page_number: page,
         image_resolution: { width: 1240, height: 1754 },
         bounding_box_list: [
-          { id: 'uuid-1', x: 120, y: 80, x2: 560, y2: 130 },
-          { id: 'uuid-2', x: 120, y: 140, x2: 340, y2: 360 },
+          { id: `ocr-1-p${page}`, x: 120, y: 80, x2: 560, y2: 130 },
+          { id: `ocr-2-p${page}`, x: 120, y: 140, x2: 340, y2: 360 },
         ],
         text_list: [
-          { id: 'uuid-1', order: 1, contents: '대한민국은 민주공화국이다.' },
-          { id: 'uuid-2', order: 2, contents: '대한민국의 주권은...' },
+          {
+            id: `ocr-1-p${page}`,
+            order: 1,
+            contents: `[페이지 ${page}] 첫번째 BBox 텍스트`,
+          },
+          {
+            id: `ocr-2-p${page}`,
+            order: 2,
+            contents: `[페이지 ${page}] 두번째 BBox 텍스트`,
+          },
         ],
       };
 
       setImgResolution(mockOCRData.image_resolution);
-      setBboxData(mockOCRData.bounding_box_list);
-      setOriginalTextBlocks([]); // 텍스트 블록 모드 해제
+      setBboxDataByPage((prev) => ({
+        ...prev,
+        [page]: mockOCRData.bounding_box_list,
+      }));
+      setOriginalTextsByPage((prev) => ({ ...prev, [page]: [] }));
 
-      setBlocks(
-        mockOCRData.text_list.map((textItem) => {
-          const bbox = mockOCRData.bounding_box_list.find(
-            (b) => b.id === textItem.id,
-          );
-          return {
-            id: textItem.id,
-            originalText: textItem.contents,
-            currentText: textItem.contents,
-            candidates: [],
-            bbox: bbox,
-          };
-        }),
+      setBlocksForPage(
+        page,
+        mockOCRData.text_list.map((item) => ({
+          id: item.id,
+          originalText: item.contents,
+          currentText: item.contents,
+          candidates: [],
+          bbox: mockOCRData.bounding_box_list.find((b) => b.id === item.id),
+        })),
       );
     }
-  }, [fileState.file, activeTab]);
+  }, [
+    fileState.file,
+    activeTab,
+    fileState.currentPage,
+    blocksByPage,
+    setBlocksForPage,
+  ]);
 
-  // 4. Dropzone 설정
+  // Dropzone 설정 (기존과 동일)
   const acceptConfig = useMemo<Accept>(() => {
     let config: Accept;
     if (activeTab === '점역 변환' || activeTab === '교정 변환') {
       config = {
         'text/plain': ['.txt'],
         'application/x-hwp': ['.hwp'],
-        'application/haansofthwp': ['.hwp'],
-        'application/vnd.hancom.hwp': ['.hwp'],
       };
     } else {
       config = {
@@ -273,8 +281,9 @@ const BrailleMate: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#F9F8F1] flex flex-col font-sans text-gray-800 antialiased">
-      {/* Header */}
+      {/* Header 영역 생략 (기존과 동일) */}
       <header className="max-w-6xl mx-auto pt-12 px-6 w-full">
+        {/* ... (기존 코드와 동일) ... */}
         <div className="flex items-center gap-3 mb-10">
           <div className="flex gap-1">
             <img
@@ -319,7 +328,12 @@ const BrailleMate: React.FC = () => {
               className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100 h-150 flex flex-col"
             >
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold">원본 파일</h2>
+                <h2 className="text-xl font-bold">
+                  원본 파일{' '}
+                  <span className="text-sm font-normal text-gray-500 ml-2">
+                    (Page {currentPage})
+                  </span>
+                </h2>
                 {fileState.file && (
                   <button
                     onClick={reset}
@@ -331,14 +345,7 @@ const BrailleMate: React.FC = () => {
               </div>
 
               <div
-                className={`flex-1 rounded-[2rem] overflow-hidden border-2 border-dashed transition-all 
-                ${
-                  !fileState.file
-                    ? isDragActive
-                      ? 'border-[#5A8FBB] bg-blue-50/50'
-                      : 'border-gray-200'
-                    : 'border-transparent'
-                }`}
+                className={`flex-1 rounded-[2rem] overflow-hidden border-2 border-dashed transition-all ${!fileState.file ? (isDragActive ? 'border-[#5A8FBB] bg-blue-50/50' : 'border-gray-200') : 'border-transparent'}`}
               >
                 {!fileState.file ? (
                   <div
@@ -356,14 +363,13 @@ const BrailleMate: React.FC = () => {
                     </p>
                   </div>
                 ) : (
-                  // [Updated] FilePreviewer에 BBox 데이터 전달
                   <FilePreviewer
                     state={fileState}
                     onLoadSuccess={setTotalPages}
-                    bboxes={bboxData}
+                    bboxes={currentBBoxData} // 현재 페이지 BBox 전달
                     selectedBlockId={selectedBlockId}
                     imageResolution={imgResolution}
-                    originalTextBlocks={originalTextBlocks}
+                    originalTextBlocks={currentOriginalTexts} // 현재 페이지 텍스트 전달
                   />
                 )}
               </div>
@@ -389,12 +395,20 @@ const BrailleMate: React.FC = () => {
               className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100 h-[600px] flex flex-col"
             >
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold text-[#5A8FBB]">
-                  점역/번역 결과
-                </h2>
-                <span className="text-sm text-gray-400">
-                  블록을 클릭하여 원본 위치 확인
-                </span>
+                <div className="flex items-center gap-4">
+                  <h2 className="text-xl font-bold text-[#5A8FBB]">
+                    점역/번역 결과
+                  </h2>
+                </div>
+                {Object.keys(blocksByPage).length > 0 && (
+                  <button
+                    onClick={handleDownload}
+                    className="flex items-center gap-1.5 bg-[#5A8FBB] text-white px-3 py-1.5 rounded-lg hover:bg-[#4A7AA5] transition-colors shadow-sm text-sm font-medium"
+                  >
+                    <Download size={16} />
+                    <span>다운로드</span>
+                  </button>
+                )}
               </div>
 
               <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
@@ -405,27 +419,34 @@ const BrailleMate: React.FC = () => {
                       문서를 분석 중입니다...
                     </p>
                   </div>
-                ) : blocks.length > 0 ? (
+                ) : currentBlocks.length > 0 ? (
                   <div className="pb-10">
+                    {/* [Update] Reorder에 현재 페이지 데이터 연동 */}
                     <Reorder.Group
                       axis="y"
-                      values={blocks}
-                      onReorder={setBlocks}
+                      values={currentBlocks}
+                      onReorder={(newOrder) =>
+                        reorderBlocks(currentPage, newOrder)
+                      }
                       className="flex flex-col gap-1"
                     >
-                      {blocks.map((block, index) => (
+                      {currentBlocks.map((block, index) => (
                         <BlockItem
                           key={block.id}
                           block={block}
                           index={index}
                           mode={activeTab}
-                          // [Updated] 선택 상태 전달
                           isSelected={block.id === selectedBlockId}
                           onSelect={setSelectedBlockId}
-                          onUpdate={updateBlock}
-                          onApplyCandidate={applyCandidate}
-                          onRemove={removeBlock}
-                          onAdd={addBlock}
+                          // 페이지 번호를 인자로 넘겨 업데이트
+                          onUpdate={(id, text) =>
+                            updateBlock(currentPage, id, text)
+                          }
+                          onApplyCandidate={(id, text) =>
+                            applyCandidate(currentPage, id, text)
+                          }
+                          onRemove={(id) => removeBlock(currentPage, id)}
+                          onAdd={(idx) => addBlock(currentPage, idx)}
                         />
                       ))}
                     </Reorder.Group>
@@ -434,9 +455,7 @@ const BrailleMate: React.FC = () => {
                   <div className="h-full bg-gray-50/50 rounded-[2rem] flex flex-col items-center justify-center text-center">
                     <FileText size={48} className="text-gray-200 mb-4" />
                     <p className="text-gray-400 font-medium leading-relaxed">
-                      파일을 업로드하면
-                      <br />
-                      결과가 여기에 표시됩니다.
+                      결과가 없습니다.
                     </p>
                   </div>
                 )}
@@ -455,7 +474,7 @@ const BrailleMate: React.FC = () => {
               className="w-full"
             >
               <Pagination
-                currentPage={fileState.currentPage}
+                currentPage={currentPage}
                 totalPages={fileState.totalPages}
                 onPageChange={setPage}
               />
