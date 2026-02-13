@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDropzone } from 'react-dropzone';
 import {
@@ -12,14 +12,41 @@ import { useFileHandler } from './hooks/UseFileHandler';
 import FilePreviewer from './component/features/conversion/FilePreviewer';
 import Pagination from './component/features/conversion/Pagination';
 import { ConversionTab } from './types';
-import { Accept } from 'react-dropzone'; // 1. 타입 임포트
+import { Accept } from 'react-dropzone';
+import { useTranslationBlocks } from './hooks/UseTranslationBlocks.ts';
+import BlockItem from './component/features/conversion/BlockItem.tsx'; // 1. 타입 임포트
 
 const BrailleMate: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ConversionTab>('OCR 변환');
   const { fileState, handleFileDrop, setPage, setTotalPages, reset } =
     useFileHandler();
 
-  const isProcessing = false;
+  const { blocks, setBlocks, updateBlock, removeBlock, addBlock } =
+    useTranslationBlocks();
+  const isProcessing = false; // 실제 환경에서는 API 로딩 상태와 연결
+
+  const handleTabChange = (tab: ConversionTab) => {
+    setActiveTab(tab);
+    reset();
+    setBlocks([]);
+  };
+
+  useEffect(() => {
+    if (fileState.file && !isProcessing) {
+      setBlocks([
+        {
+          id: crypto.randomUUID(),
+          originalText: 'Hello World',
+          translatedText: '안녕 세상',
+        },
+        {
+          id: crypto.randomUUID(),
+          originalText: 'This is a test document.',
+          translatedText: '이것은 테스트 문서입니다.',
+        },
+      ]);
+    }
+  }, [fileState.file, isProcessing, setBlocks]);
 
   const acceptConfig = useMemo<Accept>(() => {
     // 1. 반환할 객체를 Accept 타입으로 명시적 선언
@@ -66,8 +93,7 @@ const BrailleMate: React.FC = () => {
             <button
               key={tab}
               onClick={() => {
-                setActiveTab(tab);
-                reset(); // 탭 변경 시 이전 파일 상태 초기화 (권장)
+                handleTabChange(tab);
               }}
               className={`pb-4 text-lg font-semibold transition-all relative ${
                 activeTab === tab
@@ -161,20 +187,53 @@ const BrailleMate: React.FC = () => {
               transition={{ delay: 0.1 }}
               className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100 h-[600px] flex flex-col"
             >
-              <h2 className="text-xl font-bold mb-6 text-[#5A8FBB]">
-                점역 결과
-              </h2>
-              <div className="flex-1 bg-gray-50/50 rounded-[2rem] p-8 flex flex-col items-center justify-center text-center">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-[#5A8FBB]">
+                  점역/번역 결과
+                </h2>
+                <span className="text-sm text-gray-400">
+                  블록을 클릭하여 수정하세요
+                </span>
+              </div>
+
+              {/* 에디터 스크롤 영역 */}
+              <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
                 {isProcessing ? (
-                  <div className="space-y-4">
-                    <Loader2 className="w-10 h-10 text-[#5A8FBB] animate-spin mx-auto" />
-                    <p className="font-medium text-gray-500">분석 중...</p>
+                  <div className="h-full flex flex-col items-center justify-center space-y-4">
+                    <Loader2 className="w-10 h-10 text-[#5A8FBB] animate-spin" />
+                    <p className="font-medium text-gray-500">
+                      문서를 분석하고 분할하는 중...
+                    </p>
+                  </div>
+                ) : blocks.length > 0 ? (
+                  <div className="flex flex-col gap-2 pb-10">
+                    <AnimatePresence>
+                      {blocks.map((block, index) => (
+                        <motion.div
+                          key={block.id}
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          <BlockItem
+                            block={block}
+                            index={index}
+                            onUpdate={updateBlock}
+                            onRemove={removeBlock}
+                            onAdd={addBlock}
+                          />
+                        </motion.div>
+                      ))}
+                    </AnimatePresence>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    <FileText size={48} className="text-gray-200 mx-auto" />
+                  <div className="h-full bg-gray-50/50 rounded-[2rem] flex flex-col items-center justify-center text-center">
+                    <FileText size={48} className="text-gray-200 mb-4" />
                     <p className="text-gray-400 font-medium leading-relaxed">
-                      자동으로 변환 결과가 표시됩니다.
+                      파일을 업로드하면
+                      <br />
+                      수정 가능한 블록 형태로 결과가 표시됩니다.
                     </p>
                   </div>
                 )}

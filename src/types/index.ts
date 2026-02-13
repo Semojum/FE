@@ -24,3 +24,9 @@ export interface FileState {
   currentPage: number;
   totalPages: number;
 }
+
+export interface TranslationBlock {
+  id: string;
+  originalText?: string; // 원본 텍스트 (비교용)
+  translatedText: string; // 수정 가능한 변환 텍스트
+}
