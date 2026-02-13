@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  base:"/Front-end/",
   optimizeDeps: {
     // WASM 모듈을 미리 빌드(pre-bundle)하지 않도록 제외합니다.
     exclude: ['@ohah/hwpjs', '@ohah/hwpjs-wasm32-wasi'],

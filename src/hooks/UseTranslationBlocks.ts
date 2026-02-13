@@ -6,25 +6,33 @@ export const useTranslationBlocks = (
 ) => {
   const [blocks, setBlocks] = useState<TranslationBlock[]>(initialBlocks);
 
-  // 특정 블록의 텍스트 업데이트 (useCallback으로 참조 유지)
+  // 1. 텍스트 직접 수정 (타이핑)
   const updateBlock = useCallback((id: string, newText: string) => {
     setBlocks((prev) =>
       prev.map((block) =>
-        block.id === id ? { ...block, translatedText: newText } : block,
+        block.id === id ? { ...block, currentText: newText } : block,
       ),
     );
   }, []);
 
-  // 블록 삭제
+  // 2. 후보군 중 하나를 선택하여 적용 (대체 텍스트 클릭 시)
+  const applyCandidate = useCallback((id: string, candidate: string) => {
+    setBlocks((prev) =>
+      prev.map((block) =>
+        block.id === id ? { ...block, currentText: candidate } : block,
+      ),
+    );
+  }, []);
+
   const removeBlock = useCallback((id: string) => {
     setBlocks((prev) => prev.filter((block) => block.id !== id));
   }, []);
 
-  // 블록 추가 (원하는 위치에 추가하는 기능 등 확장 가능)
   const addBlock = useCallback((index: number) => {
     const newBlock: TranslationBlock = {
-      id: crypto.randomUUID(), // 브라우저 내장 UUID 생성기 사용
-      translatedText: '',
+      id: crypto.randomUUID(),
+      currentText: '',
+      candidates: [], // 빈 후보군
     };
     setBlocks((prev) => {
       const newBlocks = [...prev];
@@ -33,5 +41,12 @@ export const useTranslationBlocks = (
     });
   }, []);
 
-  return { blocks, setBlocks, updateBlock, removeBlock, addBlock };
+  return {
+    blocks,
+    setBlocks,
+    updateBlock,
+    applyCandidate,
+    removeBlock,
+    addBlock,
+  };
 };
