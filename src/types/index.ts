@@ -1,6 +1,5 @@
 export type ConversionTab =
   | 'OCR 변환'
-  | '교정 변환'
   | '점역 변환'
   | '통합 변환';
 

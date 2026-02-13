@@ -249,8 +249,9 @@ const BrailleMate: React.FC = () => {
         page_number: page,
         image_resolution: { width: 1240, height: 1754 },
         bounding_box_list: [
-          { id: `ocr-1-p${page}`, x: 120, y: 80, x2: 560, y2: 130 },
-          { id: `ocr-2-p${page}`, x: 120, y: 140, x2: 340, y2: 360 },
+          { id: `ocr-1-p${page}`, x: 0, y: 0, x2: 800, y2: 800 },
+          { id: `ocr-2-p${page}`, x: 800, y: 0, x2: 1200, y2: 800 },
+          { id: `ocr-3-p${page}`, x: 0, y: 900, x2: 1200, y2: 1500 },
         ],
         text_list: [
           {
@@ -305,7 +306,7 @@ const BrailleMate: React.FC = () => {
   // Dropzone 설정 (기존과 동일)
   const acceptConfig = useMemo<Accept>(() => {
     let config: Accept;
-    if (activeTab === '점역 변환' || activeTab === '교정 변환') {
+    if (activeTab === '점역 변환') {
       config = {
         'text/plain': ['.txt'],
         'application/x-hwp': ['.hwp'],
@@ -327,16 +328,13 @@ const BrailleMate: React.FC = () => {
 
   const tabs: ConversionTab[] = [
     'OCR 변환',
-    '교정 변환',
     '점역 변환',
     '통합 변환',
   ];
 
   return (
     <div className="min-h-screen bg-[#F9F8F1] flex flex-col font-sans text-gray-800 antialiased">
-      {/* Header 영역 생략 (기존과 동일) */}
       <header className="max-w-6xl mx-auto pt-12 px-6 w-full">
-        {/* ... (기존 코드와 동일) ... */}
         <div className="flex items-center gap-3 mb-10">
           <div className="flex gap-1">
             <img
@@ -383,9 +381,6 @@ const BrailleMate: React.FC = () => {
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-bold">
                   원본 파일{' '}
-                  <span className="text-sm font-normal text-gray-500 ml-2">
-                    (Page {currentPage})
-                  </span>
                 </h2>
                 {fileState.file && (
                   <button
