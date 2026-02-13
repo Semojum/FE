@@ -73,9 +73,9 @@ const BrailleMate: React.FC = () => {
     // ─────────────────────────────────────────────────────────────
     if (activeTab === '교정 변환') {
       const mockProofData: ProofreadingResponse = {
+        // ... (기존 데이터와 동일)
         job_id: 'job_20260211_xc921',
         page_number: 1,
-        // 원본 텍스트 목록 (좌측 미리보기용)
         text_list: [
           {
             id: '550e8400',
@@ -88,44 +88,55 @@ const BrailleMate: React.FC = () => {
               '제2조 ① 대한민국의 국민이 되는 요건은 법률로 정한다. ② 국가는 법률이 정하는 바에 의하여 재외국민을 보호할 의무를 진다.',
           },
         ],
-        // 변환 텍스트 목록 (우측 에디터용)
         optimized_text_list: [
           {
             id: '550e8400',
             order: 1,
-            contents: ['[촉각 그래픽]', '한국은...', '대한민국은...'], // 배열 예시
+            contents: ['[촉각 그래픽]', '한국은...', '대한민국은...'],
             legend: '범례..',
           },
           {
             id: '6ba7b810',
             order: 2,
-            contents: '제2조 관련 내용입니다.', // 문자열 예시
+            contents: '제2조 관련 내용입니다.',
             legend: '범례..',
           },
         ],
       };
 
-      // 1. 원본 텍스트 블록 설정 (FilePreviewer로 전달)
       setOriginalTextBlocks(mockProofData.text_list);
 
-      // 2. 에디터 블록 설정
+      // 2. 에디터 블록 설정 (여기에 candidates 추가!)
       setBlocks(
         mockProofData.optimized_text_list.map((item) => {
-          // contents가 배열이면 합치고, 문자열이면 그대로 사용
           const textContent = Array.isArray(item.contents)
             ? item.contents.join('\n')
             : item.contents;
 
-          // 매칭되는 원본 텍스트 찾기 (선택사항)
           const original = mockProofData.text_list.find(
             (t) => t.id === item.id,
           );
+
+          // ID에 따라 테스트용 대체 텍스트(candidates) 주입
+          let dummyCandidates: string[] = [];
+          if (item.id === '550e8400') {
+            dummyCandidates = [
+              '[시각 자료]\n한국은...\n대한민국은...',
+              '[그림 생략]\n대한민국은 민주공화국이다.',
+              '한국은 민주주의 국가입니다.',
+            ];
+          } else if (item.id === '6ba7b810') {
+            dummyCandidates = [
+              '제2조: 국민의 요건 및 재외국민 보호',
+              '국민의 요건은 법률로 정해집니다.',
+            ];
+          }
 
           return {
             id: item.id,
             originalText: original?.content,
             currentText: textContent,
-            candidates: [],
+            candidates: dummyCandidates, // 테스트 데이터 반영
             // BBox는 없음
           };
         }),
