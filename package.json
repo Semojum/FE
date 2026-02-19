@@ -1,0 +1,50 @@
+{
+  "name": "BrailleMate",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "homepage": "https://BrailleMate-Team7.github.io/Front-end/",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist"
+  },
+  "overrides": {
+    "pdf-js-dist": "5.4.296"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19.2.13",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "autoprefixer": "^10.4.24",
+    "gh-pages": "^6.3.0",
+    "postcss": "^8.5.6",
+    "prettier": "^3.3.1",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.2.2",
+    "vite": "^7.3.1"
+  },
+  "dependencies": {
+    "@ohah/hwpjs": "^0.1.0-rc.4",
+    "@ohah/hwpjs-wasm32-wasi": "^0.1.0-rc.4",
+    "buffer": "^6.0.3",
+    "cfb": "^1.2.2",
+    "framer-motion": "^12.34.0",
+    "hwp.js": "^0.0.3",
+    "jszip": "^3.10.1",
+    "katex": "^0.16.28",
+    "lucide-react": "^0.563.0",
+    "pako": "^2.1.0",
+    "pdfjs-dist": "^5.4.296",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-dropzone": "^15.0.0",
+    "react-pdf": "^10.3.0",
+    "react-textarea-autosize": "^8.5.9",
+    "zustand": "^5.0.11"
+  }
+}
