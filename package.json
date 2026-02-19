@@ -30,7 +30,6 @@
   },
   "dependencies": {
     "@ohah/hwpjs": "^0.1.0-rc.4",
-    "@ohah/hwpjs-wasm32-wasi": "^0.1.0-rc.4",
     "buffer": "^6.0.3",
     "cfb": "^1.2.2",
     "framer-motion": "^12.34.0",
@@ -46,5 +45,8 @@
     "react-pdf": "^10.3.0",
     "react-textarea-autosize": "^8.5.9",
     "zustand": "^5.0.11"
+  },
+  "optionalDependencies": {
+    "@ohah/hwpjs-wasm32-wasi": "^0.1.0-rc.4"
   }
 }
