@@ -3,7 +3,6 @@ import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { useDropzone, Accept } from 'react-dropzone';
 import {
   FileText,
-  ArrowRight,
   Image as ImageIcon,
   X,
   Loader2,
@@ -104,51 +103,90 @@ const BrailleMate: React.FC = () => {
   const handlePageReceived = useCallback(
     (data: StreamPageData) => {
       const page = data.page_number;
+      console.log(`Received Page ${page}`, data);
+
       setTotalPages(Math.max(fileState.totalPages, page));
 
-      if (page === fileState.currentPage) {
+      if (data.image_resolution && page === fileState.currentPage) {
         setImgResolution(data.image_resolution);
       }
 
-      const mappedBBoxes: BoundingBox[] = data.bounding_box_list.map((b) => ({
-        id: String(b.id),
-        x: b.x,
-        y: b.y,
-        x2: b.x2,
-        y2: b.y2,
-      }));
-      setBboxDataByPage((prev) => ({ ...prev, [page]: mappedBBoxes }));
-
-      const mappedOriginalTexts: OriginalTextBlock[] = data.text_list.map(
-        (t) => ({
-          id: String(t.id),
-          content: t.content,
-        }),
-      );
-      setOriginalTextsByPage((prev) => ({
-        ...prev,
-        [page]: mappedOriginalTexts,
-      }));
-
-      const newBlocks = data.text_list.map((item) => {
-        const matchedBBox = mappedBBoxes.find(
-          (b) => String(b.id) === String(item.id),
+      // [CASE A] 점역 변환 모드
+      if (data.braille_text_list && data.braille_text_list.length > 0) {
+        const mappedOriginalTexts: OriginalTextBlock[] = data.text_list.map(
+          (t) => ({
+            id: String(t.id),
+            content: t.content,
+          }),
         );
-        return {
-          id: String(item.id),
-          originalText: item.content,
-          currentText: item.content,
-          candidates: [],
-          bbox: matchedBBox,
-        };
-      });
-      setBlocksForPage(page, newBlocks);
+        setOriginalTextsByPage((prev) => ({
+          ...prev,
+          [page]: mappedOriginalTexts,
+        }));
+
+        const newBlocks = data.braille_text_list.map((brailleItem) => {
+          const originalItem = data.text_list.find(
+            (t) => String(t.id) === String(brailleItem.id),
+          );
+
+          return {
+            id: String(brailleItem.id),
+            originalText: originalItem?.content || '',
+            currentText: brailleItem.content,
+            candidates: [],
+            bbox: undefined,
+          };
+        });
+
+        setBlocksForPage(page, newBlocks);
+      }
+      // [CASE B] OCR 모드
+      else {
+        const mappedBBoxes: BoundingBox[] = (data.bounding_box_list || []).map(
+          (b) => ({
+            id: String(b.id),
+            x: b.x,
+            y: b.y,
+            x2: b.x2,
+            y2: b.y2,
+          }),
+        );
+        setBboxDataByPage((prev) => ({ ...prev, [page]: mappedBBoxes }));
+
+        const mappedOriginalTexts: OriginalTextBlock[] = data.text_list.map(
+          (t) => ({
+            id: String(t.id),
+            content: t.content,
+          }),
+        );
+        setOriginalTextsByPage((prev) => ({
+          ...prev,
+          [page]: mappedOriginalTexts,
+        }));
+
+        const newBlocks = data.text_list.map((item) => {
+          const matchedBBox = mappedBBoxes.find(
+            (b) => String(b.id) === String(item.id),
+          );
+          return {
+            id: String(item.id),
+            originalText: item.content,
+            currentText: item.content,
+            candidates: [],
+            bbox: matchedBBox,
+          };
+        });
+        setBlocksForPage(page, newBlocks);
+      }
     },
     [
       fileState.currentPage,
       fileState.totalPages,
       setTotalPages,
       setBlocksForPage,
+      setOriginalTextsByPage,
+      setBboxDataByPage,
+      setImgResolution,
     ],
   );
 
@@ -207,7 +245,6 @@ const BrailleMate: React.FC = () => {
   const tabs: ConversionTab[] = ['OCR 변환', '점역 변환', '통합 변환'];
 
   return (
-    // ✅ 배경색 변경: bg-[#407FAC]
     <div className="min-h-screen bg-[#F0F4F8] flex flex-col font-sans text-gray-800 antialiased transition-colors duration-500">
       <header className="max-w-6xl mx-auto pt-12 px-6 w-full">
         <div className="flex items-center gap-3 mb-10">
@@ -216,7 +253,6 @@ const BrailleMate: React.FC = () => {
             alt="Logo"
             className="w-12.5 aspect-square object-contain"
           />
-          {/* ✅ 가독성을 위해 타이틀 텍스트 화이트로 변경 */}
           <h1 className="text-3xl font-bold tracking-tight text-[#407FAC]">
             BrailleMate
           </h1>
@@ -228,8 +264,8 @@ const BrailleMate: React.FC = () => {
               onClick={() => handleTabChange(tab)}
               className={`pb-4 text-lg font-semibold transition-all relative ${
                 activeTab === tab
-                  ? 'text-[#407FAC]' // 활성화 탭 화이트
-                  : 'text-[#929292] hover:text-[#407FAC]' // 비활성 탭 밝은 블루 톤
+                  ? 'text-[#407FAC]'
+                  : 'text-[#929292] hover:text-[#407FAC]'
               }`}
             >
               {tab}
@@ -246,7 +282,9 @@ const BrailleMate: React.FC = () => {
 
       <main className="max-w-7xl mx-auto px-6 py-12 flex flex-col items-center w-full">
         <div className="w-full flex flex-col md:flex-row items-stretch gap-8 mb-4">
-          {/* Left: Input Card */}
+          {/* [Left: Input Card]
+            - flex-1 : 기본 비율 유지
+          */}
           <section className="flex-1 min-w-0">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -291,21 +329,19 @@ const BrailleMate: React.FC = () => {
                     selectedBlockId={selectedBlockId}
                     imageResolution={imgResolution}
                     originalTextBlocks={currentOriginalTexts}
+                    onBlockClick={setSelectedBlockId}
                   />
                 )}
               </div>
             </motion.div>
           </section>
 
-          {/* Center Arrow */}
-          <div className="hidden md:flex items-center justify-center">
-            <div className="w-12 h-12 rounded-full border border-white/20 flex items-center justify-center bg-white/10 backdrop-blur-sm shadow-sm">
-              <ArrowRight size={24} className="text-white" />
-            </div>
-          </div>
+          {/* ❌ [Center Arrow Removed] 화살표 섹션 삭제됨 */}
 
-          {/* Right: Output Card */}
-          <section className="flex-1 min-w-0">
+          {/* [Right: Output Card]
+            - md:flex-[1.4] : 데스크탑에서 왼쪽보다 약 1.4배 넓게 설정
+          */}
+          <section className="flex-1 md:flex-[1.4] min-w-0">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}

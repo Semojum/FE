@@ -1,5 +1,5 @@
 // component/features/conversion/BlockItem.tsx
-import React, { memo, useState } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import TextareaAutosize from 'react-textarea-autosize';
 import { Trash2, Plus, Sparkles, GripVertical, Code2, Eye } from 'lucide-react';
 import { Reorder, useDragControls } from 'framer-motion';
@@ -35,6 +35,16 @@ const BlockItem: React.FC<BlockItemProps> = memo(
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isPreviewMode, setIsPreviewMode] = useState(mode === '점역 변환');
     const dragControls = useDragControls();
+    const itemRef = useRef<HTMLLIElement>(null);
+    // ✅ [New] isSelected가 true가 되면 해당 요소로 스크롤 이동
+    useEffect(() => {
+      if (isSelected && itemRef.current) {
+        itemRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center', // 화면 중앙에 오도록
+        });
+      }
+    }, [isSelected]);
 
     const renderContent = (text: string) => {
       if (mode === '점역 변환') {
@@ -45,6 +55,7 @@ const BlockItem: React.FC<BlockItemProps> = memo(
 
     return (
       <Reorder.Item
+        ref={itemRef}
         value={block}
         id={block.id}
         dragListener={false}
