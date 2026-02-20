@@ -50,7 +50,7 @@ const BlockItem: React.FC<BlockItemProps> = memo(
     }, [isSelected]);
 
     const renderContent = (text: string) => {
-      if (mode === '점역 변환') {
+      if (mode === '점역 변환' || mode === '통합 변환') {
         return <BrailleRenderer text={text} />;
       }
       return <LatexRenderer text={text} />;
