@@ -2,23 +2,25 @@
 import { useEffect, useState } from 'react';
 import { StreamPageData } from '../types/apiTypes';
 
-// 로그 스타일 정의 (보라색 계열)
 const SSE_LOG_STYLE =
   'background: #7C3AED; color: #fff; padding: 2px 4px; border-radius: 2px; font-weight: bold;';
+
+// 환경 변수 가져오기
+const API_BASE_URL = 'http://arknightserver.cloud/api/v1';
 
 interface UseJobStreamProps {
   jobId: string | null;
   onPageReceived: (data: StreamPageData) => void;
   onError?: (error: Event) => void;
+  onStatusReceived?: (data: any) => void;
 }
 
 export const useJobStream = ({
   jobId,
   onPageReceived,
-  onStatusReceived, // ✅ 상태 수신 콜백 추가
+  onStatusReceived,
   onError,
-}: UseJobStreamProps & { onStatusReceived?: (data: any) => void }) => {
-  // 타입 확장
+}: UseJobStreamProps) => {
   const [isStreaming, setIsStreaming] = useState(false);
 
   useEffect(() => {
@@ -27,11 +29,17 @@ export const useJobStream = ({
       return;
     }
 
-    const url = `/api/v1/job/${jobId}/events`;
+    // 💡 핵심 수정: 하드코딩 제거하고 API_BASE_URL 사용
+    // 로컬에서는 '/api/v1/job/...', 배포에서는 'https://34.64.201.254/api/v1/job/...' 가 됩니다.
+    const url = `${API_BASE_URL}/job/${jobId}/events`;
+
+    // 🔥 주의: 프로덕션 환경에서 타 도메인으로 EventSource 요청 시
+    // 백엔드에서 CORS 설정이 되어있어야 정상 작동합니다.
     const eventSource = new EventSource(url);
     setIsStreaming(true);
 
-    // 1. 연결 성공
+
+    // 생략: 기존 코드와 동일하게 유지하시면 됩니다.
     eventSource.onopen = () =>
       console.log(`%c 🟢 SSE Connected `, SSE_LOG_STYLE);
 
