@@ -110,9 +110,42 @@ const BrailleMate: React.FC = () => {
       if (data.image_resolution && page === fileState.currentPage) {
         setImgResolution(data.image_resolution);
       }
+      if (activeTab === '통합 변환') {
+        // 1. BBox 저장
+        const mappedBBoxes: BoundingBox[] = (data.bounding_box_list || []).map(
+          (b) => ({
+            id: String(b.id),
+            x: b.x,
+            y: b.y,
+            x2: b.x2,
+            y2: b.y2,
+          }),
+        );
+        setBboxDataByPage((prev) => ({ ...prev, [page]: mappedBBoxes }));
 
-      // [CASE A] 점역 변환 모드
-      if (data.braille_text_list && data.braille_text_list.length > 0) {
+        // 원본 텍스트가 없으므로 비워둡니다 (왼쪽 프리뷰에서 BBox만 보임)
+        setOriginalTextsByPage((prev) => ({ ...prev, [page]: [] }));
+
+        // 2. 블록 생성 (braille_text_list 기준)
+        const newBlocks = (data.braille_text_list || []).map((brailleItem) => {
+          // BBox 매칭
+          const matchedBBox = mappedBBoxes.find(
+            (b) => String(b.id) === String(brailleItem.id),
+          );
+
+          return {
+            id: String(brailleItem.id),
+            originalText: '', // 서버에서 text_list를 주지 않으므로 빈 값 처리
+            currentText: brailleItem.content, // 점자 결과
+            candidates: [],
+            bbox: matchedBBox, // 좌표 연결
+          };
+        });
+
+        setBlocksForPage(page, newBlocks);
+      }
+      // [CASE B] 점역 변환 모드
+      else if (data.braille_text_list && data.braille_text_list.length > 0) {
         const mappedOriginalTexts: OriginalTextBlock[] = data.text_list.map(
           (t) => ({
             id: String(t.id),
@@ -140,7 +173,7 @@ const BrailleMate: React.FC = () => {
 
         setBlocksForPage(page, newBlocks);
       }
-      // [CASE B] OCR 모드
+      // [CASE A] OCR 모드
       else {
         const mappedBBoxes: BoundingBox[] = (data.bounding_box_list || []).map(
           (b) => ({

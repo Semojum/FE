@@ -57,7 +57,7 @@ const BlockItem: React.FC<BlockItemProps> = memo(
     };
 
     // ─────────────────────────────────────────────────────────────
-    // ✅ [New] 점자 직접 입력 (Perkins 키보드 스타일) 로직
+    // ✅ [New] 점자 직접 입력 (표준 Perkins 6점자: SDF JKL) 로직
     // ─────────────────────────────────────────────────────────────
 
     // 점자 키 매핑 (물리 키보드 기준 - 한/영 상태 무관)
@@ -65,9 +65,9 @@ const BlockItem: React.FC<BlockItemProps> = memo(
       KeyF: 1, // 1점
       KeyD: 2, // 2점
       KeyS: 4, // 3점
-      KeyH: 8, // 4점 (요청하신 H) - ※ 표준을 원하시면 KeyJ 로 변경
-      KeyJ: 16, // 5점 (요청하신 J) - ※ 표준을 원하시면 KeyK 로 변경
-      KeyK: 32, // 6점 (요청하신 K) - ※ 표준을 원하시면 KeyL 로 변경
+      KeyJ: 8, // 4점 (정상적인 6점자 비트 값으로 수정 완료)
+      KeyK: 16, // 5점
+      KeyL: 32, // 6점
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -193,7 +193,7 @@ const BlockItem: React.FC<BlockItemProps> = memo(
                   onKeyUp={handleKeyUp} // ✅ 키보드 업 이벤트 연결
                   className={`w-full resize-none outline-none bg-transparent p-2 text-gray-800 leading-relaxed rounded-lg focus:bg-white focus:ring-2 focus:ring-[#5A8FBB]/20 focus:shadow-sm transition-all font-mono 
                     ${mode === '점역 변환' ? 'text-xl tracking-wider' : 'text-sm'}`}
-                  placeholder="SDF HJK 키를 동시에 눌러 점자를 입력하세요..."
+                  placeholder="SDF JKL 키를 동시에 눌러 점자를 입력하세요..."
                   minRows={1}
                 />
               )}
