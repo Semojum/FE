@@ -2,7 +2,7 @@
 import { StartJobResponse, JobMode } from '../types/apiTypes';
 
 // 이제 이 값은 환경에 따라 '/api/v1' 또는 'https://.../api/v1'이 됩니다.
-const API_BASE_URL = "http://arknightserver.cloud/api/v1";
+const API_BASE_URL = "https://arknightserver.cloud/api/v1";
 
 export const startJob = async (
   file: File,

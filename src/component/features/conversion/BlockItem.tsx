@@ -33,19 +33,25 @@ const BlockItem: React.FC<BlockItemProps> = memo(
     isSelected,
   }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
+
+    // ✅ 모드에 따라 초기 미리보기 상태를 다르게 설정 (선택 사항)
+    // 점역 모드면 기본적으로 미리보기를 켜고, 그 외(OCR)면 편집 모드를 기본으로 합니다.
     const [isPreviewMode, setIsPreviewMode] = useState(mode === '점역 변환');
+
     const dragControls = useDragControls();
     const itemRef = useRef<HTMLLIElement>(null);
-    // ✅ [New] isSelected가 true가 되면 해당 요소로 스크롤 이동
+
+    // isSelected가 true가 되면 해당 요소로 스크롤 이동
     useEffect(() => {
       if (isSelected && itemRef.current) {
         itemRef.current.scrollIntoView({
           behavior: 'smooth',
-          block: 'center', // 화면 중앙에 오도록
+          block: 'center',
         });
       }
     }, [isSelected]);
 
+    // ✅ 렌더링 함수: 텍스트를 받아서 모드에 맞게 LaTeX 또는 점자로 변환
     const renderContent = (text: string) => {
       if (mode === '점역 변환') {
         return <BrailleRenderer text={text} />;
@@ -79,7 +85,7 @@ const BlockItem: React.FC<BlockItemProps> = memo(
             }
           `}
         >
-          {/* 1. 왼쪽 컨트롤러 (드래그, 블록 추가) */}
+          {/* 1. 왼쪽 컨트롤러 */}
           <div className="flex flex-col gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
             <div
               onPointerDown={(e) => dragControls.start(e)}
@@ -97,12 +103,14 @@ const BlockItem: React.FC<BlockItemProps> = memo(
             </button>
           </div>
 
-          {/* 2. 메인 컨텐츠 (상단 바 제거, 에디터 영역을 위로 당겨서 넓게 사용) */}
+          {/* 2. 메인 컨텐츠 */}
           <div className="flex-1 min-w-0 mt-1">
             <div className="relative min-h-[2.5rem]">
+              {/* ✅ 미리보기 모드일 때 렌더링 */}
               {isPreviewMode ? (
                 <div
                   className="w-full p-2 text-gray-800 bg-gray-50/50 rounded-lg border border-transparent min-h-[42px] cursor-text"
+                  // 텍스트 영역을 클릭하면 다시 편집 모드로 돌아갑니다.
                   onClick={() => setIsPreviewMode(false)}
                 >
                   {block.currentText ? (
@@ -114,6 +122,7 @@ const BlockItem: React.FC<BlockItemProps> = memo(
                   )}
                 </div>
               ) : (
+                /* ✅ 편집 모드일 때 텍스트 입력창 렌더링 */
                 <TextareaAutosize
                   value={block.currentText}
                   onFocus={() => onSelect(block.id)}
@@ -127,13 +136,13 @@ const BlockItem: React.FC<BlockItemProps> = memo(
             </div>
           </div>
 
-          {/* 3. 오른쪽 컨트롤러 (기능 버튼들 통합 배치) */}
+          {/* 3. 오른쪽 컨트롤러 */}
           <div className="flex flex-col gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity items-center">
-            {/* 미리보기/편집 토글 */}
+            {/* ✅ 미리보기/편집 토글 버튼 */}
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                setIsPreviewMode(!isPreviewMode);
+                setIsPreviewMode(!isPreviewMode); // 상태 반전
               }}
               className="p-1.5 text-gray-400 hover:text-[#5A8FBB] hover:bg-blue-50 rounded-lg transition-colors"
               title={isPreviewMode ? '편집 모드로 전환' : '렌더링 미리보기'}
@@ -141,7 +150,7 @@ const BlockItem: React.FC<BlockItemProps> = memo(
               {isPreviewMode ? <Code2 size={16} /> : <Eye size={16} />}
             </button>
 
-            {/* 대체 텍스트(추천) - 공간 차지를 줄이기 위해 아이콘+알림 배지 형태로 변경 */}
+            {/* 후보 추천 모달 */}
             {block.candidates && block.candidates.length > 0 && (
               <button
                 onClick={(e) => {
