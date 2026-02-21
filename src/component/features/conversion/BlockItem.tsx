@@ -193,7 +193,11 @@ const BlockItem: React.FC<BlockItemProps> = memo(
                   onKeyUp={handleKeyUp} // ✅ 키보드 업 이벤트 연결
                   className={`w-full resize-none outline-none bg-transparent p-2 text-gray-800 leading-relaxed rounded-lg focus:bg-white focus:ring-2 focus:ring-[#5A8FBB]/20 focus:shadow-sm transition-all font-mono 
                     ${mode === '점역 변환' ? 'text-xl tracking-wider' : 'text-sm'}`}
-                  placeholder="SDF JKL 키를 동시에 눌러 점자를 입력하세요..."
+                  placeholder={
+                    mode === '점역 변환'
+                      ? 'SDF JKL 키를 동시에 눌러 점자를 입력하세요...'
+                      : '텍스트를 입력하세요...'
+                  }
                   minRows={1}
                 />
               )}

@@ -39,7 +39,7 @@ export interface StreamPageData {
   // 공통 사용 (원본 텍스트)
   text_list: Array<{
     id: number | string;
-    content: string;
+    contents: string[];
     order?: number; // OCR일 땐 order가 있고, 점역일 땐 없을 수도 있음
   }>;
 
@@ -47,7 +47,7 @@ export interface StreamPageData {
   braille_text_list?: Array<{
     id: number | string;
     brf_id: number;
-    content: string; // 점자 텍스트 (ASCII or Unicode)
+    contents: string[]; // 점자 텍스트 (ASCII or Unicode)
   }>;
 }
 

@@ -110,8 +110,17 @@ const BrailleMate: React.FC = () => {
       if (data.image_resolution && page === fileState.currentPage) {
         setImgResolution(data.image_resolution);
       }
+
+      // 안전하게 배열로 변환하는 헬퍼 함수
+      const getArray = (val: string[] | string | undefined): string[] => {
+        if (!val) return [];
+        return Array.isArray(val) ? val : [val];
+      };
+
+      // ─────────────────────────────────────────────────────────
+      // [CASE C] 통합 변환 모드
+      // ─────────────────────────────────────────────────────────
       if (activeTab === '통합 변환') {
-        // 1. BBox 저장
         const mappedBBoxes: BoundingBox[] = (data.bounding_box_list || []).map(
           (b) => ({
             id: String(b.id),
@@ -122,58 +131,73 @@ const BrailleMate: React.FC = () => {
           }),
         );
         setBboxDataByPage((prev) => ({ ...prev, [page]: mappedBBoxes }));
-
-        // 원본 텍스트가 없으므로 비워둡니다 (왼쪽 프리뷰에서 BBox만 보임)
         setOriginalTextsByPage((prev) => ({ ...prev, [page]: [] }));
 
-        // 2. 블록 생성 (braille_text_list 기준)
         const newBlocks = (data.braille_text_list || []).map((brailleItem) => {
-          // BBox 매칭
           const matchedBBox = mappedBBoxes.find(
             (b) => String(b.id) === String(brailleItem.id),
           );
 
+          // ✅ 백엔드 변수명 변경 대응 (contents 우선, 없으면 content)
+          const brailleContentList = getArray(
+            brailleItem.contents,
+          );
+
           return {
             id: String(brailleItem.id),
-            originalText: '', // 서버에서 text_list를 주지 않으므로 빈 값 처리
-            currentText: brailleItem.content, // 점자 결과
-            candidates: [],
-            bbox: matchedBBox, // 좌표 연결
+            originalText: '',
+            currentText: brailleContentList[0] || '',
+            candidates: brailleContentList.length > 1 ? brailleContentList : [],
+            bbox: matchedBBox,
           };
         });
 
         setBlocksForPage(page, newBlocks);
       }
+      // ─────────────────────────────────────────────────────────
       // [CASE B] 점역 변환 모드
+      // ─────────────────────────────────────────────────────────
       else if (data.braille_text_list && data.braille_text_list.length > 0) {
-        const mappedOriginalTexts: OriginalTextBlock[] = data.text_list.map(
-          (t) => ({
+        const mappedOriginalTexts: OriginalTextBlock[] = (
+          data.text_list || []
+        ).map((t) => {
+          // ✅ 백엔드 변수명 변경 대응
+          const contentList = getArray(t.contents);
+          return {
             id: String(t.id),
-            content: t.content,
-          }),
-        );
+            content: contentList[0] || '',
+          };
+        });
         setOriginalTextsByPage((prev) => ({
           ...prev,
           [page]: mappedOriginalTexts,
         }));
 
         const newBlocks = data.braille_text_list.map((brailleItem) => {
-          const originalItem = data.text_list.find(
+          const originalItem = (data.text_list || []).find(
             (t) => String(t.id) === String(brailleItem.id),
+          );
+
+          // ✅ 백엔드 변수명 변경 대응
+          const originalContentList = getArray(originalItem?.contents);
+          const brailleContentList = getArray(
+            brailleItem.contents,
           );
 
           return {
             id: String(brailleItem.id),
-            originalText: originalItem?.content || '',
-            currentText: brailleItem.content,
-            candidates: [],
+            originalText: originalContentList[0] || '',
+            currentText: brailleContentList[0] || '',
+            candidates: brailleContentList.length > 1 ? brailleContentList : [],
             bbox: undefined,
           };
         });
 
         setBlocksForPage(page, newBlocks);
       }
+      // ─────────────────────────────────────────────────────────
       // [CASE A] OCR 모드
+      // ─────────────────────────────────────────────────────────
       else {
         const mappedBBoxes: BoundingBox[] = (data.bounding_box_list || []).map(
           (b) => ({
@@ -186,26 +210,34 @@ const BrailleMate: React.FC = () => {
         );
         setBboxDataByPage((prev) => ({ ...prev, [page]: mappedBBoxes }));
 
-        const mappedOriginalTexts: OriginalTextBlock[] = data.text_list.map(
-          (t) => ({
+        const mappedOriginalTexts: OriginalTextBlock[] = (
+          data.text_list || []
+        ).map((t) => {
+          // ✅ 백엔드 변수명 변경 대응
+          const contentList = getArray(t.contents);
+          return {
             id: String(t.id),
-            content: t.content,
-          }),
-        );
+            content: contentList[0] || '',
+          };
+        });
         setOriginalTextsByPage((prev) => ({
           ...prev,
           [page]: mappedOriginalTexts,
         }));
 
-        const newBlocks = data.text_list.map((item) => {
+        const newBlocks = (data.text_list || []).map((item) => {
           const matchedBBox = mappedBBoxes.find(
             (b) => String(b.id) === String(item.id),
           );
+
+          // ✅ 백엔드 변수명 변경 대응 (item.content -> item.contents)
+          const contentList = getArray(item.contents);
+
           return {
             id: String(item.id),
-            originalText: item.content,
-            currentText: item.content,
-            candidates: [],
+            originalText: contentList[0] || '',
+            currentText: contentList[0] || '',
+            candidates: contentList.length > 1 ? contentList : [],
             bbox: matchedBBox,
           };
         });
@@ -213,6 +245,7 @@ const BrailleMate: React.FC = () => {
       }
     },
     [
+      activeTab,
       fileState.currentPage,
       fileState.totalPages,
       setTotalPages,
@@ -222,7 +255,6 @@ const BrailleMate: React.FC = () => {
       setImgResolution,
     ],
   );
-
   const { isStreaming } = useJobStream({
     jobId,
     onPageReceived: handlePageReceived,
@@ -280,15 +312,12 @@ const BrailleMate: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#F0F4F8] flex flex-col font-sans text-gray-800 antialiased transition-colors duration-500">
       <header className="max-w-6xl mx-auto pt-12 px-6 w-full">
-        <div className="flex items-center gap-3 mb-10">
+        <div className="flex items-center gap-3 mb-3">
           <img
-            src={'BrailleMate_Logo.svg'}
+            src={'BrailleMate_Logo.png'}
             alt="Logo"
-            className="w-12.5 aspect-square object-contain"
+            className="w-30 aspect-square object-contain"
           />
-          <h1 className="text-3xl font-bold tracking-tight text-[#407FAC]">
-            BrailleMate
-          </h1>
         </div>
         <nav className="flex gap-12 border-b border-white/20 relative">
           {tabs.map((tab) => (
