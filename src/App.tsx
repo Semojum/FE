@@ -287,7 +287,7 @@ const BrailleMate: React.FC = () => {
         const pageContent = blocksByPage[page]
           .map((b) => b.currentText)
           .join('\n\n');
-        return `--- Page ${page} ---\n\n${pageContent}`;
+        return activeTab == 'OCR 변환' ? `--- Page ${page} ---\n\n${pageContent}` : `\n${pageContent}`;
       })
       .join('\n\n\n');
 
