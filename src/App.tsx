@@ -312,11 +312,11 @@ const BrailleMate: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#F0F4F8] flex flex-col font-sans text-gray-800 antialiased transition-colors duration-500">
       <header className="max-w-6xl mx-auto pt-12 px-6 w-full">
-        <div className="flex items-center gap-3 mb-3">
+        <div className="flex items-center gap-3 mb-3 -ml-15">
           <img
             src={'BrailleMate_Logo.png'}
             alt="Logo"
-            className="w-30 aspect-square object-contain"
+            className="w-50 object-contain"
           />
         </div>
         <nav className="flex gap-12 border-b border-white/20 relative">
