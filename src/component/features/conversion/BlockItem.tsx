@@ -1,12 +1,13 @@
 // component/features/conversion/BlockItem.tsx
-import React, { memo, useEffect, useRef, useState } from 'react';
-import TextareaAutosize from 'react-textarea-autosize';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Trash2, Plus, Sparkles, GripVertical, Code2, Eye } from 'lucide-react';
 import { Reorder, useDragControls } from 'framer-motion';
 import { TranslationBlock, ConversionTab } from '../../../types';
 import CandidateModal from './CandidateModal';
 import LatexRenderer from './LatexRenderer';
 import BrailleRenderer from './BrailleRenderer';
+import HighlightedTextarea from './HighlightedTextarea.tsx';
+import { useTextHighlight } from '../../../hooks/UseTextHighLight.tsx';
 
 interface BlockItemProps {
   block: TranslationBlock;
@@ -55,6 +56,13 @@ const BlockItem: React.FC<BlockItemProps> = memo(
       }
       return <LatexRenderer text={text} />;
     };
+
+    const highlightedContent = useTextHighlight(block.currentText);
+
+    // 2. renderHighlight 콜백에 바로 적용
+    const renderHighlight = useCallback(() => {
+      return highlightedContent;
+    }, [highlightedContent]);
 
     // ─────────────────────────────────────────────────────────────
     // ✅ [New] 점자 직접 입력 (표준 Perkins 6점자: SDF JKL) 로직
@@ -184,15 +192,17 @@ const BlockItem: React.FC<BlockItemProps> = memo(
                   )}
                 </div>
               ) : (
-                <TextareaAutosize
-                  ref={textareaRef} // ✅ Ref 연결
+                <HighlightedTextarea
+                  ref={textareaRef} // 🚨 주의: HighlightedTextarea가 내부 Textarea로 forwardRef를 넘겨주도록 수정 필요할 수 있음
                   value={block.currentText}
+                  renderHighlight={renderHighlight} // ✅ 하이라이트된 Node 전달
                   onFocus={() => onSelect(block.id)}
                   onChange={(e) => onUpdate(block.id, e.target.value)}
-                  onKeyDown={handleKeyDown} // ✅ 키보드 다운 이벤트 연결
-                  onKeyUp={handleKeyUp} // ✅ 키보드 업 이벤트 연결
-                  className={`w-full resize-none outline-none bg-transparent p-2 text-gray-800 leading-relaxed rounded-lg focus:bg-white focus:ring-2 focus:ring-[#5A8FBB]/20 focus:shadow-sm transition-all font-mono 
-                    ${mode === '점역 변환' ? 'text-xl tracking-wider' : 'text-sm'}`}
+                  onKeyDown={handleKeyDown}
+                  onKeyUp={handleKeyUp}
+                  className={
+                    mode === '점역 변환' ? 'text-xl tracking-wider' : 'text-sm'
+                  }
                   placeholder={
                     mode === '점역 변환'
                       ? 'SDF JKL 키를 동시에 눌러 점자를 입력하세요...'
