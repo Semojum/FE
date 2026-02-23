@@ -1,5 +1,5 @@
 // src/hooks/useJobStream.ts
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { StreamPageData } from '../types/apiTypes';
 
 const SSE_LOG_STYLE =
@@ -23,41 +23,46 @@ export const useJobStream = ({
 }: UseJobStreamProps) => {
   const [isStreaming, setIsStreaming] = useState(false);
 
+  // ✅ 1. 최신 콜백 함수를 유지하기 위한 Ref 생성
+  const onPageReceivedRef = useRef(onPageReceived);
+  const onStatusReceivedRef = useRef(onStatusReceived);
+  const onErrorRef = useRef(onError);
+
+  // ✅ 2. 렌더링될 때마다 최신 콜백으로 업데이트 (SSE를 끊지 않고 함수만 교체)
+  useEffect(() => {
+    onPageReceivedRef.current = onPageReceived;
+    onStatusReceivedRef.current = onStatusReceived;
+    onErrorRef.current = onError;
+  }, [onPageReceived, onStatusReceived, onError]);
+
   useEffect(() => {
     if (!jobId) {
       setIsStreaming(false);
       return;
     }
 
-    // 💡 핵심 수정: 하드코딩 제거하고 API_BASE_URL 사용
-    // 로컬에서는 '/api/v1/job/...', 배포에서는 'https://34.64.201.254/api/v1/job/...' 가 됩니다.
     const url = `${API_BASE_URL}/job/${jobId}/events`;
-
-    // 🔥 주의: 프로덕션 환경에서 타 도메인으로 EventSource 요청 시
-    // 백엔드에서 CORS 설정이 되어있어야 정상 작동합니다.
     const eventSource = new EventSource(url);
     setIsStreaming(true);
 
-
-    // 생략: 기존 코드와 동일하게 유지하시면 됩니다.
     eventSource.onopen = () =>
       console.log(`%c 🟢 SSE Connected `, SSE_LOG_STYLE);
 
-    // 2. 'page' 이벤트 리스너 (기존 동일)
     eventSource.addEventListener('page', (event) => {
       const rawData = (event as MessageEvent).data;
-      console.log('%c 📥 Raw Page Data:', 'color: #ff00ff', `|${rawData}|`); // 데이터 앞뒤에 |를 붙여 공백 확인
+      console.log('%c 📥 Raw Page Data:', 'color: #ff00ff', `|${rawData}|`);
 
       try {
         const parsedData = JSON.parse(rawData);
-        onPageReceived(parsedData);
+        // ✅ 3. 실행 시점의 가장 최신 콜백을 호출
+        if (onPageReceivedRef.current) {
+          onPageReceivedRef.current(parsedData);
+        }
       } catch (err) {
         console.error('❌ Page Parse Error:', err);
-        console.error('Problematic String:', rawData); // 에러난 문자열 직접 확인
       }
     });
 
-    // 3. ✅ 'status' 이벤트 리스너 추가
     eventSource.addEventListener('status', (event) => {
       try {
         const data = JSON.parse((event as MessageEvent).data);
@@ -67,9 +72,10 @@ export const useJobStream = ({
           data,
         );
 
-        if (onStatusReceived) onStatusReceived(data);
+        if (onStatusReceivedRef.current) {
+          onStatusReceivedRef.current(data);
+        }
 
-        // ✅ 만약 status가 FAILED이거나 done이 true라면 스트림 종료
         if (data.status === 'FAILED' || data.done) {
           console.log('%c 🏁 Stream Closing by Status ', 'color: gray');
           eventSource.close();
@@ -80,10 +86,11 @@ export const useJobStream = ({
       }
     });
 
-    // 4. 에러 핸들러
     eventSource.onerror = (error) => {
       console.error('❌ SSE Error:', error);
-      if (onError) onError(error);
+      if (onErrorRef.current) {
+        onErrorRef.current(error);
+      }
       eventSource.close();
       setIsStreaming(false);
     };
@@ -92,7 +99,7 @@ export const useJobStream = ({
       eventSource.close();
       setIsStreaming(false);
     };
-  }, [jobId, onPageReceived, onStatusReceived, onError]);
+  }, [jobId]); // 🚨 핵심: 의존성 배열에 jobId만 남김 (jobId가 바뀔 때만 재연결)
 
   return { isStreaming };
 };
