@@ -482,7 +482,6 @@ const BrailleMate: React.FC = () => {
         </div>
 
         <AnimatePresence>
-          {fileState.fileType === 'pdf' && fileState.totalPages > 1 && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -495,7 +494,6 @@ const BrailleMate: React.FC = () => {
                 onPageChange={setPage}
               />
             </motion.div>
-          )}
         </AnimatePresence>
       </main>
     </div>
