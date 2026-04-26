@@ -8,14 +8,18 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "predeploy": "bun run build",
+    "deploy": "gh-pages -d dist",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "overrides": {
     "pdf-js-dist": "5.4.296"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",
+    "@tauri-apps/cli": "^2.10.1",
     "@types/pako": "^2.0.4",
     "@types/react": "^19.2.13",
     "@types/react-dom": "^19.2.3",
@@ -29,8 +33,10 @@
     "vite": "^7.3.1"
   },
   "dependencies": {
+    "@napi-rs/wasm-runtime": "^1.1.4",
     "@ohah/hwpjs": "^0.1.0-rc.4",
-    "@ohah/hwpjs-wasm32-wasi": "^0.1.0-rc.4",
+    "@ohah/hwpjs-wasm32-wasi": "^0.1.0-rc.10",
+    "@tauri-apps/api": "^2",
     "buffer": "^6.0.3",
     "cfb": "^1.2.2",
     "framer-motion": "^12.34.0",
