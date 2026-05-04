@@ -22,6 +22,14 @@ export const useTranslationBlocks = () => {
     [],
   );
 
+  // 전체 블록을 한 번에 교체 (팝업 동기화: 메인 스냅샷 적용용)
+  const setAllBlocks = useCallback(
+    (all: Record<number, TranslationBlock[]>) => {
+      setBlocksByPage(all);
+    },
+    [],
+  );
+
   // 1. 텍스트 직접 수정
   const updateBlock = useCallback(
     (page: number, id: string, newText: string) => {
@@ -83,6 +91,7 @@ export const useTranslationBlocks = () => {
     blocksByPage,
     getBlocks,
     setBlocksForPage,
+    setAllBlocks,
     updateBlock,
     applyCandidate,
     removeBlock,

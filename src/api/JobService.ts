@@ -1,8 +1,9 @@
 // src/api/jobService.ts
 import { StartJobResponse, JobMode } from '../types/apiTypes';
 
-// 이제 이 값은 환경에 따라 '/api/v1' 또는 'https://.../api/v1'이 됩니다.
-const API_BASE_URL = "https://arknightserver.cloud/api/v1";
+// 환경별 분기: VITE_API_BASE_URL 미설정 시 운영 URL 폴백
+export const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ?? 'https://arknightserver.cloud/api/v1';
 
 export const startJob = async (
   file: File,

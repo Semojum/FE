@@ -9,15 +9,7 @@ export interface FileState {
   file: File | null;
   previewUrl: string | null;
   fileType: FileType | null;
-  currentPage: number;
-  totalPages: number;
-}
-
-export interface FileState {
-  file: File | null;
-  previewUrl: string | null;
-  fileType: FileType | null;
-  textContent?: string; // .txt 파일의 내용을 담을 필드 추가
+  textContent?: string; // .txt / .hwp 파일의 텍스트 내용
   currentPage: number;
   totalPages: number;
 }

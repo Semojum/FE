@@ -1,12 +1,10 @@
 // src/hooks/useJobStream.ts
 import { useEffect, useState, useRef } from 'react';
 import { StreamPageData } from '../types/apiTypes';
+import { API_BASE_URL } from '../api/JobService';
 
 const SSE_LOG_STYLE =
   'background: #7C3AED; color: #fff; padding: 2px 4px; border-radius: 2px; font-weight: bold;';
-
-// 환경 변수 가져오기
-const API_BASE_URL = 'https://arknightserver.cloud/api/v1';
 
 interface UseJobStreamProps {
   jobId: string | null;

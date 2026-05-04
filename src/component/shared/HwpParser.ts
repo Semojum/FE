@@ -36,8 +36,8 @@ const parseOle2Hwp = async (file: File): Promise<string> => {
   const arrayBuffer = await file.arrayBuffer();
   const uint8 = new Uint8Array(arrayBuffer);
 
-  // 1. JSON 변환
-  const jsonString = toJson(uint8);
+  // 1. JSON 변환 — @ohah/hwpjs는 Node Buffer 시그니처를 요구하지만 브라우저 Uint8Array로도 동작
+  const jsonString = toJson(uint8 as unknown as Parameters<typeof toJson>[0]);
   const hwpDoc = JSON.parse(jsonString);
 
   console.log('HWP Parsed Doc:', hwpDoc);

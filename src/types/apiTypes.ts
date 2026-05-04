@@ -14,13 +14,6 @@ export interface ApiError {
   code?: string;
 }
 
-export interface StartJobResponse {
-  job_id: string;
-  status: string;
-  message: string;
-  mode: 'a' | 'b' | 'c';
-}
-
 // [New] SSE로 들어오는 페이지 데이터 타입
 export interface StreamPageData {
   job_id: string;

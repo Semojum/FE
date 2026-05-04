@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { useDropzone, Accept } from 'react-dropzone';
 import {
@@ -8,6 +8,12 @@ import {
   Loader2,
   Download,
   AlertCircle,
+  Columns2,
+  Square,
+  Save,
+  User as UserIcon,
+  LogOut,
+  History,
 } from 'lucide-react';
 
 // Hooks
@@ -15,11 +21,17 @@ import { useFileHandler } from './hooks/UseFileHandler';
 import { useTranslationBlocks } from './hooks/UseTranslationBlocks';
 import { useJobUpload } from './hooks/UseJobUpload.ts';
 import { useJobStream } from './hooks/UseJobStream.ts';
+import { useAuth } from './hooks/UseAuth';
+
+// API
+import { saveJob, getJob } from './api/HistoryService';
 
 // Components
 import FilePreviewer from './component/features/conversion/FilePreviewer';
 import Pagination from './component/features/conversion/Pagination';
 import BlockItem from './component/features/conversion/BlockItem';
+import AuthModal from './component/features/auth/AuthModal';
+import MyPageModal from './component/features/mypage/MyPageModal';
 
 // Types
 import {
@@ -27,11 +39,51 @@ import {
   ConversionTab,
   ImageResolution,
   OriginalTextBlock,
+  TranslationBlock,
 } from './types';
 import { StreamPageData } from './types/apiTypes';
 
+const SYNC_CHANNEL = 'braillemate-sync';
+const POPUP_FEATURES = 'width=900,height=900,resizable=yes,scrollbars=yes';
+
+type PanelMode = 'both' | 'input-only' | 'output-only';
+
+type SyncAction =
+  | { type: 'updateBlock'; page: number; id: string; text: string }
+  | { type: 'applyCandidate'; page: number; id: string; text: string }
+  | { type: 'removeBlock'; page: number; id: string }
+  | { type: 'addBlock'; page: number; index: number }
+  | { type: 'reorderBlocks'; page: number; reordered: TranslationBlock[] }
+  | { type: 'setSelected'; id: string | null }
+  | { type: 'setPage'; page: number }
+  | { type: 'reset' };
+
+interface SyncSnapshot {
+  activeTab: ConversionTab;
+  blocksByPage: Record<number, TranslationBlock[]>;
+  bboxDataByPage: Record<number, BoundingBox[]>;
+  originalTextsByPage: Record<number, OriginalTextBlock[]>;
+  imgResolution: ImageResolution;
+  selectedBlockId: string | null;
+  currentPage: number;
+  totalPages: number;
+  isUploading: boolean;
+  isStreaming: boolean;
+  uploadError: string | null;
+}
+
 const BrailleMate: React.FC = () => {
+  const isPopup = useMemo(
+    () =>
+      new URLSearchParams(window.location.search).get('panel') === 'output',
+    [],
+  );
+
   const [activeTab, setActiveTab] = useState<ConversionTab>('OCR 변환');
+  const [panelMode, setPanelMode] = useState<PanelMode>(
+    isPopup ? 'output-only' : 'both',
+  );
+
   const {
     fileState,
     handleFileDrop,
@@ -63,6 +115,7 @@ const BrailleMate: React.FC = () => {
     blocksByPage,
     getBlocks,
     setBlocksForPage,
+    setAllBlocks,
     updateBlock,
     applyCandidate,
     removeBlock,
@@ -70,6 +123,18 @@ const BrailleMate: React.FC = () => {
     reorderBlocks,
     resetAllBlocks,
   } = useTranslationBlocks();
+
+  // Sync infra (BroadcastChannel)
+  const popupRef = useRef<Window | null>(null);
+  const channelRef = useRef<BroadcastChannel | null>(null);
+  const snapshotRef = useRef<SyncSnapshot | null>(null);
+  const applyActionRef = useRef<(action: SyncAction) => void>(() => {});
+
+  // Auth & 마이페이지
+  const auth = useAuth();
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isMyPageOpen, setIsMyPageOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const currentPage = fileState.currentPage;
   const currentBlocks = getBlocks(currentPage);
@@ -91,14 +156,72 @@ const BrailleMate: React.FC = () => {
     handleReset();
   };
 
+  // Action apply (메인에서만 직접 호출, 팝업은 dispatchAction 통해 메인에 위임)
+  const applyAction = useCallback(
+    (action: SyncAction) => {
+      switch (action.type) {
+        case 'updateBlock':
+          updateBlock(action.page, action.id, action.text);
+          break;
+        case 'applyCandidate':
+          applyCandidate(action.page, action.id, action.text);
+          break;
+        case 'removeBlock':
+          removeBlock(action.page, action.id);
+          break;
+        case 'addBlock':
+          addBlock(action.page, action.index);
+          break;
+        case 'reorderBlocks':
+          reorderBlocks(action.page, action.reordered);
+          break;
+        case 'setSelected':
+          setSelectedBlockId(action.id);
+          break;
+        case 'setPage':
+          setPage(action.page);
+          break;
+        case 'reset':
+          handleReset();
+          break;
+      }
+    },
+    [
+      updateBlock,
+      applyCandidate,
+      removeBlock,
+      addBlock,
+      reorderBlocks,
+      setPage,
+      handleReset,
+    ],
+  );
+
+  // 최신 applyAction을 ref에 미러링 (channel.onmessage closure가 stale 되는 것 방지)
   useEffect(() => {
+    applyActionRef.current = applyAction;
+  }, [applyAction]);
+
+  // 메인=직접 호출 / 팝업=메인에 액션 메시지 송신
+  const dispatchAction = useCallback(
+    (action: SyncAction) => {
+      if (isPopup) {
+        channelRef.current?.postMessage({ type: 'action', payload: action });
+      } else {
+        applyActionRef.current(action);
+      }
+    },
+    [isPopup],
+  );
+
+  useEffect(() => {
+    if (isPopup) return;
     if (!fileState.file || isUploading || jobId) return;
-    if (Object.keys(blocksByPage).length > 0) return;
 
     uploadFile(fileState.file, activeTab).then((response) => {
       if (response) console.log('Job Started:', response.job_id);
     });
-  }, [fileState.file, activeTab, uploadFile, isUploading, jobId, blocksByPage]);
+  }, [isPopup, fileState.file, activeTab, uploadFile, isUploading, jobId]);
 
   const handlePageReceived = useCallback(
     (data: StreamPageData) => {
@@ -256,9 +379,220 @@ const BrailleMate: React.FC = () => {
     ],
   );
   const { isStreaming } = useJobStream({
-    jobId,
+    jobId: isPopup ? null : jobId,
     onPageReceived: handlePageReceived,
   });
+
+  // ─────────────────────────────────────────────────────────
+  // 메인 → 팝업 스냅샷 자동 브로드캐스트
+  // ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    const snapshot: SyncSnapshot = {
+      activeTab,
+      blocksByPage,
+      bboxDataByPage,
+      originalTextsByPage,
+      imgResolution,
+      selectedBlockId,
+      currentPage: fileState.currentPage,
+      totalPages: fileState.totalPages,
+      isUploading,
+      isStreaming,
+      uploadError,
+    };
+    snapshotRef.current = snapshot;
+
+    if (isPopup) return;
+    if (panelMode !== 'input-only') return;
+    channelRef.current?.postMessage({ type: 'state-snapshot', payload: snapshot });
+  }, [
+    isPopup,
+    panelMode,
+    activeTab,
+    blocksByPage,
+    bboxDataByPage,
+    originalTextsByPage,
+    imgResolution,
+    selectedBlockId,
+    fileState.currentPage,
+    fileState.totalPages,
+    isUploading,
+    isStreaming,
+    uploadError,
+  ]);
+
+  // ─────────────────────────────────────────────────────────
+  // BroadcastChannel: 메인↔팝업 메시지 처리
+  // ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    const channel = new BroadcastChannel(SYNC_CHANNEL);
+    channelRef.current = channel;
+
+    channel.onmessage = (e: MessageEvent) => {
+      const data = e.data || {};
+      const { type, payload } = data;
+
+      if (!isPopup) {
+        if (type === 'request-snapshot') {
+          if (snapshotRef.current) {
+            channel.postMessage({
+              type: 'state-snapshot',
+              payload: snapshotRef.current,
+            });
+          }
+        } else if (type === 'action') {
+          applyActionRef.current(payload as SyncAction);
+        } else if (type === 'popup-closing') {
+          popupRef.current = null;
+          setPanelMode('both');
+        }
+      } else {
+        if (type === 'state-snapshot') {
+          const s = payload as SyncSnapshot;
+          setActiveTab(s.activeTab);
+          setAllBlocks(s.blocksByPage);
+          setBboxDataByPage(s.bboxDataByPage);
+          setOriginalTextsByPage(s.originalTextsByPage);
+          setImgResolution(s.imgResolution);
+          setSelectedBlockId(s.selectedBlockId);
+          setPage(s.currentPage);
+          setTotalPages(s.totalPages);
+        }
+      }
+    };
+
+    if (isPopup) {
+      channel.postMessage({ type: 'request-snapshot' });
+    }
+
+    return () => {
+      channel.close();
+      channelRef.current = null;
+    };
+  }, [isPopup, setAllBlocks, setPage, setTotalPages]);
+
+  // ─────────────────────────────────────────────────────────
+  // 팝업이 외부 X로 닫혔는지 폴링으로 백업 감지 (메인 전용)
+  // ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (isPopup) return;
+    if (panelMode !== 'input-only') return;
+    const id = setInterval(() => {
+      if (popupRef.current?.closed) {
+        popupRef.current = null;
+        setPanelMode('both');
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [isPopup, panelMode]);
+
+  // ─────────────────────────────────────────────────────────
+  // 팝업 unload 시 메인에 알림
+  // ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isPopup) return;
+    const handler = () => {
+      channelRef.current?.postMessage({ type: 'popup-closing' });
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isPopup]);
+
+  const handleSplitToggle = useCallback(() => {
+    if (isPopup) {
+      window.close();
+      return;
+    }
+    if (panelMode === 'both') {
+      const url = `${window.location.pathname}?panel=output`;
+      const popup = window.open(url, 'braillemate-output', POPUP_FEATURES);
+      if (!popup) {
+        alert('팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 시도해주세요.');
+        return;
+      }
+      popupRef.current = popup;
+      setPanelMode('input-only');
+    } else {
+      popupRef.current?.close();
+      popupRef.current = null;
+      setPanelMode('both');
+    }
+  }, [isPopup, panelMode]);
+
+  // 현재 작업을 마이페이지에 저장
+  const handleSaveJob = useCallback(async () => {
+    if (!auth.token) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    if (Object.keys(blocksByPage).length === 0) {
+      alert('저장할 결과가 없습니다.');
+      return;
+    }
+    const defaultTitle = fileState.file?.name ?? `${activeTab} 작업`;
+    const title = window.prompt('작업 이름을 입력하세요', defaultTitle);
+    if (!title) return;
+
+    setIsSaving(true);
+    try {
+      await saveJob(auth.token, {
+        title,
+        mode: activeTab,
+        fileName: fileState.file?.name ?? '',
+        totalPages: fileState.totalPages,
+        blocksByPage,
+        bboxDataByPage,
+        originalTextsByPage,
+        imgResolution,
+      });
+      alert('저장되었습니다.');
+    } catch (err) {
+      alert(
+        err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.',
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }, [
+    auth.token,
+    activeTab,
+    blocksByPage,
+    bboxDataByPage,
+    originalTextsByPage,
+    imgResolution,
+    fileState.file,
+    fileState.totalPages,
+  ]);
+
+  // 마이페이지에서 작업 선택 시 현재 상태로 복원
+  const handleSelectJob = useCallback(
+    async (jobId: string) => {
+      if (!auth.token) return;
+      try {
+        const job = await getJob(auth.token, jobId);
+        handleReset();
+        setActiveTab(job.mode);
+        setAllBlocks(job.blocksByPage);
+        setBboxDataByPage(job.bboxDataByPage);
+        setOriginalTextsByPage(job.originalTextsByPage);
+        setImgResolution(job.imgResolution);
+        setTotalPages(job.totalPages);
+        setPage(1);
+        setIsMyPageOpen(false);
+      } catch (err) {
+        alert(
+          err instanceof Error ? err.message : '작업을 불러오지 못했습니다.',
+        );
+      }
+    },
+    [
+      auth.token,
+      handleReset,
+      setAllBlocks,
+      setTotalPages,
+      setPage,
+    ],
+  );
 
   const acceptConfig = useMemo<Accept>((): Accept => {
     if (activeTab === '점역 변환') {
@@ -314,42 +648,111 @@ const BrailleMate: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#F0F4F8] flex flex-col font-sans text-gray-800 antialiased transition-colors duration-500">
       <header className="max-w-6xl mx-auto pt-12 px-6 w-full">
-        <div className="flex items-center gap-3 mb-3 -ml-15">
+        <div className="flex items-center justify-between mb-3 -ml-15">
           <img
             src={'BrailleMate_Logo.png'}
             alt="Logo"
             className="w-50 object-contain"
           />
-        </div>
-        <nav className="flex gap-12 border-b border-white/20 relative">
-          {tabs.map((tab) => (
+          <div className="flex items-center gap-2">
+            {!isPopup && (
+              <>
+                {auth.isAuthenticated ? (
+                  <>
+                    <button
+                      onClick={() => setIsMyPageOpen(true)}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:text-[#407FAC] hover:border-[#407FAC]/40 transition-colors shadow-sm text-sm font-medium"
+                      title="마이페이지 — 이전 작업 보기"
+                    >
+                      <History size={16} />
+                      <span>마이페이지</span>
+                    </button>
+                    <span className="hidden md:flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600">
+                      <UserIcon size={14} />
+                      {auth.user?.name}
+                    </span>
+                    <button
+                      onClick={() => auth.logout()}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-500 hover:text-red-500 hover:border-red-200 transition-colors shadow-sm text-sm font-medium"
+                      title="로그아웃"
+                    >
+                      <LogOut size={16} />
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setIsAuthModalOpen(true)}
+                    disabled={auth.isLoading}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:text-[#407FAC] hover:border-[#407FAC]/40 transition-colors shadow-sm text-sm font-medium disabled:opacity-50"
+                  >
+                    <UserIcon size={16} />
+                    <span>로그인</span>
+                  </button>
+                )}
+              </>
+            )}
             <button
-              key={tab}
-              onClick={() => handleTabChange(tab)}
-              className={`pb-4 text-lg font-semibold transition-all relative ${
-                activeTab === tab
-                  ? 'text-[#407FAC]'
-                  : 'text-[#929292] hover:text-[#407FAC]'
-              }`}
+              onClick={handleSplitToggle}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:text-[#407FAC] hover:border-[#407FAC]/40 transition-colors shadow-sm text-sm font-medium"
+              title={
+                panelMode === 'both'
+                  ? '결과를 새 창으로 분리'
+                  : '한 창으로 합치기'
+              }
+              aria-pressed={panelMode !== 'both'}
             >
-              {tab}
-              {activeTab === tab && (
-                <motion.div
-                  layoutId="activeTab"
-                  className="absolute bottom-0 left-0 right-0 h-1 bg-[#407FAC] rounded-t-full"
-                />
+              {panelMode === 'both' ? (
+                <Columns2 size={16} />
+              ) : (
+                <Square size={16} />
               )}
+              <span>
+                {panelMode === 'both' ? '반으로 나누기' : '합치기'}
+              </span>
             </button>
-          ))}
-        </nav>
+          </div>
+        </div>
+        {!isPopup && (
+          <nav className="flex gap-12 border-b border-white/20 relative">
+            {tabs.map((tab) => (
+              <button
+                key={tab}
+                onClick={() => handleTabChange(tab)}
+                className={`pb-4 text-lg font-semibold transition-all relative ${
+                  activeTab === tab
+                    ? 'text-[#407FAC]'
+                    : 'text-[#929292] hover:text-[#407FAC]'
+                }`}
+              >
+                {tab}
+                {activeTab === tab && (
+                  <motion.div
+                    layoutId="activeTab"
+                    className="absolute bottom-0 left-0 right-0 h-1 bg-[#407FAC] rounded-t-full"
+                  />
+                )}
+              </button>
+            ))}
+          </nav>
+        )}
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-12 flex flex-col items-center w-full">
-        <div className="w-full flex flex-col md:flex-row items-stretch gap-8 mb-4">
-          {/* [Left: Input Card]
-            - flex-1 : 기본 비율 유지
-          */}
-          <section className="flex-1 min-w-0">
+        <div
+          className={
+            panelMode === 'both'
+              ? 'w-full flex flex-col md:flex-row items-stretch gap-8 mb-4'
+              : 'w-full flex flex-col items-stretch mb-4'
+          }
+        >
+          {panelMode !== 'output-only' && (
+          <section
+            className={
+              panelMode === 'both'
+                ? 'flex-1 min-w-0'
+                : 'w-full'
+            }
+          >
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -393,19 +796,24 @@ const BrailleMate: React.FC = () => {
                     selectedBlockId={selectedBlockId}
                     imageResolution={imgResolution}
                     originalTextBlocks={currentOriginalTexts}
-                    onBlockClick={setSelectedBlockId}
+                    onBlockClick={(id) =>
+                      dispatchAction({ type: 'setSelected', id })
+                    }
                   />
                 )}
               </div>
             </motion.div>
           </section>
+          )}
 
-          {/* ❌ [Center Arrow Removed] 화살표 섹션 삭제됨 */}
-
-          {/* [Right: Output Card]
-            - md:flex-[1.4] : 데스크탑에서 왼쪽보다 약 1.4배 넓게 설정
-          */}
-          <section className="flex-1 md:flex-[1.4] min-w-0">
+          {panelMode !== 'input-only' && (
+          <section
+            className={
+              panelMode === 'both'
+                ? 'flex-1 md:flex-[1.4] min-w-0'
+                : 'w-full'
+            }
+          >
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -417,12 +825,33 @@ const BrailleMate: React.FC = () => {
                   점역/번역 결과
                 </h2>
                 {Object.keys(blocksByPage).length > 0 && (
-                  <button
-                    onClick={handleDownload}
-                    className="flex items-center gap-1.5 bg-[#407FAC] text-white px-3 py-1.5 rounded-lg hover:bg-[#356a91] transition-colors shadow-sm text-sm font-medium"
-                  >
-                    <Download size={16} /> <span>다운로드</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {!isPopup && (
+                      <button
+                        onClick={handleSaveJob}
+                        disabled={isSaving}
+                        className="flex items-center gap-1.5 bg-white border border-[#407FAC] text-[#407FAC] px-3 py-1.5 rounded-lg hover:bg-[#407FAC]/5 transition-colors shadow-sm text-sm font-medium disabled:opacity-50"
+                        title={
+                          auth.isAuthenticated
+                            ? '현재 작업을 마이페이지에 저장'
+                            : '로그인 후 저장 가능'
+                        }
+                      >
+                        {isSaving ? (
+                          <Loader2 className="animate-spin" size={16} />
+                        ) : (
+                          <Save size={16} />
+                        )}
+                        <span>저장</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={handleDownload}
+                      className="flex items-center gap-1.5 bg-[#407FAC] text-white px-3 py-1.5 rounded-lg hover:bg-[#356a91] transition-colors shadow-sm text-sm font-medium"
+                    >
+                      <Download size={16} /> <span>다운로드</span>
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -448,7 +877,11 @@ const BrailleMate: React.FC = () => {
                       axis="y"
                       values={currentBlocks}
                       onReorder={(newOrder) =>
-                        reorderBlocks(currentPage, newOrder)
+                        dispatchAction({
+                          type: 'reorderBlocks',
+                          page: currentPage,
+                          reordered: newOrder,
+                        })
                       }
                       className="flex flex-col gap-1"
                     >
@@ -459,15 +892,39 @@ const BrailleMate: React.FC = () => {
                           index={index}
                           mode={activeTab}
                           isSelected={block.id === selectedBlockId}
-                          onSelect={setSelectedBlockId}
+                          onSelect={(id) =>
+                            dispatchAction({ type: 'setSelected', id })
+                          }
                           onUpdate={(id, text) =>
-                            updateBlock(currentPage, id, text)
+                            dispatchAction({
+                              type: 'updateBlock',
+                              page: currentPage,
+                              id,
+                              text,
+                            })
                           }
                           onApplyCandidate={(id, text) =>
-                            applyCandidate(currentPage, id, text)
+                            dispatchAction({
+                              type: 'applyCandidate',
+                              page: currentPage,
+                              id,
+                              text,
+                            })
                           }
-                          onRemove={(id) => removeBlock(currentPage, id)}
-                          onAdd={(idx) => addBlock(currentPage, idx)}
+                          onRemove={(id) =>
+                            dispatchAction({
+                              type: 'removeBlock',
+                              page: currentPage,
+                              id,
+                            })
+                          }
+                          onAdd={(idx) =>
+                            dispatchAction({
+                              type: 'addBlock',
+                              page: currentPage,
+                              index: idx,
+                            })
+                          }
                         />
                       ))}
                     </Reorder.Group>
@@ -481,6 +938,7 @@ const BrailleMate: React.FC = () => {
               </div>
             </motion.div>
           </section>
+          )}
         </div>
 
         <AnimatePresence>
@@ -493,11 +951,32 @@ const BrailleMate: React.FC = () => {
               <Pagination
                 currentPage={currentPage}
                 totalPages={fileState.totalPages}
-                onPageChange={setPage}
+                onPageChange={(page) =>
+                  dispatchAction({ type: 'setPage', page })
+                }
               />
             </motion.div>
         </AnimatePresence>
       </main>
+
+      {!isPopup && (
+        <>
+          <AuthModal
+            isOpen={isAuthModalOpen}
+            onClose={() => setIsAuthModalOpen(false)}
+            onLogin={auth.login}
+            onSignup={auth.signup}
+          />
+          {auth.token && (
+            <MyPageModal
+              isOpen={isMyPageOpen}
+              onClose={() => setIsMyPageOpen(false)}
+              token={auth.token}
+              onSelect={handleSelectJob}
+            />
+          )}
+        </>
+      )}
     </div>
   );
 };
