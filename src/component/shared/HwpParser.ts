@@ -1,5 +1,16 @@
 import { toJson } from '@ohah/hwpjs';
 
+// hwpjs JSON 출력 노드의 최소 구조. 라이브러리가 타입을 노출하지 않아 직접 선언.
+interface HwpNode {
+  type?: string;
+  text?: string;
+  sections?: HwpNode[];
+  paragraphs?: HwpNode[];
+  records?: HwpNode[];
+  children?: HwpNode[];
+  body_text?: HwpNode;
+}
+
 // ────────────────────────────────────────
 // HWPX (ZIP 기반) 파싱
 // ────────────────────────────────────────
@@ -36,14 +47,11 @@ const parseOle2Hwp = async (file: File): Promise<string> => {
   const arrayBuffer = await file.arrayBuffer();
   const uint8 = new Uint8Array(arrayBuffer);
 
-  // 1. JSON 변환 — @ohah/hwpjs는 Node Buffer 시그니처를 요구하지만 브라우저 Uint8Array로도 동작
+  // hwpjs는 Node Buffer 시그니처를 요구하지만 브라우저 Uint8Array로도 동작.
+  // 라이브러리 타입이 Buffer만 받도록 좁혀져 있어 캐스트가 필요함.
   const jsonString = toJson(uint8 as unknown as Parameters<typeof toJson>[0]);
-  const hwpDoc = JSON.parse(jsonString);
+  const hwpDoc: HwpNode = JSON.parse(jsonString);
 
-  console.log('HWP Parsed Doc:', hwpDoc);
-
-  // 2. body_text 탐색 (없으면 전체 탐색)
-  // 구조상 body_text 안에 sections가 있으므로 여기서 시작하는 것이 효율적입니다.
   if (hwpDoc.body_text) {
     return extractTextFromJson(hwpDoc.body_text).trim();
   }
@@ -51,29 +59,22 @@ const parseOle2Hwp = async (file: File): Promise<string> => {
   return extractTextFromJson(hwpDoc).trim();
 };
 
-const extractTextFromJson = (node: any): string => {
+const extractTextFromJson = (node: HwpNode | null | undefined): string => {
   if (!node || typeof node !== 'object') return '';
 
-  let text = '';
-
-  // [핵심 수정] records 배열 내의 para_text 처리
-  // 제공해주신 JSON에서 텍스트는 { type: "para_text", text: "..." } 형태입니다.
+  // records 내부의 para_text 노드: { type: "para_text", text: "..." }
   if (node.type === 'para_text' && typeof node.text === 'string') {
     return node.text;
   }
 
-  // 기존 로직: 일반 텍스트 노드
   if (node.type === 'text' && typeof node.text === 'string') {
     return node.text;
   }
 
-  // 자식 노드 순회 (sections -> paragraphs -> records 순서)
-  text += extractChildrenText(node);
-
-  return text;
+  return extractChildrenText(node);
 };
 
-const extractChildrenText = (node: any): string => {
+const extractChildrenText = (node: HwpNode): string => {
   if (!node) return '';
   let text = '';
 

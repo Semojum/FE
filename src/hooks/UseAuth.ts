@@ -64,8 +64,9 @@ export const useAuth = () => {
     if (token) {
       try {
         await apiLogout(token);
-      } catch {
-        // 서버 호출 실패해도 클라이언트에서는 로그아웃 처리
+      } catch (err) {
+        // 서버 호출이 실패해도 클라이언트 세션은 항상 정리. 디버깅을 위해 로그만 남김.
+        console.warn('Logout API call failed; clearing local session anyway:', err);
       }
     }
     localStorage.removeItem(TOKEN_KEY);
