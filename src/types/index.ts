@@ -1,7 +1,12 @@
-export type ConversionTab =
-  | 'OCR 변환'
-  | '점역 변환'
-  | '통합 변환';
+export const TABS = {
+  OCR: 'OCR 변환',
+  BRAILLE: '점역 변환',
+  INTEGRATED: '통합 변환',
+} as const;
+
+export const TAB_VALUES = [TABS.OCR, TABS.BRAILLE, TABS.INTEGRATED] as const;
+
+export type ConversionTab = (typeof TAB_VALUES)[number];
 
 export type FileType = 'image' | 'pdf' | 'text' | 'hwp'; // 확장
 

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { useDropzone, Accept } from 'react-dropzone';
 import {
@@ -22,9 +22,14 @@ import { useTranslationBlocks } from './hooks/UseTranslationBlocks';
 import { useJobUpload } from './hooks/UseJobUpload.ts';
 import { useJobStream } from './hooks/UseJobStream.ts';
 import { useAuth } from './hooks/UseAuth';
-
-// API
-import { saveJob, getJob } from './api/HistoryService';
+import {
+  PanelMode,
+  SyncAction,
+  SyncSnapshot,
+  usePopupSync,
+} from './hooks/UsePopupSync';
+import { usePageStreamHandler } from './hooks/UsePageStreamHandler';
+import { useSavedJobs } from './hooks/UseSavedJobs';
 
 // Components
 import FilePreviewer from './component/features/conversion/FilePreviewer';
@@ -39,38 +44,10 @@ import {
   ConversionTab,
   ImageResolution,
   OriginalTextBlock,
-  TranslationBlock,
+  TABS,
+  TAB_VALUES,
 } from './types';
-import { StreamPageData } from './types/apiTypes';
-
-const SYNC_CHANNEL = 'braillemate-sync';
-const POPUP_FEATURES = 'width=900,height=900,resizable=yes,scrollbars=yes';
-
-type PanelMode = 'both' | 'input-only' | 'output-only';
-
-type SyncAction =
-  | { type: 'updateBlock'; page: number; id: string; text: string }
-  | { type: 'applyCandidate'; page: number; id: string; text: string }
-  | { type: 'removeBlock'; page: number; id: string }
-  | { type: 'addBlock'; page: number; index: number }
-  | { type: 'reorderBlocks'; page: number; reordered: TranslationBlock[] }
-  | { type: 'setSelected'; id: string | null }
-  | { type: 'setPage'; page: number }
-  | { type: 'reset' };
-
-interface SyncSnapshot {
-  activeTab: ConversionTab;
-  blocksByPage: Record<number, TranslationBlock[]>;
-  bboxDataByPage: Record<number, BoundingBox[]>;
-  originalTextsByPage: Record<number, OriginalTextBlock[]>;
-  imgResolution: ImageResolution;
-  selectedBlockId: string | null;
-  currentPage: number;
-  totalPages: number;
-  isUploading: boolean;
-  isStreaming: boolean;
-  uploadError: string | null;
-}
+import { JobDetail } from './types/auth';
 
 const BrailleMate: React.FC = () => {
   const isPopup = useMemo(
@@ -79,7 +56,7 @@ const BrailleMate: React.FC = () => {
     [],
   );
 
-  const [activeTab, setActiveTab] = useState<ConversionTab>('OCR 변환');
+  const [activeTab, setActiveTab] = useState<ConversionTab>(TABS.OCR);
   const [panelMode, setPanelMode] = useState<PanelMode>(
     isPopup ? 'output-only' : 'both',
   );
@@ -124,17 +101,9 @@ const BrailleMate: React.FC = () => {
     resetAllBlocks,
   } = useTranslationBlocks();
 
-  // Sync infra (BroadcastChannel)
-  const popupRef = useRef<Window | null>(null);
-  const channelRef = useRef<BroadcastChannel | null>(null);
-  const snapshotRef = useRef<SyncSnapshot | null>(null);
-  const applyActionRef = useRef<(action: SyncAction) => void>(() => {});
-
-  // Auth & 마이페이지
   const auth = useAuth();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isMyPageOpen, setIsMyPageOpen] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
 
   const currentPage = fileState.currentPage;
   const currentBlocks = getBlocks(currentPage);
@@ -156,7 +125,7 @@ const BrailleMate: React.FC = () => {
     handleReset();
   };
 
-  // Action apply (메인에서만 직접 호출, 팝업은 dispatchAction 통해 메인에 위임)
+  // 메인 측에서 직접 호출되는 액션 처리기. 팝업은 BroadcastChannel을 통해 메인에 위임.
   const applyAction = useCallback(
     (action: SyncAction) => {
       switch (action.type) {
@@ -197,197 +166,30 @@ const BrailleMate: React.FC = () => {
     ],
   );
 
-  // 최신 applyAction을 ref에 미러링 (channel.onmessage closure가 stale 되는 것 방지)
-  useEffect(() => {
-    applyActionRef.current = applyAction;
-  }, [applyAction]);
-
-  // 메인=직접 호출 / 팝업=메인에 액션 메시지 송신
-  const dispatchAction = useCallback(
-    (action: SyncAction) => {
-      if (isPopup) {
-        channelRef.current?.postMessage({ type: 'action', payload: action });
-      } else {
-        applyActionRef.current(action);
-      }
-    },
-    [isPopup],
-  );
-
   useEffect(() => {
     if (isPopup) return;
     if (!fileState.file || isUploading || jobId) return;
-
-    uploadFile(fileState.file, activeTab).then((response) => {
-      if (response) console.log('Job Started:', response.job_id);
-    });
+    uploadFile(fileState.file, activeTab);
   }, [isPopup, fileState.file, activeTab, uploadFile, isUploading, jobId]);
 
-  const handlePageReceived = useCallback(
-    (data: StreamPageData) => {
-      const page = data.page_number;
-      console.log(`Received Page ${page}`, data);
+  const handlePageReceived = usePageStreamHandler({
+    activeTab,
+    currentPage: fileState.currentPage,
+    totalPages: fileState.totalPages,
+    setTotalPages,
+    setImgResolution,
+    setBboxDataByPage,
+    setOriginalTextsByPage,
+    setBlocksForPage,
+  });
 
-      setTotalPages(Math.max(fileState.totalPages, page));
-
-      if (data.image_resolution && page === fileState.currentPage) {
-        setImgResolution(data.image_resolution);
-      }
-
-      // 안전하게 배열로 변환하는 헬퍼 함수
-      const getArray = (val: string[] | string | undefined): string[] => {
-        if (!val) return [];
-        return Array.isArray(val) ? val : [val];
-      };
-
-      // ─────────────────────────────────────────────────────────
-      // [CASE C] 통합 변환 모드
-      // ─────────────────────────────────────────────────────────
-      if (activeTab === '통합 변환') {
-        const mappedBBoxes: BoundingBox[] = (data.bounding_box_list || []).map(
-          (b) => ({
-            id: String(b.id),
-            x: b.x,
-            y: b.y,
-            x2: b.x2,
-            y2: b.y2,
-          }),
-        );
-        setBboxDataByPage((prev) => ({ ...prev, [page]: mappedBBoxes }));
-        setOriginalTextsByPage((prev) => ({ ...prev, [page]: [] }));
-
-        const newBlocks = (data.braille_text_list || []).map((brailleItem) => {
-          const matchedBBox = mappedBBoxes.find(
-            (b) => String(b.id) === String(brailleItem.id),
-          );
-
-          // ✅ 백엔드 변수명 변경 대응 (contents 우선, 없으면 content)
-          const brailleContentList = getArray(
-            brailleItem.contents,
-          );
-
-          return {
-            id: String(brailleItem.id),
-            originalText: '',
-            currentText: brailleContentList[0] || '',
-            candidates: brailleContentList.length > 1 ? brailleContentList : [],
-            bbox: matchedBBox,
-          };
-        });
-
-        setBlocksForPage(page, newBlocks);
-      }
-      // ─────────────────────────────────────────────────────────
-      // [CASE B] 점역 변환 모드
-      // ─────────────────────────────────────────────────────────
-      else if (data.braille_text_list && data.braille_text_list.length > 0) {
-        const mappedOriginalTexts: OriginalTextBlock[] = (
-          data.text_list || []
-        ).map((t) => {
-          // ✅ 백엔드 변수명 변경 대응
-          const contentList = getArray(t.contents);
-          return {
-            id: String(t.id),
-            content: contentList[0] || '',
-          };
-        });
-        setOriginalTextsByPage((prev) => ({
-          ...prev,
-          [page]: mappedOriginalTexts,
-        }));
-
-        const newBlocks = data.braille_text_list.map((brailleItem) => {
-          const originalItem = (data.text_list || []).find(
-            (t) => String(t.id) === String(brailleItem.id),
-          );
-
-          // ✅ 백엔드 변수명 변경 대응
-          const originalContentList = getArray(originalItem?.contents);
-          const brailleContentList = getArray(
-            brailleItem.contents,
-          );
-
-          return {
-            id: String(brailleItem.id),
-            originalText: originalContentList[0] || '',
-            currentText: brailleContentList[0] || '',
-            candidates: brailleContentList.length > 1 ? brailleContentList : [],
-            bbox: undefined,
-          };
-        });
-
-        setBlocksForPage(page, newBlocks);
-      }
-      // ─────────────────────────────────────────────────────────
-      // [CASE A] OCR 모드
-      // ─────────────────────────────────────────────────────────
-      else {
-        const mappedBBoxes: BoundingBox[] = (data.bounding_box_list || []).map(
-          (b) => ({
-            id: String(b.id),
-            x: b.x,
-            y: b.y,
-            x2: b.x2,
-            y2: b.y2,
-          }),
-        );
-        setBboxDataByPage((prev) => ({ ...prev, [page]: mappedBBoxes }));
-
-        const mappedOriginalTexts: OriginalTextBlock[] = (
-          data.text_list || []
-        ).map((t) => {
-          // ✅ 백엔드 변수명 변경 대응
-          const contentList = getArray(t.contents);
-          return {
-            id: String(t.id),
-            content: contentList[0] || '',
-          };
-        });
-        setOriginalTextsByPage((prev) => ({
-          ...prev,
-          [page]: mappedOriginalTexts,
-        }));
-
-        const newBlocks = (data.text_list || []).map((item) => {
-          const matchedBBox = mappedBBoxes.find(
-            (b) => String(b.id) === String(item.id),
-          );
-
-          // ✅ 백엔드 변수명 변경 대응 (item.content -> item.contents)
-          const contentList = getArray(item.contents);
-
-          return {
-            id: String(item.id),
-            originalText: contentList[0] || '',
-            currentText: contentList[0] || '',
-            candidates: contentList.length > 1 ? contentList : [],
-            bbox: matchedBBox,
-          };
-        });
-        setBlocksForPage(page, newBlocks);
-      }
-    },
-    [
-      activeTab,
-      fileState.currentPage,
-      fileState.totalPages,
-      setTotalPages,
-      setBlocksForPage,
-      setOriginalTextsByPage,
-      setBboxDataByPage,
-      setImgResolution,
-    ],
-  );
   const { isStreaming } = useJobStream({
     jobId: isPopup ? null : jobId,
     onPageReceived: handlePageReceived,
   });
 
-  // ─────────────────────────────────────────────────────────
-  // 메인 → 팝업 스냅샷 자동 브로드캐스트
-  // ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    const snapshot: SyncSnapshot = {
+  const snapshot: SyncSnapshot = useMemo(
+    () => ({
       activeTab,
       blocksByPage,
       bboxDataByPage,
@@ -399,203 +201,79 @@ const BrailleMate: React.FC = () => {
       isUploading,
       isStreaming,
       uploadError,
-    };
-    snapshotRef.current = snapshot;
-
-    if (isPopup) return;
-    if (panelMode !== 'input-only') return;
-    channelRef.current?.postMessage({ type: 'state-snapshot', payload: snapshot });
-  }, [
-    isPopup,
-    panelMode,
-    activeTab,
-    blocksByPage,
-    bboxDataByPage,
-    originalTextsByPage,
-    imgResolution,
-    selectedBlockId,
-    fileState.currentPage,
-    fileState.totalPages,
-    isUploading,
-    isStreaming,
-    uploadError,
-  ]);
-
-  // ─────────────────────────────────────────────────────────
-  // BroadcastChannel: 메인↔팝업 메시지 처리
-  // ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    const channel = new BroadcastChannel(SYNC_CHANNEL);
-    channelRef.current = channel;
-
-    channel.onmessage = (e: MessageEvent) => {
-      const data = e.data || {};
-      const { type, payload } = data;
-
-      if (!isPopup) {
-        if (type === 'request-snapshot') {
-          if (snapshotRef.current) {
-            channel.postMessage({
-              type: 'state-snapshot',
-              payload: snapshotRef.current,
-            });
-          }
-        } else if (type === 'action') {
-          applyActionRef.current(payload as SyncAction);
-        } else if (type === 'popup-closing') {
-          popupRef.current = null;
-          setPanelMode('both');
-        }
-      } else {
-        if (type === 'state-snapshot') {
-          const s = payload as SyncSnapshot;
-          setActiveTab(s.activeTab);
-          setAllBlocks(s.blocksByPage);
-          setBboxDataByPage(s.bboxDataByPage);
-          setOriginalTextsByPage(s.originalTextsByPage);
-          setImgResolution(s.imgResolution);
-          setSelectedBlockId(s.selectedBlockId);
-          setPage(s.currentPage);
-          setTotalPages(s.totalPages);
-        }
-      }
-    };
-
-    if (isPopup) {
-      channel.postMessage({ type: 'request-snapshot' });
-    }
-
-    return () => {
-      channel.close();
-      channelRef.current = null;
-    };
-  }, [isPopup, setAllBlocks, setPage, setTotalPages]);
-
-  // ─────────────────────────────────────────────────────────
-  // 팝업이 외부 X로 닫혔는지 폴링으로 백업 감지 (메인 전용)
-  // ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (isPopup) return;
-    if (panelMode !== 'input-only') return;
-    const id = setInterval(() => {
-      if (popupRef.current?.closed) {
-        popupRef.current = null;
-        setPanelMode('both');
-      }
-    }, 500);
-    return () => clearInterval(id);
-  }, [isPopup, panelMode]);
-
-  // ─────────────────────────────────────────────────────────
-  // 팝업 unload 시 메인에 알림
-  // ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!isPopup) return;
-    const handler = () => {
-      channelRef.current?.postMessage({ type: 'popup-closing' });
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [isPopup]);
-
-  const handleSplitToggle = useCallback(() => {
-    if (isPopup) {
-      window.close();
-      return;
-    }
-    if (panelMode === 'both') {
-      const url = `${window.location.pathname}?panel=output`;
-      const popup = window.open(url, 'braillemate-output', POPUP_FEATURES);
-      if (!popup) {
-        alert('팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 시도해주세요.');
-        return;
-      }
-      popupRef.current = popup;
-      setPanelMode('input-only');
-    } else {
-      popupRef.current?.close();
-      popupRef.current = null;
-      setPanelMode('both');
-    }
-  }, [isPopup, panelMode]);
-
-  // 현재 작업을 마이페이지에 저장
-  const handleSaveJob = useCallback(async () => {
-    if (!auth.token) {
-      setIsAuthModalOpen(true);
-      return;
-    }
-    if (Object.keys(blocksByPage).length === 0) {
-      alert('저장할 결과가 없습니다.');
-      return;
-    }
-    const defaultTitle = fileState.file?.name ?? `${activeTab} 작업`;
-    const title = window.prompt('작업 이름을 입력하세요', defaultTitle);
-    if (!title) return;
-
-    setIsSaving(true);
-    try {
-      await saveJob(auth.token, {
-        title,
-        mode: activeTab,
-        fileName: fileState.file?.name ?? '',
-        totalPages: fileState.totalPages,
-        blocksByPage,
-        bboxDataByPage,
-        originalTextsByPage,
-        imgResolution,
-      });
-      alert('저장되었습니다.');
-    } catch (err) {
-      alert(
-        err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.',
-      );
-    } finally {
-      setIsSaving(false);
-    }
-  }, [
-    auth.token,
-    activeTab,
-    blocksByPage,
-    bboxDataByPage,
-    originalTextsByPage,
-    imgResolution,
-    fileState.file,
-    fileState.totalPages,
-  ]);
-
-  // 마이페이지에서 작업 선택 시 현재 상태로 복원
-  const handleSelectJob = useCallback(
-    async (jobId: string) => {
-      if (!auth.token) return;
-      try {
-        const job = await getJob(auth.token, jobId);
-        handleReset();
-        setActiveTab(job.mode);
-        setAllBlocks(job.blocksByPage);
-        setBboxDataByPage(job.bboxDataByPage);
-        setOriginalTextsByPage(job.originalTextsByPage);
-        setImgResolution(job.imgResolution);
-        setTotalPages(job.totalPages);
-        setPage(1);
-        setIsMyPageOpen(false);
-      } catch (err) {
-        alert(
-          err instanceof Error ? err.message : '작업을 불러오지 못했습니다.',
-        );
-      }
-    },
+    }),
     [
-      auth.token,
-      handleReset,
-      setAllBlocks,
-      setTotalPages,
-      setPage,
+      activeTab,
+      blocksByPage,
+      bboxDataByPage,
+      originalTextsByPage,
+      imgResolution,
+      selectedBlockId,
+      fileState.currentPage,
+      fileState.totalPages,
+      isUploading,
+      isStreaming,
+      uploadError,
     ],
   );
 
+  const handleSnapshotReceived = useCallback(
+    (s: SyncSnapshot) => {
+      setActiveTab(s.activeTab);
+      setAllBlocks(s.blocksByPage);
+      setBboxDataByPage(s.bboxDataByPage);
+      setOriginalTextsByPage(s.originalTextsByPage);
+      setImgResolution(s.imgResolution);
+      setSelectedBlockId(s.selectedBlockId);
+      setPage(s.currentPage);
+      setTotalPages(s.totalPages);
+    },
+    [setAllBlocks, setPage, setTotalPages],
+  );
+
+  const { dispatchAction, togglePopup } = usePopupSync({
+    isPopup,
+    panelMode,
+    setPanelMode,
+    snapshot,
+    applyAction,
+    onSnapshotReceived: handleSnapshotReceived,
+  });
+
+  const handleJobLoaded = useCallback(
+    (job: JobDetail) => {
+      handleReset();
+      setActiveTab(job.mode);
+      setAllBlocks(job.blocksByPage);
+      setBboxDataByPage(job.bboxDataByPage);
+      setOriginalTextsByPage(job.originalTextsByPage);
+      setImgResolution(job.imgResolution);
+      setTotalPages(job.totalPages);
+      setPage(1);
+      setIsMyPageOpen(false);
+    },
+    [handleReset, setAllBlocks, setTotalPages, setPage],
+  );
+
+  const handleAuthRequired = useCallback(() => setIsAuthModalOpen(true), []);
+
+  const { isSaving, handleSaveJob, handleSelectJob } = useSavedJobs({
+    token: auth.token,
+    current: {
+      activeTab,
+      fileName: fileState.file?.name ?? '',
+      totalPages: fileState.totalPages,
+      blocksByPage,
+      bboxDataByPage,
+      originalTextsByPage,
+      imgResolution,
+    },
+    onAuthRequired: handleAuthRequired,
+    onJobLoaded: handleJobLoaded,
+  });
+
   const acceptConfig = useMemo<Accept>((): Accept => {
-    if (activeTab === '점역 변환') {
+    if (activeTab === TABS.BRAILLE) {
       return { 'text/plain': ['.txt'], 'application/x-hwp': ['.hwp'] };
     }
     return {
@@ -621,7 +299,7 @@ const BrailleMate: React.FC = () => {
         const pageContent = blocksByPage[page]
           .map((b) => b.currentText)
           .join('\n\n');
-        return activeTab == 'OCR 변환'
+        return activeTab === TABS.OCR
           ? `\n${pageContent}\n--- Page ${page} ---\n`
           : `\n${pageContent}`;
       })
@@ -633,7 +311,7 @@ const BrailleMate: React.FC = () => {
     a.href = url;
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const fileName =
-      activeTab === '점역 변환'
+      activeTab === TABS.BRAILLE
         ? `braille_result_${dateStr}.brf`
         : `result_${dateStr}.txt`;
     a.download = fileName;
@@ -643,7 +321,7 @@ const BrailleMate: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  const tabs: ConversionTab[] = ['OCR 변환', '점역 변환', '통합 변환'];
+  const tabs = TAB_VALUES;
 
   return (
     <div className="min-h-screen bg-[#F0F4F8] flex flex-col font-sans text-gray-800 antialiased transition-colors duration-500">
@@ -692,7 +370,7 @@ const BrailleMate: React.FC = () => {
               </>
             )}
             <button
-              onClick={handleSplitToggle}
+              onClick={togglePopup}
               className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:text-[#407FAC] hover:border-[#407FAC]/40 transition-colors shadow-sm text-sm font-medium"
               title={
                 panelMode === 'both'
@@ -779,7 +457,7 @@ const BrailleMate: React.FC = () => {
                     className="w-full h-full flex flex-col items-center justify-center cursor-pointer p-10 text-center"
                   >
                     <input {...getInputProps()} />
-                    {activeTab === '점역 변환' ? (
+                    {activeTab === TABS.BRAILLE ? (
                       <FileText className="text-gray-400 mb-6" size={32} />
                     ) : (
                       <ImageIcon className="text-gray-400 mb-6" size={32} />
