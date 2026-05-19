@@ -2,7 +2,7 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Trash2, Plus, Sparkles, GripVertical, Code2, Eye } from 'lucide-react';
 import { Reorder, useDragControls } from 'framer-motion';
-import { TranslationBlock, ConversionTab } from '../../../types';
+import { TranslationBlock, ConversionTab, TABS } from '../../../types';
 import CandidateModal from './CandidateModal';
 import LatexRenderer from './LatexRenderer';
 import BrailleRenderer from './BrailleRenderer';
@@ -34,7 +34,7 @@ const BlockItem: React.FC<BlockItemProps> = memo(
     isSelected,
   }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [isPreviewMode, setIsPreviewMode] = useState(mode === '점역 변환');
+    const [isPreviewMode, setIsPreviewMode] = useState(mode === TABS.BRAILLE);
     const dragControls = useDragControls();
 
     const itemRef = useRef<HTMLLIElement>(null);
@@ -51,7 +51,7 @@ const BlockItem: React.FC<BlockItemProps> = memo(
     }, [isSelected]);
 
     const renderContent = (text: string) => {
-      if (mode === '점역 변환' || mode === '통합 변환') {
+      if (mode === TABS.BRAILLE || mode === TABS.INTEGRATED) {
         return <BrailleRenderer text={text} />;
       }
       return <LatexRenderer text={text} />;
@@ -79,7 +79,7 @@ const BlockItem: React.FC<BlockItemProps> = memo(
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (mode !== '점역 변환') return;
+      if (mode !== TABS.BRAILLE) return;
 
       const dotValue = BRAILLE_DOT_MAP[e.code];
       if (dotValue) {
@@ -89,7 +89,7 @@ const BlockItem: React.FC<BlockItemProps> = memo(
     };
 
     const handleKeyUp = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (mode !== '점역 변환') return;
+      if (mode !== TABS.BRAILLE) return;
 
       const dotValue = BRAILLE_DOT_MAP[e.code];
       if (dotValue) {
@@ -201,10 +201,10 @@ const BlockItem: React.FC<BlockItemProps> = memo(
                   onKeyDown={handleKeyDown}
                   onKeyUp={handleKeyUp}
                   className={
-                    mode === '점역 변환' ? 'text-xl tracking-wider' : 'text-sm'
+                    mode === TABS.BRAILLE ? 'text-xl tracking-wider' : 'text-sm'
                   }
                   placeholder={
-                    mode === '점역 변환'
+                    mode === TABS.BRAILLE
                       ? 'SDF JKL 키를 동시에 눌러 점자를 입력하세요...'
                       : '텍스트를 입력하세요...'
                   }
