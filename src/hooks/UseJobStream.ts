@@ -1,16 +1,13 @@
 // src/hooks/useJobStream.ts
 import { useEffect, useState, useRef } from 'react';
-import { StreamPageData } from '../types/apiTypes';
+import { StreamPageData, StreamStatusData } from '../types/apiTypes';
 import { API_BASE_URL } from '../api/JobService';
-
-const SSE_LOG_STYLE =
-  'background: #7C3AED; color: #fff; padding: 2px 4px; border-radius: 2px; font-weight: bold;';
 
 interface UseJobStreamProps {
   jobId: string | null;
   onPageReceived: (data: StreamPageData) => void;
   onError?: (error: Event) => void;
-  onStatusReceived?: (data: any) => void;
+  onStatusReceived?: (data: StreamStatusData) => void;
 }
 
 export const useJobStream = ({
@@ -43,52 +40,33 @@ export const useJobStream = ({
     const eventSource = new EventSource(url);
     setIsStreaming(true);
 
-    eventSource.onopen = () =>
-      console.log(`%c 🟢 SSE Connected `, SSE_LOG_STYLE);
-
     eventSource.addEventListener('page', (event) => {
       const rawData = (event as MessageEvent).data;
-      console.log('%c 📥 Raw Page Data:', 'color: #ff00ff', `|${rawData}|`);
-
       try {
-        const parsedData = JSON.parse(rawData);
-        // ✅ 3. 실행 시점의 가장 최신 콜백을 호출
-        if (onPageReceivedRef.current) {
-          onPageReceivedRef.current(parsedData);
-        }
+        const parsedData = JSON.parse(rawData) as StreamPageData;
+        onPageReceivedRef.current?.(parsedData);
       } catch (err) {
-        console.error('❌ Page Parse Error:', err);
+        console.error('Page parse error:', err);
       }
     });
 
     eventSource.addEventListener('status', (event) => {
       try {
-        const data = JSON.parse((event as MessageEvent).data);
-        console.log(
-          `%c 📊 Status Received: ${data.status} `,
-          'background: #333; color: #fbbf24',
-          data,
-        );
-
-        if (onStatusReceivedRef.current) {
-          onStatusReceivedRef.current(data);
-        }
+        const data = JSON.parse((event as MessageEvent).data) as StreamStatusData;
+        onStatusReceivedRef.current?.(data);
 
         if (data.status === 'FAILED' || data.done) {
-          console.log('%c 🏁 Stream Closing by Status ', 'color: gray');
           eventSource.close();
           setIsStreaming(false);
         }
       } catch (err) {
-        console.error('❌ Status Parse Error', err);
+        console.error('Status parse error:', err);
       }
     });
 
     eventSource.onerror = (error) => {
-      console.error('❌ SSE Error:', error);
-      if (onErrorRef.current) {
-        onErrorRef.current(error);
-      }
+      console.error('SSE error:', error);
+      onErrorRef.current?.(error);
       eventSource.close();
       setIsStreaming(false);
     };

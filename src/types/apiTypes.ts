@@ -47,3 +47,17 @@ export interface StreamPageData {
 export interface StreamError {
   message: string;
 }
+
+// SSE 'status' 이벤트로 들어오는 페이로드
+export type JobStreamStatus =
+  | 'PENDING'
+  | 'PROCESSING'
+  | 'COMPLETED'
+  | 'FAILED';
+
+export interface StreamStatusData {
+  job_id: string;
+  status: JobStreamStatus;
+  message?: string;
+  done?: boolean;
+}
