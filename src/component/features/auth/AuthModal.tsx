@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Loader2 } from 'lucide-react';
+import { getOAuthUrl, OAuthProvider } from '../../../api/AuthService';
 
 interface Props {
   isOpen: boolean;
@@ -38,6 +39,11 @@ const AuthModal: React.FC<Props> = ({
   const handleSwitch = (next: 'login' | 'signup') => {
     setTab(next);
     setError(null);
+  };
+
+  // 소셜 로그인은 브라우저를 직접 이동시킨다 (서버가 OAuth 핸드셰이크 후 콜백으로 리다이렉트).
+  const handleOAuth = (provider: OAuthProvider) => {
+    window.location.href = getOAuthUrl(provider);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -149,6 +155,27 @@ const AuthModal: React.FC<Props> = ({
                 <Loader2 className="animate-spin" size={16} />
               )}
               {tab === 'login' ? '로그인' : '회원가입'}
+            </button>
+
+            <div className="flex items-center gap-3 pt-1">
+              <span className="h-px flex-1 bg-gray-200" />
+              <span className="text-xs text-gray-400">또는</span>
+              <span className="h-px flex-1 bg-gray-200" />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handleOAuth('kakao')}
+              className="w-full bg-[#FEE500] text-[#3C1E1E] py-2 rounded-lg font-semibold hover:brightness-95 transition"
+            >
+              카카오로 계속하기
+            </button>
+            <button
+              type="button"
+              onClick={() => handleOAuth('google')}
+              className="w-full bg-white border border-gray-300 text-gray-700 py-2 rounded-lg font-semibold hover:bg-gray-50 transition"
+            >
+              Google로 계속하기
             </button>
           </form>
         </motion.div>

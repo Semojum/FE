@@ -1,34 +1,43 @@
 // src/hooks/useJobStream.ts
 import { useEffect, useState, useRef } from 'react';
-import { StreamPageData, StreamStatusData } from '../types/apiTypes';
+import {
+  JobDoneData,
+  QueuePositionData,
+  StreamPageData,
+} from '../types/apiTypes';
 import { API_BASE_URL } from '../api/JobService';
 
 interface UseJobStreamProps {
   jobId: string | null;
+  token?: string | null;
   onPageReceived: (data: StreamPageData) => void;
+  onJobDone?: (data: JobDoneData) => void;
+  onQueuePosition?: (data: QueuePositionData) => void;
   onError?: (error: Event) => void;
-  onStatusReceived?: (data: StreamStatusData) => void;
 }
 
 export const useJobStream = ({
   jobId,
+  token,
   onPageReceived,
-  onStatusReceived,
+  onJobDone,
+  onQueuePosition,
   onError,
 }: UseJobStreamProps) => {
   const [isStreaming, setIsStreaming] = useState(false);
 
-  // ✅ 1. 최신 콜백 함수를 유지하기 위한 Ref 생성
+  // ✅ 최신 콜백을 SSE 재연결 없이 교체하기 위한 Ref
   const onPageReceivedRef = useRef(onPageReceived);
-  const onStatusReceivedRef = useRef(onStatusReceived);
+  const onJobDoneRef = useRef(onJobDone);
+  const onQueuePositionRef = useRef(onQueuePosition);
   const onErrorRef = useRef(onError);
 
-  // ✅ 2. 렌더링될 때마다 최신 콜백으로 업데이트 (SSE를 끊지 않고 함수만 교체)
   useEffect(() => {
     onPageReceivedRef.current = onPageReceived;
-    onStatusReceivedRef.current = onStatusReceived;
+    onJobDoneRef.current = onJobDone;
+    onQueuePositionRef.current = onQueuePosition;
     onErrorRef.current = onError;
-  }, [onPageReceived, onStatusReceived, onError]);
+  }, [onPageReceived, onJobDone, onQueuePosition, onError]);
 
   useEffect(() => {
     if (!jobId) {
@@ -36,32 +45,40 @@ export const useJobStream = ({
       return;
     }
 
-    const url = `${API_BASE_URL}/job/${jobId}/events`;
+    // EventSource는 커스텀 헤더(Authorization)를 지원하지 않으므로
+    // 토큰은 쿼리 파라미터로 전달한다. (SSE는 명세상 아직 미구현)
+    const base = `${API_BASE_URL}/api/jobs/${jobId}/events`;
+    const url = token ? `${base}?token=${encodeURIComponent(token)}` : base;
     const eventSource = new EventSource(url);
     setIsStreaming(true);
 
-    eventSource.addEventListener('page', (event) => {
-      const rawData = (event as MessageEvent).data;
+    const parse = <T>(event: Event): T | null => {
       try {
-        const parsedData = JSON.parse(rawData) as StreamPageData;
-        onPageReceivedRef.current?.(parsedData);
+        return JSON.parse((event as MessageEvent).data) as T;
       } catch (err) {
-        console.error('Page parse error:', err);
+        console.error('SSE parse error:', err);
+        return null;
       }
+    };
+
+    // event: page_done — 페이지 변환 완료
+    eventSource.addEventListener('page_done', (event) => {
+      const data = parse<StreamPageData>(event);
+      if (data) onPageReceivedRef.current?.(data);
     });
 
-    eventSource.addEventListener('status', (event) => {
-      try {
-        const data = JSON.parse((event as MessageEvent).data) as StreamStatusData;
-        onStatusReceivedRef.current?.(data);
+    // event: job_done — 전체 변환 완료 → 스트림 종료
+    eventSource.addEventListener('job_done', (event) => {
+      const data = parse<JobDoneData>(event);
+      if (data) onJobDoneRef.current?.(data);
+      eventSource.close();
+      setIsStreaming(false);
+    });
 
-        if (data.status === 'FAILED' || data.done) {
-          eventSource.close();
-          setIsStreaming(false);
-        }
-      } catch (err) {
-        console.error('Status parse error:', err);
-      }
+    // event: queue_position — 대기열 위치 안내
+    eventSource.addEventListener('queue_position', (event) => {
+      const data = parse<QueuePositionData>(event);
+      if (data) onQueuePositionRef.current?.(data);
     });
 
     eventSource.onerror = (error) => {
@@ -75,7 +92,7 @@ export const useJobStream = ({
       eventSource.close();
       setIsStreaming(false);
     };
-  }, [jobId]); // 🚨 핵심: 의존성 배열에 jobId만 남김 (jobId가 바뀔 때만 재연결)
+  }, [jobId, token]); // jobId/token이 바뀔 때만 재연결
 
   return { isStreaming };
 };

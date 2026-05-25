@@ -1,14 +1,15 @@
 // src/hooks/useJobUpload.ts
 import { useState, useCallback } from 'react';
-import { JobMode, StartJobResponse } from '../types/apiTypes';
+import { JobMode, CreateJobResponse } from '../types/apiTypes';
 import { ConversionTab, TABS } from '../types';
-import { startJob } from '../api/JobService';
+import { createJob } from '../api/JobService';
 
 interface UseJobUploadReturn {
   uploadFile: (
     file: File,
     activeTab: ConversionTab,
-  ) => Promise<StartJobResponse | null>;
+    token?: string | null,
+  ) => Promise<CreateJobResponse | null>;
   isUploading: boolean;
   jobId: string | null;
   error: string | null;
@@ -27,7 +28,7 @@ export const useJobUpload = (): UseJobUploadReturn => {
   const [error, setError] = useState<string | null>(null);
 
   const uploadFile = useCallback(
-    async (file: File, activeTab: ConversionTab) => {
+    async (file: File, activeTab: ConversionTab, token?: string | null) => {
       setIsUploading(true);
       setError(null);
       setJobId(null);
@@ -35,8 +36,8 @@ export const useJobUpload = (): UseJobUploadReturn => {
       const mode = mapTabToMode(activeTab);
 
       try {
-        const data = await startJob(file, mode);
-        setJobId(data.job_id);
+        const data = await createJob(file, mode, token);
+        setJobId(data.jobId);
         return data;
       } catch (err) {
         const errorMessage =

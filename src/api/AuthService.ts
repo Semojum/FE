@@ -1,30 +1,36 @@
-import { AuthResponse, User } from '../types/auth';
+import { LoginResponse, SignupResponse } from '../types/auth';
 import { mockBackend } from './MockBackend';
 import { USE_MOCK_API } from './featureFlags';
+import { apiRequest, API_BASE_URL } from './apiClient';
 
+// POST /api/auth/signup — 가입 성공 시 { email, name } 반환 (토큰 없음)
 export const signup = (
   email: string,
   password: string,
   name: string,
-): Promise<AuthResponse> => {
+): Promise<SignupResponse> => {
   if (USE_MOCK_API) return mockBackend.signup(email, password, name);
-  throw new Error('실제 인증 API가 아직 구현되지 않았습니다.');
+  return apiRequest<SignupResponse>('/api/auth/signup', {
+    method: 'POST',
+    body: { email, name, password },
+  });
 };
 
+// POST /api/auth/login — { accessToken, refreshToken } 반환
 export const login = (
   email: string,
   password: string,
-): Promise<AuthResponse> => {
+): Promise<LoginResponse> => {
   if (USE_MOCK_API) return mockBackend.login(email, password);
-  throw new Error('실제 인증 API가 아직 구현되지 않았습니다.');
+  return apiRequest<LoginResponse>('/api/auth/login', {
+    method: 'POST',
+    body: { email, password },
+  });
 };
 
-export const me = (token: string): Promise<User> => {
-  if (USE_MOCK_API) return mockBackend.me(token);
-  throw new Error('실제 인증 API가 아직 구현되지 않았습니다.');
-};
+export type OAuthProvider = 'kakao' | 'google';
 
-export const logout = (token: string): Promise<void> => {
-  if (USE_MOCK_API) return mockBackend.logout(token);
-  throw new Error('실제 인증 API가 아직 구현되지 않았습니다.');
-};
+// 소셜 로그인은 브라우저가 직접 이동 → 완료 후
+// {FE_URL}/oauth2/callback?accessToken=...&refreshToken=... 로 리다이렉트된다.
+export const getOAuthUrl = (provider: OAuthProvider): string =>
+  `${API_BASE_URL}/oauth2/authorization/${provider}`;

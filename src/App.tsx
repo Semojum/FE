@@ -48,6 +48,10 @@ import {
   TAB_VALUES,
 } from './types';
 import { JobDetail } from './types/auth';
+import {
+  fileValidationMessage,
+  TAB_ALLOWED_FILE_LABEL,
+} from './utils/fileValidation';
 
 const BrailleMate: React.FC = () => {
   const isPopup = useMemo(
@@ -66,6 +70,7 @@ const BrailleMate: React.FC = () => {
     handleFileDrop,
     setPage,
     setTotalPages,
+    setFileError,
     reset: resetFile,
   } = useFileHandler();
   const {
@@ -104,6 +109,19 @@ const BrailleMate: React.FC = () => {
   const auth = useAuth();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isMyPageOpen, setIsMyPageOpen] = useState(false);
+
+  // 소셜 로그인 콜백 처리: {FE_URL}/oauth2/callback?accessToken=...&refreshToken=...
+  const { loginWithTokens } = auth;
+  useEffect(() => {
+    if (isPopup) return;
+    const params = new URLSearchParams(window.location.search);
+    const accessToken = params.get('accessToken');
+    const refreshToken = params.get('refreshToken');
+    if (!accessToken) return;
+    loginWithTokens(accessToken, refreshToken);
+    // 토큰을 URL에서 제거해 노출/재처리 방지
+    window.history.replaceState({}, '', window.location.pathname);
+  }, [isPopup, loginWithTokens]);
 
   const currentPage = fileState.currentPage;
   const currentBlocks = getBlocks(currentPage);
@@ -169,8 +187,16 @@ const BrailleMate: React.FC = () => {
   useEffect(() => {
     if (isPopup) return;
     if (!fileState.file || isUploading || jobId) return;
-    uploadFile(fileState.file, activeTab);
-  }, [isPopup, fileState.file, activeTab, uploadFile, isUploading, jobId]);
+    uploadFile(fileState.file, activeTab, auth.token);
+  }, [
+    isPopup,
+    fileState.file,
+    activeTab,
+    uploadFile,
+    isUploading,
+    jobId,
+    auth.token,
+  ]);
 
   const handlePageReceived = usePageStreamHandler({
     activeTab,
@@ -185,6 +211,7 @@ const BrailleMate: React.FC = () => {
 
   const { isStreaming } = useJobStream({
     jobId: isPopup ? null : jobId,
+    token: auth.token,
     onPageReceived: handlePageReceived,
   });
 
@@ -272,21 +299,25 @@ const BrailleMate: React.FC = () => {
     onJobLoaded: handleJobLoaded,
   });
 
+  // 명세 모드별 허용 파일: a(OCR)=PDF, b(점역)=TXT/HWP, c(통합)=PDF
   const acceptConfig = useMemo<Accept>((): Accept => {
     if (activeTab === TABS.BRAILLE) {
       return { 'text/plain': ['.txt'], 'application/x-hwp': ['.hwp'] };
     }
-    return {
-      'image/*': ['.jpeg', '.jpg', '.png'],
-      'application/pdf': ['.pdf'],
-    };
+    return { 'application/pdf': ['.pdf'] };
   }, [activeTab]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop: handleFileDrop,
+    onDrop: (files) => handleFileDrop(files, activeTab),
+    onDropRejected: () => setFileError(fileValidationMessage(activeTab)),
     accept: acceptConfig,
     multiple: false,
   });
+
+  // 탭 전환 시 이전 검증 에러 메시지 제거
+  useEffect(() => {
+    setFileError(null);
+  }, [activeTab, setFileError]);
 
   const handleDownload = () => {
     const allPages = Object.keys(blocksByPage)
@@ -465,6 +496,15 @@ const BrailleMate: React.FC = () => {
                     <p className="text-gray-600 font-medium">
                       드래그 앤 드롭 또는 클릭하여 파일 업로드
                     </p>
+                    <p className="text-xs text-gray-400 mt-2">
+                      지원 형식: {TAB_ALLOWED_FILE_LABEL[activeTab]}
+                    </p>
+                    {fileState.error && (
+                      <p className="flex items-center gap-1 text-sm text-red-500 mt-3">
+                        <AlertCircle size={14} />
+                        {fileState.error}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <FilePreviewer

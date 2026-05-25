@@ -1,10 +1,11 @@
 import {
-  AuthResponse,
   JobDetail,
   JobSummary,
+  LoginResponse,
   SaveJobInput,
-  User,
+  SignupResponse,
 } from '../types/auth';
+import { decodeJwt, encodeMockJwt, isExpired } from '../utils/jwt';
 
 const STORAGE_KEY = 'braillemate-mock-db';
 
@@ -21,18 +22,20 @@ interface StoredJob extends JobDetail {
 
 interface MockDb {
   users: StoredUser[];
-  tokens: Record<string, string>; // token → userId
   jobs: StoredJob[];
 }
 
 const loadDb = (): MockDb => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as MockDb;
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<MockDb>;
+      return { users: parsed.users ?? [], jobs: parsed.jobs ?? [] };
+    }
   } catch {
     // fall through to default
   }
-  return { users: [], tokens: {}, jobs: [] };
+  return { users: [], jobs: [] };
 };
 
 const saveDb = (db: MockDb) => {
@@ -42,6 +45,9 @@ const saveDb = (db: MockDb) => {
 const delay = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 const genId = () => crypto.randomUUID();
 
+const ACCESS_TTL_SEC = 60 * 60; // 1h
+const REFRESH_TTL_SEC = 60 * 60 * 24; // 24h
+
 export class MockBackendError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -50,10 +56,31 @@ export class MockBackendError extends Error {
   }
 }
 
-const requireUserId = (db: MockDb, token: string): string => {
-  const userId = db.tokens[token];
-  if (!userId) throw new MockBackendError('인증이 만료되었습니다.', 401);
-  return userId;
+// 명세에 GET /me가 없으므로, mock도 실제 API처럼 accessToken(JWT)을 발급하고
+// 보호 자원 접근 시 토큰의 sub(userId)를 디코드해 사용자를 식별한다.
+const issueTokens = (user: StoredUser): LoginResponse => {
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    accessToken: encodeMockJwt({
+      sub: user.id,
+      email: user.email,
+      name: user.name,
+      exp: now + ACCESS_TTL_SEC,
+    }),
+    refreshToken: encodeMockJwt({
+      sub: user.id,
+      type: 'refresh',
+      exp: now + REFRESH_TTL_SEC,
+    }),
+  };
+};
+
+const requireUserId = (token: string): string => {
+  const payload = decodeJwt(token);
+  if (!payload?.sub || isExpired(payload)) {
+    throw new MockBackendError('인증이 만료되었습니다.', 401);
+  }
+  return payload.sub;
 };
 
 const stripUserId = (job: StoredJob): JobDetail => {
@@ -67,21 +94,18 @@ export const mockBackend = {
     email: string,
     password: string,
     name: string,
-  ): Promise<AuthResponse> {
+  ): Promise<SignupResponse> {
     await delay();
     const db = loadDb();
     if (db.users.some((u) => u.email === email)) {
       throw new MockBackendError('이미 가입된 이메일입니다.', 409);
     }
-    const id = genId();
-    db.users.push({ id, email, password, name });
-    const token = genId();
-    db.tokens[token] = id;
+    db.users.push({ id: genId(), email, password, name });
     saveDb(db);
-    return { token, user: { id, email, name } };
+    return { email, name };
   },
 
-  async login(email: string, password: string): Promise<AuthResponse> {
+  async login(email: string, password: string): Promise<LoginResponse> {
     await delay();
     const db = loadDb();
     const u = db.users.find(
@@ -93,32 +117,13 @@ export const mockBackend = {
         401,
       );
     }
-    const token = genId();
-    db.tokens[token] = u.id;
-    saveDb(db);
-    return { token, user: { id: u.id, email: u.email, name: u.name } };
-  },
-
-  async me(token: string): Promise<User> {
-    await delay(100);
-    const db = loadDb();
-    const userId = requireUserId(db, token);
-    const u = db.users.find((x) => x.id === userId);
-    if (!u) throw new MockBackendError('사용자를 찾을 수 없습니다.', 404);
-    return { id: u.id, email: u.email, name: u.name };
-  },
-
-  async logout(token: string): Promise<void> {
-    await delay(80);
-    const db = loadDb();
-    delete db.tokens[token];
-    saveDb(db);
+    return issueTokens(u);
   },
 
   async listJobs(token: string): Promise<JobSummary[]> {
     await delay(150);
     const db = loadDb();
-    const userId = requireUserId(db, token);
+    const userId = requireUserId(token);
     return db.jobs
       .filter((j) => j.userId === userId)
       .map(({ userId: _u, blocksByPage: _b, bboxDataByPage: _x, originalTextsByPage: _o, imgResolution: _r, totalPages: _t, ...rest }) => {
@@ -131,7 +136,7 @@ export const mockBackend = {
   async getJob(token: string, id: string): Promise<JobDetail> {
     await delay(150);
     const db = loadDb();
-    const userId = requireUserId(db, token);
+    const userId = requireUserId(token);
     const job = db.jobs.find((j) => j.id === id && j.userId === userId);
     if (!job) throw new MockBackendError('작업을 찾을 수 없습니다.', 404);
     return stripUserId(job);
@@ -140,7 +145,7 @@ export const mockBackend = {
   async saveJob(token: string, input: SaveJobInput): Promise<JobDetail> {
     await delay(200);
     const db = loadDb();
-    const userId = requireUserId(db, token);
+    const userId = requireUserId(token);
     const job: StoredJob = {
       id: genId(),
       userId,
@@ -155,7 +160,7 @@ export const mockBackend = {
   async deleteJob(token: string, id: string): Promise<void> {
     await delay(120);
     const db = loadDb();
-    const userId = requireUserId(db, token);
+    const userId = requireUserId(token);
     const idx = db.jobs.findIndex((j) => j.id === id && j.userId === userId);
     if (idx < 0) throw new MockBackendError('작업을 찾을 수 없습니다.', 404);
     db.jobs.splice(idx, 1);

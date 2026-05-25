@@ -20,8 +20,9 @@ describe('MyPageModal', () => {
   let token: string;
 
   beforeEach(async () => {
-    const auth = await mockBackend.signup('mp@x.com', 'pw', 'MP');
-    token = auth.token;
+    await mockBackend.signup('mp@x.com', 'pw', 'MP');
+    const auth = await mockBackend.login('mp@x.com', 'pw');
+    token = auth.accessToken;
   });
 
   it('renders nothing when isOpen=false', () => {

@@ -69,15 +69,16 @@ describe('useAuth', () => {
   });
 
   it('restores session from localStorage on mount', async () => {
-    const auth = await mockBackend.signup('seed@x.com', 'pw', 'Seed');
-    localStorage.setItem(TOKEN_KEY, auth.token);
+    await mockBackend.signup('seed@x.com', 'pw', 'Seed');
+    const { accessToken } = await mockBackend.login('seed@x.com', 'pw');
+    localStorage.setItem(TOKEN_KEY, accessToken);
 
     const { result } = renderHook(() => useAuth());
     await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
     expect(result.current.user?.email).toBe('seed@x.com');
   });
 
-  it('clears bogus token from localStorage if me() fails', async () => {
+  it('clears bogus token from localStorage on mount', async () => {
     localStorage.setItem(TOKEN_KEY, 'invalid-token');
     const { result } = renderHook(() => useAuth());
     await waitFor(() => expect(result.current.isLoading).toBe(false));

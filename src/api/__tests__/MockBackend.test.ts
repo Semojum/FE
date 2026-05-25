@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mockBackend, MockBackendError } from '../MockBackend';
+import { decodeJwt } from '../../utils/jwt';
 import type { SaveJobInput } from '../../types/auth';
 
 const sampleJobInput: SaveJobInput = {
@@ -13,15 +14,17 @@ const sampleJobInput: SaveJobInput = {
   imgResolution: { width: 0, height: 0 },
 };
 
+// 가입 후 로그인하여 accessToken을 얻는 헬퍼 (명세상 signup은 토큰을 발급하지 않음)
+const tokenFor = async (email: string, pw = 'pw', name = 'User') => {
+  await mockBackend.signup(email, pw, name);
+  const { accessToken } = await mockBackend.login(email, pw);
+  return accessToken;
+};
+
 describe('mockBackend.signup', () => {
-  it('creates a new user and returns token + user', async () => {
+  it('creates a new user and returns { email, name } (no token)', async () => {
     const res = await mockBackend.signup('a@b.com', 'pw', 'Alice');
-    expect(res.token).toEqual(expect.any(String));
-    expect(res.user).toMatchObject({
-      email: 'a@b.com',
-      name: 'Alice',
-    });
-    expect(res.user.id).toEqual(expect.any(String));
+    expect(res).toEqual({ email: 'a@b.com', name: 'Alice' });
   });
 
   it('rejects duplicate email with 409', async () => {
@@ -33,26 +36,18 @@ describe('mockBackend.signup', () => {
       message: expect.stringMatching(/이미 가입/),
     });
   });
-
-  it('persists user across calls (localStorage)', async () => {
-    await mockBackend.signup('a@b.com', 'pw', 'Alice');
-    const res = await mockBackend.login('a@b.com', 'pw');
-    expect(res.user.email).toBe('a@b.com');
-  });
 });
 
 describe('mockBackend.login', () => {
-  it('returns auth response on valid credentials', async () => {
+  it('returns decodable accessToken/refreshToken on valid credentials', async () => {
     await mockBackend.signup('a@b.com', 'pw', 'Alice');
     const res = await mockBackend.login('a@b.com', 'pw');
-    expect(res.user.email).toBe('a@b.com');
-    expect(res.token).toEqual(expect.any(String));
-  });
+    expect(res.accessToken).toEqual(expect.any(String));
+    expect(res.refreshToken).toEqual(expect.any(String));
 
-  it('issues a different token than signup', async () => {
-    const signupRes = await mockBackend.signup('a@b.com', 'pw', 'Alice');
-    const loginRes = await mockBackend.login('a@b.com', 'pw');
-    expect(loginRes.token).not.toBe(signupRes.token);
+    const payload = decodeJwt(res.accessToken);
+    expect(payload?.email).toBe('a@b.com');
+    expect(payload?.name).toBe('Alice');
   });
 
   it('rejects wrong password with 401', async () => {
@@ -69,35 +64,9 @@ describe('mockBackend.login', () => {
   });
 });
 
-describe('mockBackend.me', () => {
-  it('returns user profile for valid token', async () => {
-    const { token } = await mockBackend.signup('a@b.com', 'pw', 'Alice');
-    const me = await mockBackend.me(token);
-    expect(me).toMatchObject({ email: 'a@b.com', name: 'Alice' });
-  });
-
-  it('rejects invalid token with 401', async () => {
-    await expect(mockBackend.me('bogus-token')).rejects.toMatchObject({
-      status: 401,
-    });
-  });
-});
-
-describe('mockBackend.logout', () => {
-  it('invalidates the token so subsequent me() fails', async () => {
-    const { token } = await mockBackend.signup('a@b.com', 'pw', 'Alice');
-    await mockBackend.logout(token);
-    await expect(mockBackend.me(token)).rejects.toMatchObject({ status: 401 });
-  });
-
-  it('is idempotent (logout already-invalid token does not throw)', async () => {
-    await expect(mockBackend.logout('any')).resolves.toBeUndefined();
-  });
-});
-
 describe('mockBackend.saveJob / listJobs / getJob / deleteJob', () => {
   it('saves a job and returns it via list and get', async () => {
-    const { token } = await mockBackend.signup('a@b.com', 'pw', 'Alice');
+    const token = await tokenFor('a@b.com');
     const saved = await mockBackend.saveJob(token, sampleJobInput);
 
     const list = await mockBackend.listJobs(token);
@@ -115,12 +84,11 @@ describe('mockBackend.saveJob / listJobs / getJob / deleteJob', () => {
   });
 
   it('lists user jobs sorted newest first', async () => {
-    const { token } = await mockBackend.signup('a@b.com', 'pw', 'Alice');
+    const token = await tokenFor('a@b.com');
     const a = await mockBackend.saveJob(token, {
       ...sampleJobInput,
       title: 'first',
     });
-    // Slight delay so createdAt strictly differs
     await new Promise((r) => setTimeout(r, 5));
     const b = await mockBackend.saveJob(token, {
       ...sampleJobInput,
@@ -132,27 +100,27 @@ describe('mockBackend.saveJob / listJobs / getJob / deleteJob', () => {
   });
 
   it('isolates jobs across users', async () => {
-    const a = await mockBackend.signup('a@b.com', 'pw', 'Alice');
-    const b = await mockBackend.signup('b@b.com', 'pw', 'Bob');
+    const aTok = await tokenFor('a@b.com', 'pw', 'Alice');
+    const bTok = await tokenFor('b@b.com', 'pw', 'Bob');
 
-    await mockBackend.saveJob(a.token, { ...sampleJobInput, title: 'A의 일' });
+    await mockBackend.saveJob(aTok, { ...sampleJobInput, title: 'A의 일' });
 
-    expect(await mockBackend.listJobs(a.token)).toHaveLength(1);
-    expect(await mockBackend.listJobs(b.token)).toHaveLength(0);
+    expect(await mockBackend.listJobs(aTok)).toHaveLength(1);
+    expect(await mockBackend.listJobs(bTok)).toHaveLength(0);
   });
 
   it('rejects getJob for jobs owned by other user (404)', async () => {
-    const a = await mockBackend.signup('a@b.com', 'pw', 'Alice');
-    const b = await mockBackend.signup('b@b.com', 'pw', 'Bob');
-    const saved = await mockBackend.saveJob(a.token, sampleJobInput);
+    const aTok = await tokenFor('a@b.com', 'pw', 'Alice');
+    const bTok = await tokenFor('b@b.com', 'pw', 'Bob');
+    const saved = await mockBackend.saveJob(aTok, sampleJobInput);
 
-    await expect(mockBackend.getJob(b.token, saved.id)).rejects.toMatchObject({
+    await expect(mockBackend.getJob(bTok, saved.id)).rejects.toMatchObject({
       status: 404,
     });
   });
 
   it('deleteJob removes the job', async () => {
-    const { token } = await mockBackend.signup('a@b.com', 'pw', 'Alice');
+    const token = await tokenFor('a@b.com');
     const saved = await mockBackend.saveJob(token, sampleJobInput);
 
     await mockBackend.deleteJob(token, saved.id);
@@ -164,14 +132,14 @@ describe('mockBackend.saveJob / listJobs / getJob / deleteJob', () => {
   });
 
   it('deleteJob 404s on unknown id', async () => {
-    const { token } = await mockBackend.signup('a@b.com', 'pw', 'Alice');
+    const token = await tokenFor('a@b.com');
     await expect(
       mockBackend.deleteJob(token, 'no-such'),
     ).rejects.toMatchObject({ status: 404 });
   });
 
   it.each(['listJobs', 'getJob', 'saveJob', 'deleteJob'] as const)(
-    '%s rejects expired token with 401',
+    '%s rejects invalid token with 401',
     async (method) => {
       const fn = mockBackend[method] as (
         token: string,

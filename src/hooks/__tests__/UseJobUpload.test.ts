@@ -1,22 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 
-// Mock the JobService startJob — useJobUpload imports it
+// Mock the JobService createJob — useJobUpload imports it
 vi.mock('../../api/JobService', () => ({
-  startJob: vi.fn(),
+  createJob: vi.fn(),
 }));
 
 import { useJobUpload } from '../UseJobUpload';
-import { startJob } from '../../api/JobService';
+import { createJob } from '../../api/JobService';
 
-const startJobMock = startJob as unknown as ReturnType<typeof vi.fn>;
+const createJobMock = createJob as unknown as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  startJobMock.mockReset();
+  createJobMock.mockReset();
 });
 
-const fakeFile = () =>
-  new File(['x'], 'a.pdf', { type: 'application/pdf' });
+const fakeFile = () => new File(['x'], 'a.pdf', { type: 'application/pdf' });
+
+const jobResult = (over: Record<string, unknown> = {}) => ({
+  jobId: 'job-1',
+  mode: 'a',
+  totalPages: 1,
+  status: 'PENDING',
+  ...over,
+});
 
 describe('useJobUpload', () => {
   it('starts in idle state', () => {
@@ -27,23 +34,22 @@ describe('useJobUpload', () => {
   });
 
   it('uploadFile happy path: sets jobId from response', async () => {
-    startJobMock.mockResolvedValue({
-      job_id: 'job-1',
-      status: 'PROCESSING',
-      message: 'ok',
-      mode: 'a',
-    });
+    createJobMock.mockResolvedValue(jobResult());
     const { result } = renderHook(() => useJobUpload());
 
     await act(async () => {
-      const res = await result.current.uploadFile(fakeFile(), 'OCR 변환');
-      expect(res?.job_id).toBe('job-1');
+      const res = await result.current.uploadFile(
+        fakeFile(),
+        'OCR 변환',
+        'tok',
+      );
+      expect(res?.jobId).toBe('job-1');
     });
 
     expect(result.current.jobId).toBe('job-1');
     expect(result.current.isUploading).toBe(false);
     expect(result.current.error).toBeNull();
-    expect(startJobMock).toHaveBeenCalledWith(expect.any(File), 'a');
+    expect(createJobMock).toHaveBeenCalledWith(expect.any(File), 'a', 'tok');
   });
 
   it.each([
@@ -51,21 +57,20 @@ describe('useJobUpload', () => {
     ['점역 변환', 'b'],
     ['통합 변환', 'c'],
   ] as const)('maps tab "%s" to mode "%s"', async (tab, expectedMode) => {
-    startJobMock.mockResolvedValue({
-      job_id: 'j',
-      status: 'PROCESSING',
-      message: '',
-      mode: expectedMode,
-    });
+    createJobMock.mockResolvedValue(jobResult({ mode: expectedMode }));
     const { result } = renderHook(() => useJobUpload());
     await act(async () => {
-      await result.current.uploadFile(fakeFile(), tab);
+      await result.current.uploadFile(fakeFile(), tab, 'tok');
     });
-    expect(startJobMock).toHaveBeenCalledWith(expect.any(File), expectedMode);
+    expect(createJobMock).toHaveBeenCalledWith(
+      expect.any(File),
+      expectedMode,
+      'tok',
+    );
   });
 
   it('uploadFile error: stores error message and returns null', async () => {
-    startJobMock.mockRejectedValue(new Error('boom'));
+    createJobMock.mockRejectedValue(new Error('boom'));
     const { result } = renderHook(() => useJobUpload());
 
     await act(async () => {
@@ -80,7 +85,7 @@ describe('useJobUpload', () => {
 
   it('isUploading flips during the in-flight call', async () => {
     let resolveFn: (v: unknown) => void = () => {};
-    startJobMock.mockReturnValue(
+    createJobMock.mockReturnValue(
       new Promise((r) => {
         resolveFn = r;
       }),
@@ -95,7 +100,7 @@ describe('useJobUpload', () => {
     await waitFor(() => expect(result.current.isUploading).toBe(true));
 
     await act(async () => {
-      resolveFn({ job_id: 'j', status: 'OK', message: '', mode: 'a' });
+      resolveFn(jobResult({ jobId: 'j' }));
       await uploadPromise!;
     });
 
@@ -103,12 +108,7 @@ describe('useJobUpload', () => {
   });
 
   it('resetUpload clears state', async () => {
-    startJobMock.mockResolvedValue({
-      job_id: 'j-1',
-      status: 'OK',
-      message: '',
-      mode: 'a',
-    });
+    createJobMock.mockResolvedValue(jobResult({ jobId: 'j-1' }));
     const { result } = renderHook(() => useJobUpload());
     await act(async () => {
       await result.current.uploadFile(fakeFile(), 'OCR 변환');

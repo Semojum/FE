@@ -84,6 +84,40 @@ describe('useFileHandler', () => {
     expect(result.current.fileState.textContent).toBe('mocked-hwp-content');
   });
 
+  it('rejects a file not allowed for the active tab and sets error', async () => {
+    const { result } = renderHook(() => useFileHandler());
+    // 점역(b) 모드에 PDF 투입 → 거부
+    const file = new File(['%PDF'], 'doc.pdf', { type: 'application/pdf' });
+
+    await act(async () => {
+      await result.current.handleFileDrop([file], '점역 변환');
+    });
+
+    expect(result.current.fileState.file).toBeNull();
+    expect(result.current.fileState.error).toMatch(/TXT, HWP/);
+  });
+
+  it('accepts an allowed file for the active tab and clears error', async () => {
+    const { result } = renderHook(() => useFileHandler());
+    const file = new File(['%PDF'], 'doc.pdf', { type: 'application/pdf' });
+
+    await act(async () => {
+      await result.current.handleFileDrop([file], 'OCR 변환');
+    });
+
+    expect(result.current.fileState.fileType).toBe('pdf');
+    expect(result.current.fileState.file).toBe(file);
+    expect(result.current.fileState.error).toBeNull();
+  });
+
+  it('setFileError sets and clears the error message', () => {
+    const { result } = renderHook(() => useFileHandler());
+    act(() => result.current.setFileError('형식 오류'));
+    expect(result.current.fileState.error).toBe('형식 오류');
+    act(() => result.current.setFileError(null));
+    expect(result.current.fileState.error).toBeNull();
+  });
+
   it('setPage updates currentPage', () => {
     const { result } = renderHook(() => useFileHandler());
     act(() => result.current.setPage(5));

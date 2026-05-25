@@ -12,9 +12,16 @@ export interface User {
   name: string;
 }
 
-export interface AuthResponse {
-  token: string;
-  user: User;
+// POST /api/auth/signup 응답 (result) — 토큰을 발급하지 않는다.
+export interface SignupResponse {
+  email: string;
+  name: string;
+}
+
+// POST /api/auth/login 응답 (result)
+export interface LoginResponse {
+  accessToken: string;
+  refreshToken: string;
 }
 
 export interface JobSummary {

@@ -1,3 +1,7 @@
+import type { RuleTrail } from './apiTypes';
+
+export type { RuleTrail };
+
 export const TABS = {
   OCR: 'OCR 변환',
   BRAILLE: '점역 변환',
@@ -17,6 +21,7 @@ export interface FileState {
   textContent?: string; // .txt / .hwp 파일의 텍스트 내용
   currentPage: number;
   totalPages: number;
+  error?: string | null; // 모드별 허용 파일 검증 실패 메시지
 }
 
 export interface PaginationProps {
@@ -55,6 +60,8 @@ export interface TranslationBlock {
   currentText: string;
   candidates: string[];
   bbox?: BoundingBox; // bbox 정보 추가
+  isBlocked?: boolean; // 명세 is_blocked: 처리 불가/검토 필요 요소
+  ruleTrail?: RuleTrail[]; // 명세 rule_trail: 적용된 점역 규정
 }
 
 export interface OriginalTextBlock {

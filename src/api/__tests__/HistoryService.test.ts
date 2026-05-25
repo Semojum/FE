@@ -19,8 +19,9 @@ describe('HistoryService (mock-backed)', () => {
   let token: string;
 
   beforeEach(async () => {
-    const res = await mockBackend.signup('hist@x.com', 'pw', 'Hist');
-    token = res.token;
+    await mockBackend.signup('hist@x.com', 'pw', 'Hist');
+    const res = await mockBackend.login('hist@x.com', 'pw');
+    token = res.accessToken;
   });
 
   it('saveJob → listJobs → getJob 전 흐름', async () => {
