@@ -11,6 +11,7 @@ describe('AuthModal', () => {
         onClose={vi.fn()}
         onLogin={vi.fn().mockResolvedValue(undefined)}
         onSignup={vi.fn().mockResolvedValue(undefined)}
+        onOAuthLogin={vi.fn()}
       />,
     );
     expect(container.firstChild).toBeNull();
@@ -23,6 +24,7 @@ describe('AuthModal', () => {
         onClose={vi.fn()}
         onLogin={vi.fn().mockResolvedValue(undefined)}
         onSignup={vi.fn().mockResolvedValue(undefined)}
+        onOAuthLogin={vi.fn()}
       />,
     );
     expect(screen.getByPlaceholderText('이메일')).toBeInTheDocument();
@@ -37,6 +39,7 @@ describe('AuthModal', () => {
         onClose={vi.fn()}
         onLogin={vi.fn().mockResolvedValue(undefined)}
         onSignup={vi.fn().mockResolvedValue(undefined)}
+        onOAuthLogin={vi.fn()}
       />,
     );
     await userEvent.click(screen.getByRole('button', { name: '회원가입' }));
@@ -52,6 +55,7 @@ describe('AuthModal', () => {
         onClose={onClose}
         onLogin={onLogin}
         onSignup={vi.fn().mockResolvedValue(undefined)}
+        onOAuthLogin={vi.fn()}
       />,
     );
     await userEvent.type(screen.getByPlaceholderText('이메일'), 'a@b.com');
@@ -72,6 +76,7 @@ describe('AuthModal', () => {
         onClose={vi.fn()}
         onLogin={vi.fn().mockResolvedValue(undefined)}
         onSignup={onSignup}
+        onOAuthLogin={vi.fn()}
       />,
     );
     await userEvent.click(screen.getByRole('button', { name: '회원가입' }));
@@ -91,6 +96,7 @@ describe('AuthModal', () => {
         onClose={vi.fn()}
         onLogin={onLogin}
         onSignup={vi.fn().mockResolvedValue(undefined)}
+        onOAuthLogin={vi.fn()}
       />,
     );
     await userEvent.type(screen.getByPlaceholderText('이메일'), 'a@b.com');
@@ -108,6 +114,7 @@ describe('AuthModal', () => {
         onClose={onClose}
         onLogin={vi.fn().mockResolvedValue(undefined)}
         onSignup={vi.fn().mockResolvedValue(undefined)}
+        onOAuthLogin={vi.fn()}
       />,
     );
     await userEvent.click(screen.getByLabelText('닫기'));

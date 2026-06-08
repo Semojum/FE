@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Loader2 } from 'lucide-react';
-import { getOAuthUrl, OAuthProvider } from '../../../api/AuthService';
+import { OAuthProvider } from '../../../types/auth';
 
 interface Props {
   isOpen: boolean;
@@ -12,6 +12,11 @@ interface Props {
     password: string,
     name: string,
   ) => Promise<void>;
+  // 소셜 로그인 시작(데스크톱 loopback 플로우)은 상위에서 처리
+  onOAuthLogin: (provider: OAuthProvider) => void | Promise<void>;
+  isAuthorizing?: boolean;
+  // 소셜 로그인 등 외부에서 발생한 에러를 표시하기 위한 메시지
+  externalError?: string | null;
 }
 
 const AuthModal: React.FC<Props> = ({
@@ -19,6 +24,9 @@ const AuthModal: React.FC<Props> = ({
   onClose,
   onLogin,
   onSignup,
+  onOAuthLogin,
+  isAuthorizing,
+  externalError,
 }) => {
   const [tab, setTab] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
@@ -26,6 +34,11 @@ const AuthModal: React.FC<Props> = ({
   const [name, setName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 외부 에러(소셜 로그인 콜백 실패 등)를 모달 에러로 반영
+  useEffect(() => {
+    if (externalError) setError(externalError);
+  }, [externalError]);
 
   if (!isOpen) return null;
 
@@ -41,9 +54,10 @@ const AuthModal: React.FC<Props> = ({
     setError(null);
   };
 
-  // 소셜 로그인은 브라우저를 직접 이동시킨다 (서버가 OAuth 핸드셰이크 후 콜백으로 리다이렉트).
+  // 소셜 로그인 시작은 상위(useOAuth)에 위임. 결과/에러는 externalError로 전달됨.
   const handleOAuth = (provider: OAuthProvider) => {
-    window.location.href = getOAuthUrl(provider);
+    setError(null);
+    void onOAuthLogin(provider);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -166,14 +180,16 @@ const AuthModal: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => handleOAuth('kakao')}
-              className="w-full bg-[#FEE500] text-[#3C1E1E] py-2 rounded-lg font-semibold hover:brightness-95 transition"
+              disabled={isAuthorizing}
+              className="w-full bg-[#FEE500] text-[#3C1E1E] py-2 rounded-lg font-semibold hover:brightness-95 transition disabled:opacity-50"
             >
               카카오로 계속하기
             </button>
             <button
               type="button"
               onClick={() => handleOAuth('google')}
-              className="w-full bg-white border border-gray-300 text-gray-700 py-2 rounded-lg font-semibold hover:bg-gray-50 transition"
+              disabled={isAuthorizing}
+              className="w-full bg-white border border-gray-300 text-gray-700 py-2 rounded-lg font-semibold hover:bg-gray-50 transition disabled:opacity-50"
             >
               Google로 계속하기
             </button>

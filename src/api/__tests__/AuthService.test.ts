@@ -27,12 +27,33 @@ describe('AuthService (mock-backed)', () => {
     ).rejects.toBeDefined();
   });
 
-  it('getOAuthUrl은 provider별 인증 URL을 만든다', () => {
-    expect(authService.getOAuthUrl('kakao')).toMatch(
-      /\/oauth2\/authorization\/kakao$/,
+  it('logout은 정상 처리된다 (mock no-op)', async () => {
+    await authService.signup('lo@x.com', 'pw', 'Lo');
+    const { accessToken, refreshToken } = await authService.login(
+      'lo@x.com',
+      'pw',
     );
-    expect(authService.getOAuthUrl('google')).toMatch(
-      /\/oauth2\/authorization\/google$/,
+    await expect(
+      authService.logout(accessToken, refreshToken),
+    ).resolves.toBeNull();
+  });
+
+  it('refresh는 refreshToken으로 새 accessToken을 재발급', async () => {
+    await authService.signup('rf@x.com', 'pw', 'Rf');
+    const { accessToken, refreshToken } = await authService.login(
+      'rf@x.com',
+      'pw',
     );
+    const res = await authService.refresh(accessToken, refreshToken);
+    expect(res.accessToken).toEqual(expect.any(String));
+
+    const payload = decodeJwt(res.accessToken);
+    expect(payload?.email).toBe('rf@x.com');
+  });
+
+  it('refresh는 만료/손상된 refreshToken에 대해 throw', async () => {
+    await expect(
+      authService.refresh(null, 'bogus-token'),
+    ).rejects.toBeDefined();
   });
 });

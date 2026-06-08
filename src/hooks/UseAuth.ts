@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { User } from '../types/auth';
-import { login as apiLogin, signup as apiSignup } from '../api/AuthService';
+import {
+  login as apiLogin,
+  logout as apiLogout,
+  refresh as apiRefresh,
+  signup as apiSignup,
+} from '../api/AuthService';
 import { decodeJwt, isExpired } from '../utils/jwt';
 
 const TOKEN_KEY = 'braillemate-token'; // accessToken
@@ -83,13 +88,35 @@ export const useAuth = () => {
     [loginWithTokens],
   );
 
-  // 명세에 로그아웃 엔드포인트가 없으므로 클라이언트 세션만 정리한다.
+  // refreshToken으로 accessToken을 재발급한다. 성공 시 새 accessToken 반환, 실패 시 null.
+  const refreshSession = useCallback(async (): Promise<string | null> => {
+    const refreshToken = localStorage.getItem(REFRESH_KEY);
+    if (!refreshToken) return null;
+    try {
+      const res = await apiRefresh(token, refreshToken);
+      localStorage.setItem(TOKEN_KEY, res.accessToken);
+      setUser(userFromToken(res.accessToken));
+      setToken(res.accessToken);
+      return res.accessToken;
+    } catch {
+      return null;
+    }
+  }, [token]);
+
+  // 서버 로그아웃을 호출한 뒤 로컬 세션을 정리한다.
+  // (명세상 로그아웃 후에도 accessToken은 만료 전까지 유효하므로 로컬 삭제가 핵심)
   const logout = useCallback(async () => {
+    const refreshToken = localStorage.getItem(REFRESH_KEY);
+    try {
+      if (token) await apiLogout(token, refreshToken ?? '');
+    } catch {
+      // 서버 로그아웃 실패해도 로컬 세션은 반드시 정리한다.
+    }
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(REFRESH_KEY);
     setUser(null);
     setToken(null);
-  }, []);
+  }, [token]);
 
   return {
     token,
@@ -100,5 +127,6 @@ export const useAuth = () => {
     signup,
     logout,
     loginWithTokens,
+    refreshSession,
   };
 };
