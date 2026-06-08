@@ -30,6 +30,7 @@ import {
 } from './hooks/UsePopupSync';
 import { usePageStreamHandler } from './hooks/UsePageStreamHandler';
 import { useSavedJobs } from './hooks/UseSavedJobs';
+import { useOAuth } from './hooks/UseOAuth';
 
 // Components
 import FilePreviewer from './component/features/conversion/FilePreviewer';
@@ -110,18 +111,13 @@ const BrailleMate: React.FC = () => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isMyPageOpen, setIsMyPageOpen] = useState(false);
 
-  // 소셜 로그인 콜백 처리: {FE_URL}/oauth2/callback?accessToken=...&refreshToken=...
-  const { loginWithTokens } = auth;
-  useEffect(() => {
-    if (isPopup) return;
-    const params = new URLSearchParams(window.location.search);
-    const accessToken = params.get('accessToken');
-    const refreshToken = params.get('refreshToken');
-    if (!accessToken) return;
-    loginWithTokens(accessToken, refreshToken);
-    // 토큰을 URL에서 제거해 노출/재처리 방지
-    window.history.replaceState({}, '', window.location.pathname);
-  }, [isPopup, loginWithTokens]);
+  // 데스크톱 소셜 로그인(loopback): 시스템 브라우저로 로그인 → 127.0.0.1 redirect 수신 →
+  // BE(/api/auth/{provider})와 code 교환. 성공 시 loginWithTokens로 세션 반영.
+  const {
+    startLogin: startOAuthLogin,
+    isAuthorizing,
+    error: oauthError,
+  } = useOAuth(auth.loginWithTokens);
 
   const currentPage = fileState.currentPage;
   const currentBlocks = getBlocks(currentPage);
@@ -684,12 +680,16 @@ const BrailleMate: React.FC = () => {
             onClose={() => setIsAuthModalOpen(false)}
             onLogin={auth.login}
             onSignup={auth.signup}
+            onOAuthLogin={startOAuthLogin}
+            isAuthorizing={isAuthorizing}
+            externalError={oauthError}
           />
           {auth.token && (
             <MyPageModal
               isOpen={isMyPageOpen}
               onClose={() => setIsMyPageOpen(false)}
               token={auth.token}
+              user={auth.user}
               onSelect={handleSelectJob}
             />
           )}

@@ -2,6 +2,7 @@ import {
   JobDetail,
   JobSummary,
   LoginResponse,
+  RefreshResponse,
   SaveJobInput,
   SignupResponse,
 } from '../types/auth';
@@ -118,6 +119,33 @@ export const mockBackend = {
       );
     }
     return issueTokens(u);
+  },
+
+  // 명세상 result는 null. mock은 서버 세션이 없으므로 사실상 no-op.
+  async logout(): Promise<null> {
+    await delay(80);
+    return null;
+  },
+
+  // refreshToken(JWT)의 sub로 사용자를 찾아 accessToken만 재발급한다.
+  async refresh(refreshToken: string): Promise<RefreshResponse> {
+    await delay(80);
+    const payload = decodeJwt(refreshToken);
+    if (!payload?.sub || isExpired(payload)) {
+      throw new MockBackendError('refresh token이 만료되었습니다.', 401);
+    }
+    const db = loadDb();
+    const u = db.users.find((x) => x.id === payload.sub);
+    if (!u) throw new MockBackendError('존재하지 않는 회원입니다.', 404);
+    const now = Math.floor(Date.now() / 1000);
+    return {
+      accessToken: encodeMockJwt({
+        sub: u.id,
+        email: u.email,
+        name: u.name,
+        exp: now + ACCESS_TTL_SEC,
+      }),
+    };
   },
 
   async listJobs(token: string): Promise<JobSummary[]> {

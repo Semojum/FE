@@ -24,6 +24,22 @@ export interface LoginResponse {
   refreshToken: string;
 }
 
+// POST /api/auth/refresh 응답 (result) — accessToken만 재발급
+export interface RefreshResponse {
+  accessToken: string;
+}
+
+export type OAuthProvider = 'kakao' | 'google';
+
+// POST /api/auth/{kakao|google} 요청 본문.
+// 클라이언트가 OAuth2(+PKCE) 플로우로 받은 code를 BE에 넘겨 토큰으로 교환한다.
+// kakao는 PKCE를 쓰지 않으므로 codeVerifier는 빈 문자열로 보낸다.
+export interface OAuthExchangeRequest {
+  code: string;
+  codeVerifier: string;
+  redirectUri: string;
+}
+
 export interface JobSummary {
   id: string;
   title: string;

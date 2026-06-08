@@ -5,6 +5,7 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "http:default"
+    "http:default",
+    "oauth:default"
   ]
 }

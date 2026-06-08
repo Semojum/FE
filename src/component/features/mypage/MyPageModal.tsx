@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Trash2, Loader2, FileText, Calendar } from 'lucide-react';
-import { JobSummary } from '../../../types/auth';
+import { X, Trash2, Loader2, FileText, Calendar, Info } from 'lucide-react';
+import { JobSummary, User } from '../../../types/auth';
 import { listJobs, deleteJob } from '../../../api/HistoryService';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   token: string;
+  user?: User | null;
   onSelect: (jobId: string) => void;
 }
 
@@ -15,6 +16,7 @@ const MyPageModal: React.FC<Props> = ({
   isOpen,
   onClose,
   token,
+  user,
   onSelect,
 }) => {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
@@ -74,9 +76,7 @@ const MyPageModal: React.FC<Props> = ({
           className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden border border-gray-100 flex flex-col"
         >
           <div className="flex justify-between items-center p-4 border-b border-gray-100">
-            <h3 className="font-bold text-lg text-gray-800">
-              마이페이지 — 이전 작업
-            </h3>
+            <h3 className="font-bold text-lg text-gray-800">마이페이지</h3>
             <button
               onClick={onClose}
               className="p-1 hover:bg-gray-100 rounded-full transition-colors"
@@ -86,7 +86,33 @@ const MyPageModal: React.FC<Props> = ({
             </button>
           </div>
 
+          {/* 사용자 프로필 (토큰 기반 임시 표시) */}
+          <div className="flex items-center gap-4 px-5 py-4 border-b border-gray-100 bg-gray-50/60">
+            <div className="w-12 h-12 rounded-full bg-[#407FAC]/10 text-[#407FAC] flex items-center justify-center font-bold text-lg shrink-0">
+              {(user?.name ?? user?.email ?? '?').charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-gray-800 truncate">
+                {user?.name || '사용자'}
+              </p>
+              <p className="text-sm text-gray-500 truncate">
+                {user?.email || '-'}
+              </p>
+            </div>
+          </div>
+
           <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-semibold text-gray-700">최근 작업</h4>
+            </div>
+            <div className="flex items-start gap-2 mb-4 p-3 rounded-lg bg-amber-50 border border-amber-100 text-amber-700 text-xs">
+              <Info size={14} className="mt-0.5 shrink-0" />
+              <span>
+                임시 기능입니다. 작업 이력은 현재 이 브라우저에만 저장되며(로컬
+                전용), 서버 이력 API 연동 시 교체될 예정입니다.
+              </span>
+            </div>
+
             {isLoading ? (
               <div className="flex flex-col items-center justify-center py-20 text-gray-400 gap-2">
                 <Loader2 className="animate-spin" size={32} />
