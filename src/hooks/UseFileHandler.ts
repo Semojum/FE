@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { ConversionTab, FileState } from '../types';
+import { ConversionTab, FileState, FileType } from '../types';
 import { parseHwpToText } from '../component/shared/HwpParser';
 import {
   detectFileType,
@@ -73,6 +73,29 @@ export const useFileHandler = () => {
     [],
   );
 
+  // 저장된 작업을 불러올 때 입력 미리보기를 복원한다. 원본 File은 서버에 없으므로
+  // file은 null로 둬서 재업로드(useEffect 업로드 트리거)가 발생하지 않게 한다.
+  const setRestoredPreview = useCallback(
+    (preview: {
+      fileType: FileType | null;
+      previewUrl?: string | null;
+      textContent?: string;
+    }) => {
+      setFileState((prev) => {
+        if (prev.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+        return {
+          ...prev,
+          file: null,
+          fileType: preview.fileType,
+          previewUrl: preview.previewUrl ?? null,
+          textContent: preview.textContent ?? '',
+          error: null,
+        };
+      });
+    },
+    [],
+  );
+
   const setPage = useCallback((page: number) => {
     setFileState((prev) => ({ ...prev, currentPage: page }));
   }, []);
@@ -106,6 +129,7 @@ export const useFileHandler = () => {
   return {
     fileState,
     handleFileDrop,
+    setRestoredPreview,
     setPage,
     setTotalPages,
     setFileError,

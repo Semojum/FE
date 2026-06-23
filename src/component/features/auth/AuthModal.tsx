@@ -17,6 +17,8 @@ interface Props {
   isAuthorizing?: boolean;
   // 소셜 로그인 등 외부에서 발생한 에러를 표시하기 위한 메시지
   externalError?: string | null;
+  // false면 닫기(X·배경 클릭)를 비활성화한다 — 로그인 게이트처럼 닫을 수 없는 경우.
+  dismissible?: boolean;
 }
 
 const AuthModal: React.FC<Props> = ({
@@ -27,6 +29,7 @@ const AuthModal: React.FC<Props> = ({
   onOAuthLogin,
   isAuthorizing,
   externalError,
+  dismissible = true,
 }) => {
   const [tab, setTab] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
@@ -86,7 +89,7 @@ const AuthModal: React.FC<Props> = ({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          onClick={onClose}
+          onClick={dismissible ? onClose : undefined}
           className="absolute inset-0 bg-black/30 backdrop-blur-sm"
         />
         <motion.div
@@ -118,13 +121,15 @@ const AuthModal: React.FC<Props> = ({
                 회원가입
               </button>
             </div>
-            <button
-              onClick={onClose}
-              className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-              aria-label="닫기"
-            >
-              <X size={18} className="text-gray-500" />
-            </button>
+            {dismissible && (
+              <button
+                onClick={onClose}
+                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                aria-label="닫기"
+              >
+                <X size={18} className="text-gray-500" />
+              </button>
+            )}
           </div>
 
           <form onSubmit={handleSubmit} className="p-6 space-y-4">

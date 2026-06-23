@@ -1,7 +1,7 @@
 // 브라우저에서 JWT payload를 읽기 위한 경량 유틸.
 // 서명은 검증하지 않는다 — 명세상 GET /me가 없으므로 accessToken(JWT)의
 // payload(email/name/sub/exp)만 사용자 정보 표시 용도로 디코드한다.
-// encodeMockJwt는 mock 백엔드가 동일한 디코드 경로를 타도록 가짜 토큰을 만들 때 쓴다.
+// encodeMockJwt는 테스트에서 디코드 가능한 가짜 accessToken을 만들 때 쓴다.
 
 export interface JwtPayload {
   sub?: string;
@@ -54,7 +54,7 @@ export const isExpired = (payload: JwtPayload | null): boolean => {
   return payload.exp * 1000 <= Date.now();
 };
 
-// mock 백엔드 전용: 서명 없는, 디코드 가능한 가짜 JWT 생성
+// 테스트 전용: 서명 없는, 디코드 가능한 가짜 JWT 생성
 export const encodeMockJwt = (payload: JwtPayload): string => {
   const header = utf8ToBase64Url(JSON.stringify({ alg: 'none', typ: 'JWT' }));
   const body = utf8ToBase64Url(JSON.stringify(payload));

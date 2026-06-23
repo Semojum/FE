@@ -5,6 +5,7 @@ import {
   OriginalTextBlock,
   TranslationBlock,
 } from './index';
+import { JobMode, StreamPageResult } from './apiTypes';
 
 export interface User {
   id: string;
@@ -40,29 +41,43 @@ export interface OAuthExchangeRequest {
   redirectUri: string;
 }
 
+// GET /api/users/jobs 응답 (result 배열 항목) — 작업 생성 시 자동 적재된다.
 export interface JobSummary {
-  id: string;
-  title: string;
-  mode: ConversionTab;
-  fileName: string;
-  createdAt: string; // ISO 8601
+  jobId: string;
+  mode: JobMode; // 'a' | 'b' | 'c'
+  status: string; // PENDING | IN_PROGRESS | COMPLETED
+  totalPages: number;
+  failedPages: number[];
+  originalFileName: string;
+  thumbnailUrl?: string;
+  startedAt: string; // ISO 8601 (LocalDateTime)
+  finishedAt: string | null;
 }
 
-export interface JobDetail extends JobSummary {
+// GET /api/users/jobs/{jobId}/pages/{pageNo} 응답 (result).
+// 내부 result는 SSE page_done의 result와 동일한 구조.
+export interface JobPageResponse {
+  jobId: string;
+  mode: JobMode;
+  status: string;
+  totalPages: number;
+  failedPages: number[];
+  originalFileName: string;
+  startedAt: string;
+  finishedAt: string | null;
+  pageNo: number;
+  result: StreamPageResult;
+}
+
+// 마이페이지에서 불러온 작업을 앱 내부 상태로 복원한 형태.
+// 서버는 페이지별로 결과를 내려주므로 클라이언트에서 페이지들을 합쳐 구성한다.
+export interface JobDetail {
+  mode: ConversionTab;
   totalPages: number;
   blocksByPage: Record<number, TranslationBlock[]>;
   bboxDataByPage: Record<number, BoundingBox[]>;
   originalTextsByPage: Record<number, OriginalTextBlock[]>;
   imgResolution: ImageResolution;
-}
-
-export interface SaveJobInput {
-  title: string;
-  mode: ConversionTab;
-  fileName: string;
-  totalPages: number;
-  blocksByPage: Record<number, TranslationBlock[]>;
-  bboxDataByPage: Record<number, BoundingBox[]>;
-  originalTextsByPage: Record<number, OriginalTextBlock[]>;
-  imgResolution: ImageResolution;
+  // 입력 미리보기용 썸네일(이미지 모드 a/c). 서버는 원본 파일을 보관하지 않는다.
+  thumbnailUrl?: string;
 }

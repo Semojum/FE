@@ -10,7 +10,6 @@ import {
   AlertCircle,
   Columns2,
   Square,
-  Save,
   User as UserIcon,
   LogOut,
   History,
@@ -69,6 +68,7 @@ const BrailleMate: React.FC = () => {
   const {
     fileState,
     handleFileDrop,
+    setRestoredPreview,
     setPage,
     setTotalPages,
     setFileError,
@@ -108,7 +108,6 @@ const BrailleMate: React.FC = () => {
   } = useTranslationBlocks();
 
   const auth = useAuth();
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isMyPageOpen, setIsMyPageOpen] = useState(false);
 
   // 데스크톱 소셜 로그인(loopback): 시스템 브라우저로 로그인 → 127.0.0.1 redirect 수신 →
@@ -123,6 +122,9 @@ const BrailleMate: React.FC = () => {
   const currentBlocks = getBlocks(currentPage);
   const currentBBoxData = bboxDataByPage[currentPage] || [];
   const currentOriginalTexts = originalTextsByPage[currentPage] || [];
+  // 입력 미리보기 존재 여부 — 업로드한 파일뿐 아니라 마이페이지에서 복원한
+  // 미리보기(file은 없지만 fileType/미리보기가 있는 경우)도 포함한다.
+  const hasInputPreview = !!fileState.fileType;
 
   const handleReset = useCallback(() => {
     resetFile();
@@ -273,25 +275,31 @@ const BrailleMate: React.FC = () => {
       setImgResolution(job.imgResolution);
       setTotalPages(job.totalPages);
       setPage(1);
+      // 입력 미리보기 복원: 점역(텍스트→점자)은 복원된 원본 텍스트를, 이미지 모드(a/c)는
+      // 작업 썸네일을 보여준다. (서버가 원본 파일을 보관하지 않아 썸네일이 최선)
+      if (job.mode === TABS.BRAILLE) {
+        // 라이브에서는 업로드 파일의 textContent가 입력이지만, 저장된 작업은 파일이 없으므로
+        // 응답의 원본 텍스트(text_list)를 페이지 순서대로 합쳐 입력 미리보기로 복원한다.
+        const restoredText = Object.keys(job.originalTextsByPage)
+          .map(Number)
+          .sort((a, b) => a - b)
+          .flatMap((p) => job.originalTextsByPage[p].map((blk) => blk.content))
+          .filter((t) => t.trim().length > 0)
+          .join('\n');
+        setRestoredPreview({ fileType: 'text', textContent: restoredText });
+      } else {
+        setRestoredPreview({
+          fileType: 'image',
+          previewUrl: job.thumbnailUrl ?? null,
+        });
+      }
       setIsMyPageOpen(false);
     },
-    [handleReset, setAllBlocks, setTotalPages, setPage],
+    [handleReset, setAllBlocks, setTotalPages, setPage, setRestoredPreview],
   );
 
-  const handleAuthRequired = useCallback(() => setIsAuthModalOpen(true), []);
-
-  const { isSaving, handleSaveJob, handleSelectJob } = useSavedJobs({
+  const { handleSelectJob } = useSavedJobs({
     token: auth.token,
-    current: {
-      activeTab,
-      fileName: fileState.file?.name ?? '',
-      totalPages: fileState.totalPages,
-      blocksByPage,
-      bboxDataByPage,
-      originalTextsByPage,
-      imgResolution,
-    },
-    onAuthRequired: handleAuthRequired,
     onJobLoaded: handleJobLoaded,
   });
 
@@ -350,6 +358,43 @@ const BrailleMate: React.FC = () => {
 
   const tabs = TAB_VALUES;
 
+  // 인증 게이트 — 결과 전용 팝업이 아닌 메인 창에서는 로그인해야 앱을 쓸 수 있다.
+  // 마운트 시 저장된 refreshToken으로 자동 로그인을 시도하고(auth.isInitializing),
+  // 끝나면 로그인 여부에 따라 앱 또는 로그인 화면을 보여준다. (웹/데스크톱 공통)
+  if (!isPopup && auth.isInitializing) {
+    return (
+      <div className="min-h-screen bg-[#F0F4F8] flex flex-col items-center justify-center gap-4 text-gray-500">
+        <Loader2 className="animate-spin text-[#407FAC]" size={36} />
+        <p className="text-sm font-medium">로그인 정보를 확인하는 중...</p>
+      </div>
+    );
+  }
+
+  if (!isPopup && !auth.isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[#F0F4F8] flex flex-col items-center justify-center px-4">
+        <img
+          src={'BrailleMate_Logo.png'}
+          alt="Logo"
+          className="w-48 object-contain mb-3"
+        />
+        <p className="text-sm text-gray-500 mb-2">
+          계속하려면 로그인이 필요합니다.
+        </p>
+        <AuthModal
+          isOpen
+          dismissible={false}
+          onClose={() => {}}
+          onLogin={auth.login}
+          onSignup={auth.signup}
+          onOAuthLogin={startOAuthLogin}
+          isAuthorizing={isAuthorizing}
+          externalError={oauthError}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F0F4F8] flex flex-col font-sans text-gray-800 antialiased transition-colors duration-500">
       <header className="max-w-6xl mx-auto pt-12 px-6 w-full">
@@ -362,38 +407,25 @@ const BrailleMate: React.FC = () => {
           <div className="flex items-center gap-2">
             {!isPopup && (
               <>
-                {auth.isAuthenticated ? (
-                  <>
-                    <button
-                      onClick={() => setIsMyPageOpen(true)}
-                      className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:text-[#407FAC] hover:border-[#407FAC]/40 transition-colors shadow-sm text-sm font-medium"
-                      title="마이페이지 — 이전 작업 보기"
-                    >
-                      <History size={16} />
-                      <span>마이페이지</span>
-                    </button>
-                    <span className="hidden md:flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600">
-                      <UserIcon size={14} />
-                      {auth.user?.name}
-                    </span>
-                    <button
-                      onClick={() => auth.logout()}
-                      className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-500 hover:text-red-500 hover:border-red-200 transition-colors shadow-sm text-sm font-medium"
-                      title="로그아웃"
-                    >
-                      <LogOut size={16} />
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => setIsAuthModalOpen(true)}
-                    disabled={auth.isLoading}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:text-[#407FAC] hover:border-[#407FAC]/40 transition-colors shadow-sm text-sm font-medium disabled:opacity-50"
-                  >
-                    <UserIcon size={16} />
-                    <span>로그인</span>
-                  </button>
-                )}
+                <button
+                  onClick={() => setIsMyPageOpen(true)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:text-[#407FAC] hover:border-[#407FAC]/40 transition-colors shadow-sm text-sm font-medium"
+                  title="마이페이지 — 이전 작업 보기"
+                >
+                  <History size={16} />
+                  <span>마이페이지</span>
+                </button>
+                <span className="hidden md:flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600">
+                  <UserIcon size={14} />
+                  {auth.user?.name}
+                </span>
+                <button
+                  onClick={() => auth.logout()}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-500 hover:text-red-500 hover:border-red-200 transition-colors shadow-sm text-sm font-medium"
+                  title="로그아웃"
+                >
+                  <LogOut size={16} />
+                </button>
               </>
             )}
             <button
@@ -465,7 +497,7 @@ const BrailleMate: React.FC = () => {
             >
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-bold text-gray-800">원본 파일</h2>
-                {fileState.file && (
+                {hasInputPreview && (
                   <button
                     onClick={handleReset}
                     className="p-2 hover:bg-red-50 text-red-400 rounded-full transition-colors"
@@ -476,9 +508,9 @@ const BrailleMate: React.FC = () => {
               </div>
 
               <div
-                className={`flex-1 rounded-[2rem] overflow-hidden border-2 border-dashed transition-all ${!fileState.file ? (isDragActive ? 'border-[#5A8FBB] bg-blue-50/50' : 'border-gray-200') : 'border-transparent'}`}
+                className={`flex-1 rounded-[2rem] overflow-hidden border-2 border-dashed transition-all ${!hasInputPreview ? (isDragActive ? 'border-[#5A8FBB] bg-blue-50/50' : 'border-gray-200') : 'border-transparent'}`}
               >
-                {!fileState.file ? (
+                {!hasInputPreview ? (
                   <div
                     {...getRootProps()}
                     className="w-full h-full flex flex-col items-center justify-center cursor-pointer p-10 text-center"
@@ -540,25 +572,6 @@ const BrailleMate: React.FC = () => {
                 </h2>
                 {Object.keys(blocksByPage).length > 0 && (
                   <div className="flex items-center gap-2">
-                    {!isPopup && (
-                      <button
-                        onClick={handleSaveJob}
-                        disabled={isSaving}
-                        className="flex items-center gap-1.5 bg-white border border-[#407FAC] text-[#407FAC] px-3 py-1.5 rounded-lg hover:bg-[#407FAC]/5 transition-colors shadow-sm text-sm font-medium disabled:opacity-50"
-                        title={
-                          auth.isAuthenticated
-                            ? '현재 작업을 마이페이지에 저장'
-                            : '로그인 후 저장 가능'
-                        }
-                      >
-                        {isSaving ? (
-                          <Loader2 className="animate-spin" size={16} />
-                        ) : (
-                          <Save size={16} />
-                        )}
-                        <span>저장</span>
-                      </button>
-                    )}
                     <button
                       onClick={handleDownload}
                       className="flex items-center gap-1.5 bg-[#407FAC] text-white px-3 py-1.5 rounded-lg hover:bg-[#356a91] transition-colors shadow-sm text-sm font-medium"
@@ -673,27 +686,14 @@ const BrailleMate: React.FC = () => {
         </AnimatePresence>
       </main>
 
-      {!isPopup && (
-        <>
-          <AuthModal
-            isOpen={isAuthModalOpen}
-            onClose={() => setIsAuthModalOpen(false)}
-            onLogin={auth.login}
-            onSignup={auth.signup}
-            onOAuthLogin={startOAuthLogin}
-            isAuthorizing={isAuthorizing}
-            externalError={oauthError}
-          />
-          {auth.token && (
-            <MyPageModal
-              isOpen={isMyPageOpen}
-              onClose={() => setIsMyPageOpen(false)}
-              token={auth.token}
-              user={auth.user}
-              onSelect={handleSelectJob}
-            />
-          )}
-        </>
+      {!isPopup && auth.token && (
+        <MyPageModal
+          isOpen={isMyPageOpen}
+          onClose={() => setIsMyPageOpen(false)}
+          token={auth.token}
+          user={auth.user}
+          onSelect={handleSelectJob}
+        />
       )}
     </div>
   );

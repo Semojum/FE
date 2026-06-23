@@ -1,26 +1,17 @@
-import { JobDetail, JobSummary, SaveJobInput } from '../types/auth';
-import { mockBackend } from './MockBackend';
-import { USE_MOCK_API } from './featureFlags';
+import { JobPageResponse, JobSummary } from '../types/auth';
+import { apiRequest } from './apiClient';
 
-export const listJobs = (token: string): Promise<JobSummary[]> => {
-  if (USE_MOCK_API) return mockBackend.listJobs(token);
-  throw new Error('실제 작업 이력 API가 아직 구현되지 않았습니다.');
-};
+// GET /api/users/jobs — 내 작업 목록 (startedAt 내림차순)
+export const listJobs = (token: string): Promise<JobSummary[]> =>
+  apiRequest<JobSummary[]>('/api/users/jobs', { token });
 
-export const getJob = (token: string, id: string): Promise<JobDetail> => {
-  if (USE_MOCK_API) return mockBackend.getJob(token, id);
-  throw new Error('실제 작업 이력 API가 아직 구현되지 않았습니다.');
-};
-
-export const saveJob = (
+// GET /api/users/jobs/{jobId}/pages/{pageNo} — 페이지별 변환 결과
+// 아직 처리 전인 페이지는 JOB4001(404)을 반환한다.
+export const getJobPage = (
   token: string,
-  input: SaveJobInput,
-): Promise<JobDetail> => {
-  if (USE_MOCK_API) return mockBackend.saveJob(token, input);
-  throw new Error('실제 작업 이력 API가 아직 구현되지 않았습니다.');
-};
-
-export const deleteJob = (token: string, id: string): Promise<void> => {
-  if (USE_MOCK_API) return mockBackend.deleteJob(token, id);
-  throw new Error('실제 작업 이력 API가 아직 구현되지 않았습니다.');
-};
+  jobId: string,
+  pageNo: number,
+): Promise<JobPageResponse> =>
+  apiRequest<JobPageResponse>(`/api/users/jobs/${jobId}/pages/${pageNo}`, {
+    token,
+  });

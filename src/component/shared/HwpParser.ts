@@ -1,16 +1,3 @@
-import { toJson } from '@ohah/hwpjs';
-
-// hwpjs JSON 출력 노드의 최소 구조. 라이브러리가 타입을 노출하지 않아 직접 선언.
-interface HwpNode {
-  type?: string;
-  text?: string;
-  sections?: HwpNode[];
-  paragraphs?: HwpNode[];
-  records?: HwpNode[];
-  children?: HwpNode[];
-  body_text?: HwpNode;
-}
-
 // ────────────────────────────────────────
 // HWPX (ZIP 기반) 파싱
 // ────────────────────────────────────────
@@ -41,75 +28,37 @@ const parseHwpx = async (file: File): Promise<string> => {
 };
 
 // ────────────────────────────────────────
-// OLE2 HWP 파싱 (@ohah/hwpjs 사용)
+// OLE2 HWP 파싱 (hwp.js 사용 — 순수 JS라 macOS/Windows 동일 동작)
 // ────────────────────────────────────────
 const parseOle2Hwp = async (file: File): Promise<string> => {
+  // hwp.js는 cfb/pako를 내부 번들로 포함한 순수 JS 라이브러리라
+  // 네이티브/wasm 바이너리가 없어 플랫폼(OS·CPU)에 의존하지 않는다.
+  const { parse } = await import('hwp.js');
+
   const arrayBuffer = await file.arrayBuffer();
   const uint8 = new Uint8Array(arrayBuffer);
 
-  // hwpjs는 Node Buffer 시그니처를 요구하지만 브라우저 Uint8Array로도 동작.
-  // 라이브러리 타입이 Buffer만 받도록 좁혀져 있어 캐스트가 필요함.
-  const jsonString = toJson(uint8 as unknown as Parameters<typeof toJson>[0]);
-  const hwpDoc: HwpNode = JSON.parse(jsonString);
+  // hwp.js는 내부적으로 cfb.read(input, options)를 호출한다.
+  // options.type을 지정하지 않으면 입력을 base64 문자열로 오해하므로
+  // 'array'를 줘서 Uint8Array를 바이트 배열 그대로 파싱하게 한다.
+  const doc = parse(uint8, { type: 'array' });
 
-  if (hwpDoc.body_text) {
-    return extractTextFromJson(hwpDoc.body_text).trim();
+  let fullText = '';
+  for (const section of doc.sections) {
+    for (const paragraph of section.content) {
+      for (const char of paragraph.content) {
+        // 일반 문자는 value가 string, 제어 문자(개행 등)는 number다.
+        if (typeof char.value === 'string') {
+          fullText += char.value;
+        }
+      }
+      fullText += '\n'; // 문단 끝에 줄바꿈
+    }
   }
 
-  return extractTextFromJson(hwpDoc).trim();
+  return fullText.trim();
 };
 
-const extractTextFromJson = (node: HwpNode | null | undefined): string => {
-  if (!node || typeof node !== 'object') return '';
-
-  // records 내부의 para_text 노드: { type: "para_text", text: "..." }
-  if (node.type === 'para_text' && typeof node.text === 'string') {
-    return node.text;
-  }
-
-  if (node.type === 'text' && typeof node.text === 'string') {
-    return node.text;
-  }
-
-  return extractChildrenText(node);
-};
-
-const extractChildrenText = (node: HwpNode): string => {
-  if (!node) return '';
-  let text = '';
-
-  // 1. Sections (섹션)
-  if (Array.isArray(node.sections)) {
-    for (const section of node.sections) {
-      text += extractTextFromJson(section);
-    }
-  }
-
-  // 2. Paragraphs (문단)
-  if (Array.isArray(node.paragraphs)) {
-    for (const para of node.paragraphs) {
-      text += extractTextFromJson(para);
-      text += '\n'; // 문단 끝에 줄바꿈 추가
-    }
-  }
-
-  // 3. [핵심 추가] Records (문단 내부 구성 요소)
-  // HWP 5.0 이상 구조에서는 문단 내용이 records 배열에 담깁니다.
-  if (Array.isArray(node.records)) {
-    for (const record of node.records) {
-      text += extractTextFromJson(record);
-    }
-  }
-
-  // 4. Children (기타 일반적인 구조)
-  if (Array.isArray(node.children)) {
-    for (const child of node.children) {
-      text += extractTextFromJson(child);
-    }
-  }
-
-  return text;
-};
 // ────────────────────────────────────────
 // 통합 진입점
 // ────────────────────────────────────────

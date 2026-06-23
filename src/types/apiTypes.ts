@@ -65,28 +65,43 @@ export interface BoundingBoxDto {
   y2: number;
 }
 
-// mode a: text_list 항목 (AI가 여러 후보를 제안 → contents는 배열)
+// drafts 항목: 시각 요소(표·차트·이미지·만화)의 대체 초안.
+// 점역사가 피커(대체 텍스트 추천)에서 고를 후보. 텍스트·수식은 빈 배열.
+export interface Draft {
+  text?: string; // 점역사주 원문(한글) — 어떤 방식인지 설명
+  contents: string[]; // 이 초안의 결과 줄 목록(점자/텍스트). 선택 시 본문이 됨
+  label?: string; // 피커 표시용 방식명 (예: "격자형", "행↔열 전치")
+}
+
+// mode a: text_list 항목.
+// contents는 "최종 결과 줄 목록"(후보가 아님). 대체 후보는 drafts에 들어온다.
 export interface OcrTextItem {
   id: number | string;
   type: string;
   order: number;
   is_blocked: boolean;
   contents: string[];
+  selected_idx?: number;
+  drafts?: Draft[];
   rule_trail?: RuleTrail[];
 }
 
-// mode b: text_list 항목 (원본 텍스트, 단일 content)
+// mode b: text_list 항목 (원본 텍스트). 명세상 id + contents(줄 목록)만 내려온다.
 export interface PlainTextItem {
   id: number | string;
-  content: string;
+  contents?: string[];
+  content?: string; // 구버전 호환
 }
 
-// mode b / c: braille_text_list 항목 (점자 결과, content는 배열)
+// mode b / c: braille_text_list 항목 (점자 결과).
+// contents는 결과 줄 목록, drafts는 대체 초안 후보.
 export interface BrailleTextItem {
   id: number | string;
   type: string;
   is_blocked: boolean;
-  content: string[];
+  contents: string[];
+  selected_idx?: number;
+  drafts?: Draft[];
   rule_trail?: RuleTrail[];
 }
 

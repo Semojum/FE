@@ -2,35 +2,38 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import MyPageModal from '../mypage/MyPageModal';
-import { mockBackend } from '../../../api/MockBackend';
-import type { SaveJobInput } from '../../../types/auth';
+import type { JobSummary } from '../../../types/auth';
 
-const job = (title: string): SaveJobInput => ({
-  title,
-  mode: 'OCR 변환',
-  fileName: 'f.pdf',
-  totalPages: 1,
-  blocksByPage: {},
-  bboxDataByPage: {},
-  originalTextsByPage: {},
-  imgResolution: { width: 0, height: 0 },
+// 실 이력 API(listJobs)를 모킹한다.
+vi.mock('../../../api/HistoryService', () => ({
+  listJobs: vi.fn(),
+}));
+import { listJobs } from '../../../api/HistoryService';
+
+const summary = (overrides: Partial<JobSummary> = {}): JobSummary => ({
+  jobId: 'job_1',
+  mode: 'a',
+  status: 'COMPLETED',
+  totalPages: 3,
+  failedPages: [],
+  originalFileName: '교과서.pdf',
+  startedAt: '2026-06-02T23:31:55',
+  finishedAt: '2026-06-02T23:45:00',
+  ...overrides,
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
 });
 
 describe('MyPageModal', () => {
-  let token: string;
-
-  beforeEach(async () => {
-    await mockBackend.signup('mp@x.com', 'pw', 'MP');
-    const auth = await mockBackend.login('mp@x.com', 'pw');
-    token = auth.accessToken;
-  });
-
   it('renders nothing when isOpen=false', () => {
+    vi.mocked(listJobs).mockResolvedValue([]);
     const { container } = render(
       <MyPageModal
         isOpen={false}
         onClose={vi.fn()}
-        token={token}
+        token="t"
         onSelect={vi.fn()}
       />,
     );
@@ -38,98 +41,55 @@ describe('MyPageModal', () => {
   });
 
   it('shows empty state when no jobs', async () => {
+    vi.mocked(listJobs).mockResolvedValue([]);
     render(
-      <MyPageModal
-        isOpen={true}
-        onClose={vi.fn()}
-        token={token}
-        onSelect={vi.fn()}
-      />,
+      <MyPageModal isOpen onClose={vi.fn()} token="t" onSelect={vi.fn()} />,
     );
     await waitFor(() =>
-      expect(
-        screen.getByText(/저장된 작업이 없습니다/),
-      ).toBeInTheDocument(),
+      expect(screen.getByText(/저장된 작업이 없습니다/)).toBeInTheDocument(),
     );
   });
 
-  it('lists saved jobs newest first', async () => {
-    await mockBackend.saveJob(token, job('첫번째'));
-    await new Promise((r) => setTimeout(r, 5));
-    await mockBackend.saveJob(token, job('두번째'));
-
+  it('lists jobs with original file name + mode label', async () => {
+    vi.mocked(listJobs).mockResolvedValue([
+      summary({ jobId: 'j1', originalFileName: '첫번째.pdf', mode: 'a' }),
+      summary({ jobId: 'j2', originalFileName: '두번째.txt', mode: 'b' }),
+    ]);
     render(
-      <MyPageModal
-        isOpen={true}
-        onClose={vi.fn()}
-        token={token}
-        onSelect={vi.fn()}
-      />,
+      <MyPageModal isOpen onClose={vi.fn()} token="t" onSelect={vi.fn()} />,
     );
-    const titles = await screen.findAllByText(/번째/);
-    expect(titles[0].textContent).toBe('두번째');
-    expect(titles[1].textContent).toBe('첫번째');
+    expect(await screen.findByText('첫번째.pdf')).toBeInTheDocument();
+    expect(screen.getByText('두번째.txt')).toBeInTheDocument();
+    expect(screen.getByText('초안 생성')).toBeInTheDocument();
+    expect(screen.getByText('텍스트 점자 번역')).toBeInTheDocument();
   });
 
-  it('clicking a job calls onSelect with its id', async () => {
-    const saved = await mockBackend.saveJob(token, job('클릭 대상'));
+  it('clicking a job calls onSelect with the JobSummary', async () => {
+    const job = summary({ jobId: 'click-target', originalFileName: '클릭대상.pdf' });
+    vi.mocked(listJobs).mockResolvedValue([job]);
     const onSelect = vi.fn();
     render(
-      <MyPageModal
-        isOpen={true}
-        onClose={vi.fn()}
-        token={token}
-        onSelect={onSelect}
-      />,
+      <MyPageModal isOpen onClose={vi.fn()} token="t" onSelect={onSelect} />,
     );
-    const item = await screen.findByText('클릭 대상');
+    const item = await screen.findByText('클릭대상.pdf');
     await userEvent.click(item);
-    expect(onSelect).toHaveBeenCalledWith(saved.id);
+    expect(onSelect).toHaveBeenCalledWith(job);
   });
 
   it('clicking 닫기 fires onClose', async () => {
+    vi.mocked(listJobs).mockResolvedValue([]);
     const onClose = vi.fn();
     render(
-      <MyPageModal
-        isOpen={true}
-        onClose={onClose}
-        token={token}
-        onSelect={vi.fn()}
-      />,
+      <MyPageModal isOpen onClose={onClose} token="t" onSelect={vi.fn()} />,
     );
     await userEvent.click(screen.getByLabelText('닫기'));
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('delete removes job from list (after confirm)', async () => {
-    await mockBackend.saveJob(token, job('삭제 대상'));
-    vi.stubGlobal('confirm', () => true);
-
+  it('shows error message when listJobs rejects', async () => {
+    vi.mocked(listJobs).mockRejectedValue(new Error('인증이 만료되었습니다.'));
     render(
-      <MyPageModal
-        isOpen={true}
-        onClose={vi.fn()}
-        token={token}
-        onSelect={vi.fn()}
-      />,
-    );
-    await screen.findByText('삭제 대상');
-    await userEvent.click(screen.getByLabelText('작업 삭제'));
-
-    await waitFor(() => {
-      expect(screen.queryByText('삭제 대상')).not.toBeInTheDocument();
-    });
-    vi.unstubAllGlobals();
-  });
-
-  it('shows error when token is invalid', async () => {
-    render(
-      <MyPageModal
-        isOpen={true}
-        onClose={vi.fn()}
-        token="bogus"
-        onSelect={vi.fn()}
-      />,
+      <MyPageModal isOpen onClose={vi.fn()} token="bogus" onSelect={vi.fn()} />,
     );
     expect(await screen.findByText(/인증이 만료/)).toBeInTheDocument();
   });

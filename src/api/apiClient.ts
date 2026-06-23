@@ -30,12 +30,39 @@ interface RequestOptions {
   token?: string | null;
   headers?: Record<string, string>;
   signal?: AbortSignal;
+  // 내부용: 401 리프레시 후 재시도임을 표시(무한 재시도 방지).
+  _retried?: boolean;
 }
+
+// 401(액세스 토큰 만료/무효) 발생 시 새 accessToken을 발급해 주는 함수.
+// useAuth가 마운트 시 등록한다. apiClient가 AuthService/useAuth를 직접 import하면
+// 순환 의존이 생기므로, 주입 방식으로 연결한다.
+// failedToken: 방금 401을 받은 accessToken. 리프레서는 이 값과 저장된 토큰을 비교해
+// "다른 요청이 이미 새로 발급받았는지"를 판단한다(로컬 만료 추정에 의존하지 않음).
+type TokenRefresher = (failedToken: string | null) => Promise<string | null>;
+let tokenRefresher: TokenRefresher | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
+
+export const setTokenRefresher = (fn: TokenRefresher | null): void => {
+  tokenRefresher = fn;
+};
+
+// 동시에 여러 요청이 401을 받아도 리프레시는 한 번만 수행한다.
+const refreshAccessToken = (failedToken: string | null): Promise<string | null> => {
+  if (!tokenRefresher) return Promise.resolve(null);
+  if (!refreshInFlight) {
+    refreshInFlight = Promise.resolve(tokenRefresher(failedToken)).finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+};
 
 export const apiRequest = async <T>(
   path: string,
-  { method = 'GET', body, token, headers = {}, signal }: RequestOptions = {},
+  options: RequestOptions = {},
 ): Promise<T> => {
+  const { method = 'GET', body, token, headers = {}, signal } = options;
   const finalHeaders: Record<string, string> = { ...headers };
   if (token) finalHeaders.Authorization = `Bearer ${token}`;
 
@@ -68,9 +95,26 @@ export const apiRequest = async <T>(
 
   const envelope = (await res.json()) as ApiEnvelope<T>;
   if (!res.ok || !envelope.isSuccess) {
+    const code = envelope.code ?? 'COMMON5000';
+
+    // 액세스 토큰 만료/무효(401) → 리프레시 후 1회 재시도.
+    // 인증 엔드포인트(/api/auth/*) 자체는 재시도 대상에서 제외(무한 루프 방지).
+    const isAuthError =
+      res.status === 401 || code === 'COMMON4001' || code === 'AUTH4003';
+    if (isAuthError && !options._retried && !path.startsWith('/api/auth/')) {
+      const refreshed = await refreshAccessToken(token ?? null);
+      if (refreshed) {
+        return apiRequest<T>(path, {
+          ...options,
+          token: refreshed,
+          _retried: true,
+        });
+      }
+    }
+
     throw new ApiError(
       envelope.message ?? `API Error: ${res.status}`,
-      envelope.code ?? 'COMMON5000',
+      code,
       res.status,
     );
   }

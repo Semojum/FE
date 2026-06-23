@@ -61,10 +61,42 @@ export default defineConfig({
       },
     },
   },
-  optimizeDeps: {
-    exclude: ['@ohah/hwpjs', '@ohah/hwpjs-wasm32-wasi'],
-  },
   build: {
     assetsInlineLimit: 0,
+    rollupOptions: {
+      output: {
+        // 무거운 벤더 라이브러리를 별도 청크로 분리해 초기 번들 크기를 낮춘다.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+
+          // hwp.js / jszip은 동적 import로만 로드되므로 eager 청크에 합치지 않고
+          // 그대로 두어 Rollup이 별도 비동기 청크로 유지하게 한다.
+          if (
+            id.includes('hwp.js') ||
+            id.includes('jszip') ||
+            id.includes('/cfb/') ||
+            id.includes('/pako/')
+          ) {
+            return;
+          }
+
+          if (id.includes('pdfjs-dist') || id.includes('react-pdf')) {
+            return 'pdf';
+          }
+          if (id.includes('katex')) return 'katex';
+          if (id.includes('framer-motion')) return 'framer-motion';
+          // 코어 react 런타임만 분리한다. react-dropzone·lucide-react 등
+          // 'react'가 이름에 든 다른 패키지까지 묶으면 vendor와 순환 청크가 생긴다.
+          if (
+            /[\\/]node_modules[\\/](react|react-dom|scheduler|use-sync-external-store)[\\/]/.test(
+              id,
+            )
+          ) {
+            return 'react-vendor';
+          }
+          return 'vendor';
+        },
+      },
+    },
   },
 });
