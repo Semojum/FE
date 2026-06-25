@@ -371,27 +371,18 @@ const BrailleMate: React.FC = () => {
   }
 
   if (!isPopup && !auth.isAuthenticated) {
+    // AuthModal이 Figma 로그인/회원가입 디자인을 전체화면으로 렌더한다.
     return (
-      <div className="min-h-screen bg-[#F0F4F8] flex flex-col items-center justify-center px-4">
-        <img
-          src={'BrailleMate_Logo.png'}
-          alt="Logo"
-          className="w-48 object-contain mb-3"
-        />
-        <p className="text-sm text-gray-500 mb-2">
-          계속하려면 로그인이 필요합니다.
-        </p>
-        <AuthModal
-          isOpen
-          dismissible={false}
-          onClose={() => {}}
-          onLogin={auth.login}
-          onSignup={auth.signup}
-          onOAuthLogin={startOAuthLogin}
-          isAuthorizing={isAuthorizing}
-          externalError={oauthError}
-        />
-      </div>
+      <AuthModal
+        isOpen
+        dismissible={false}
+        onClose={() => {}}
+        onLogin={auth.login}
+        onSignup={auth.signup}
+        onOAuthLogin={startOAuthLogin}
+        isAuthorizing={isAuthorizing}
+        externalError={oauthError}
+      />
     );
   }
 

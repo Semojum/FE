@@ -9,7 +9,7 @@ import {
   TABS,
   TranslationBlock,
 } from '../types';
-import { JobDetail, JobSummary } from '../types/auth';
+import { JobDetail, JobPageOriginal, JobSummary } from '../types/auth';
 import { JobMode } from '../types/apiTypes';
 import { mapPageResult } from '../utils/mapPageResult';
 
@@ -18,6 +18,19 @@ const modeToTab = (mode: JobMode): ConversionTab => {
   if (mode === 'a') return TABS.OCR;
   if (mode === 'b') return TABS.BRAILLE;
   return TABS.INTEGRATED;
+};
+
+// 점역(b) 저장본은 원본 텍스트가 result.text_list가 아니라 페이지 응답의
+// original.lines로 내려온다. 한 페이지의 원본 줄들을 한 블록으로 합쳐 복원한다.
+const originalTextsFromOriginal = (
+  original: JobPageOriginal | undefined,
+  page: number,
+): OriginalTextBlock[] => {
+  const lines = Array.isArray(original?.lines)
+    ? original.lines.filter((l): l is string => typeof l === 'string')
+    : [];
+  if (lines.length === 0) return [];
+  return [{ id: `original-${page}`, content: lines.join('\n') }];
 };
 
 interface UseSavedJobsOptions {
@@ -54,7 +67,11 @@ export const useSavedJobs = ({ token, onJobLoaded }: UseSavedJobsOptions) => {
           const mapped = mapPageResult(tab, pageData.result ?? {});
           blocksByPage[page] = mapped.blocks;
           bboxDataByPage[page] = mapped.bboxes;
-          originalTextsByPage[page] = mapped.originalTexts;
+          // text_list 기반 원본이 비면(점역 저장본) original.lines로 폴백한다.
+          originalTextsByPage[page] =
+            mapped.originalTexts.length > 0
+              ? mapped.originalTexts
+              : originalTextsFromOriginal(pageData.original, page);
           if (mapped.imgResolution) imgResolution = mapped.imgResolution;
         }
 
