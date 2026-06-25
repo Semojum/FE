@@ -6,6 +6,8 @@
     "core:default",
     "opener:default",
     "http:default",
-    "oauth:default"
+    "oauth:default",
+    "updater:default",
+    "process:default"
   ]
 }
