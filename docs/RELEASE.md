@@ -58,7 +58,12 @@ Get-Content $HOME\.tauri\braillemate-updater.key -Raw
 
 ### 2. macOS 코드 서명 + 공증 (스캐폴딩 — 현재 미설정)
 
-워크플로에 환경변수만 미리 연결돼 있어, 아래 Secrets를 등록하면 **자동으로 서명/공증**됩니다. 등록하지 않으면 **미서명 빌드**가 생성됩니다(Gatekeeper 경고 발생, 내부 테스트용으로만 권장).
+기본 상태에서는 **미서명 빌드**가 생성됩니다(Gatekeeper 경고 발생, 내부 테스트용). 정식 서명/공증을 켜려면 **두 가지**가 필요합니다.
+
+1. `build.yml`의 두 빌드 스텝에서 `APPLE_*` env **6줄의 주석을 해제**합니다.
+2. 아래 Secrets를 등록합니다.
+
+> ⚠️ 인증서가 없는 상태에서 env 주석만 풀면, 빈 값이 들어가 tauri가 빈 인증서를 import 하려다 codesign 단계에서 **빌드가 실패**합니다. 반드시 Secrets와 함께 활성화하세요.
 
 전제: **Apple Developer Program**($99/년) 가입 + **Developer ID Application** 인증서 발급.
 
