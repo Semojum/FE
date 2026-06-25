@@ -9,7 +9,8 @@
       "identifier": "http:default",
       "allow": [{ "url": "https://api.semojum.app/*" }]
     },
-    "oauth:default",
+    "oauth:allow-start",
+    "oauth:allow-cancel",
     "updater:default",
     "process:default"
   ]
