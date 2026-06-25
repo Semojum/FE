@@ -54,8 +54,18 @@ export interface JobSummary {
   finishedAt: string | null;
 }
 
+// 페이지 응답의 원본 입력 정보.
+//  - 점역(b): type 'text', lines에 원본 텍스트 줄 목록 (url은 null)
+//  - 이미지(a/c): type 'image', url에 원본 이미지 (lines는 null)
+export interface JobPageOriginal {
+  type: string;
+  url: string | null;
+  lines: string[] | null;
+}
+
 // GET /api/users/jobs/{jobId}/pages/{pageNo} 응답 (result).
 // 내부 result는 SSE page_done의 result와 동일한 구조.
+// original은 원본 입력(점역 모드는 text_list가 비고 여기로 내려온다).
 export interface JobPageResponse {
   jobId: string;
   mode: JobMode;
@@ -67,6 +77,7 @@ export interface JobPageResponse {
   finishedAt: string | null;
   pageNo: number;
   result: StreamPageResult;
+  original?: JobPageOriginal;
 }
 
 // 마이페이지에서 불러온 작업을 앱 내부 상태로 복원한 형태.
