@@ -1,6 +1,8 @@
 // BE 공통 응답 구조 { isSuccess, code, message, result } 를 처리하는 공용 fetch 래퍼.
 // 성공 시 result만 풀어서 반환하고, 실패 시 code/message/status를 담은 ApiError를 throw한다.
 
+import { httpFetch } from './httpFetch';
+
 // 환경별 분기: VITE_API_BASE_URL 미설정 시 운영 호스트로 폴백.
 // 개발 환경(.env.development)에서는 빈 문자열로 두어 vite proxy(/api, /oauth2)를 태운다.
 export const API_BASE_URL =
@@ -75,7 +77,7 @@ export const apiRequest = async <T>(
     finalBody = JSON.stringify(body);
   }
 
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await httpFetch(`${API_BASE_URL}${path}`, {
     method,
     headers: finalHeaders,
     body: finalBody,
