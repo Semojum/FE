@@ -8,6 +8,22 @@ import { createPkcePair, randomState } from '../utils/pkce';
 const isTauri = (): boolean =>
   typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
+// Tauri 커맨드/플러그인은 실패를 Error 인스턴스가 아니라 문자열·객체로 reject하는 경우가 많다.
+// `e instanceof Error`만 보면 진짜 원인(예: "oauth.start not allowed", "Address already in use")이
+// 버려지고 generic 메시지만 남는다. 어떤 형태든 사람이 읽을 문자열로 변환해 표면화한다.
+const toErrorMessage = (e: unknown, fallback: string): string => {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'string' && e.trim()) return e;
+  if (e != null && typeof e === 'object') {
+    try {
+      return JSON.stringify(e);
+    } catch {
+      /* noop */
+    }
+  }
+  return fallback;
+};
+
 type OnTokens = (accessToken: string, refreshToken?: string | null) => void;
 
 // 데스크톱 소셜 로그인 훅 (RFC 8252 loopback).
@@ -107,9 +123,7 @@ export const useOAuth = (onTokens: OnTokens) => {
             });
             onTokens(res.accessToken, res.refreshToken);
           } catch (e) {
-            setError(
-              e instanceof Error ? e.message : '소셜 로그인에 실패했습니다.',
-            );
+            setError(toErrorMessage(e, '소셜 로그인에 실패했습니다.'));
           } finally {
             await cleanup();
           }
@@ -117,9 +131,7 @@ export const useOAuth = (onTokens: OnTokens) => {
 
         await openUrl(`${cfg.authorizeUrl}?${params.toString()}`);
       } catch (e) {
-        setError(
-          e instanceof Error ? e.message : '소셜 로그인을 시작할 수 없습니다.',
-        );
+        setError(toErrorMessage(e, '소셜 로그인을 시작할 수 없습니다.'));
         await cleanup();
       }
     },
