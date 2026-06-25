@@ -52,6 +52,7 @@ import {
   fileValidationMessage,
   TAB_ALLOWED_FILE_LABEL,
 } from './utils/fileValidation';
+import { checkForUpdates } from './utils/updater';
 
 const BrailleMate: React.FC = () => {
   const isPopup = useMemo(
@@ -322,6 +323,13 @@ const BrailleMate: React.FC = () => {
   useEffect(() => {
     setFileError(null);
   }, [activeTab, setFileError]);
+
+  // 데스크톱 앱: 시작 시 새 버전을 조용히 확인·설치(다음 실행 시 적용).
+  // 웹/팝업/테스트 환경에서는 no-op(updater 유틸 내부에서 Tauri 여부를 가드).
+  useEffect(() => {
+    if (isPopup) return;
+    checkForUpdates().catch((e) => console.warn('업데이트 확인 실패', e));
+  }, [isPopup]);
 
   const handleDownload = () => {
     const allPages = Object.keys(blocksByPage)

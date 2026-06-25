@@ -16,5 +16,10 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-http = "2"
 tauri-plugin-oauth = "2"
+tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# 자동 업데이트는 데스크톱에서만 지원 (모바일 빌드에서는 제외)
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
