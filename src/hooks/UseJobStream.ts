@@ -6,6 +6,7 @@ import {
   StreamPageData,
 } from '../types/apiTypes';
 import { API_BASE_URL } from '../api/JobService';
+import { httpFetch } from '../api/httpFetch';
 
 interface UseJobStreamProps {
   jobId: string | null;
@@ -99,7 +100,7 @@ export const useJobStream = ({
 
     const run = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/jobs/${jobId}/events`, {
+        const res = await httpFetch(`${API_BASE_URL}/api/jobs/${jobId}/events`, {
           headers: {
             Accept: 'text/event-stream',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
