@@ -1,4 +1,10 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, {
+  useState,
+  useMemo,
+  useEffect,
+  useCallback,
+  useRef,
+} from 'react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { useDropzone, Accept } from 'react-dropzone';
 import {
@@ -13,6 +19,7 @@ import {
   User as UserIcon,
   LogOut,
   History,
+  ArrowRightCircle,
 } from 'lucide-react';
 
 // Hooks
@@ -42,11 +49,23 @@ import MyPageModal from './component/features/mypage/MyPageModal';
 import {
   BoundingBox,
   ConversionTab,
+  FileState,
   ImageResolution,
   OriginalTextBlock,
+  TranslationBlock,
   TABS,
   TAB_VALUES,
 } from './types';
+
+// 탭별로 보존하는 작업물 스냅샷 — 탭을 전환해도 각 탭의 입력/결과가 날아가지 않게 한다.
+interface TabState {
+  fileState: FileState;
+  blocksByPage: Record<number, TranslationBlock[]>;
+  bboxDataByPage: Record<number, BoundingBox[]>;
+  originalTextsByPage: Record<number, OriginalTextBlock[]>;
+  imgResolution: ImageResolution;
+  selectedBlockId: string | null;
+}
 import { JobDetail } from './types/auth';
 import {
   fileValidationMessage,
@@ -70,6 +89,7 @@ const BrailleMate: React.FC = () => {
     fileState,
     handleFileDrop,
     setRestoredPreview,
+    restoreState,
     setPage,
     setTotalPages,
     setFileError,
@@ -111,6 +131,14 @@ const BrailleMate: React.FC = () => {
   const auth = useAuth();
   const [isMyPageOpen, setIsMyPageOpen] = useState(false);
 
+  // 탭별 작업물 보관소. 탭을 떠날 때 현재 상태를 저장하고, 돌아오면 복원한다.
+  const [tabSnapshots, setTabSnapshots] = useState<
+    Partial<Record<ConversionTab, TabState>>
+  >({});
+  // 이미 업로드한 File을 기억해 같은 파일이 (탭 복원 등으로) 다시 마운트돼도
+  // 재업로드되지 않게 한다. (이전에는 jobId로 가드했지만, 탭 복원 시 jobId가 비므로 ref로 대체)
+  const lastUploadedFileRef = useRef<File | null>(null);
+
   // 데스크톱 소셜 로그인(loopback): 시스템 브라우저로 로그인 → 127.0.0.1 redirect 수신 →
   // BE(/api/auth/{provider})와 code 교환. 성공 시 loginWithTokens로 세션 반영.
   const {
@@ -127,7 +155,28 @@ const BrailleMate: React.FC = () => {
   // 미리보기(file은 없지만 fileType/미리보기가 있는 경우)도 포함한다.
   const hasInputPreview = !!fileState.fileType;
 
-  const handleReset = useCallback(() => {
+  // 현재 화면 상태를 탭 스냅샷으로 캡처
+  const captureState = useCallback(
+    (): TabState => ({
+      fileState,
+      blocksByPage,
+      bboxDataByPage,
+      originalTextsByPage,
+      imgResolution,
+      selectedBlockId,
+    }),
+    [
+      fileState,
+      blocksByPage,
+      bboxDataByPage,
+      originalTextsByPage,
+      imgResolution,
+      selectedBlockId,
+    ],
+  );
+
+  // 화면 상태를 빈 값으로 초기화 (스냅샷/ref는 건드리지 않음 — 호출부에서 처리)
+  const clearWorkspace = useCallback(() => {
     resetFile();
     resetAllBlocks();
     resetUpload();
@@ -137,9 +186,64 @@ const BrailleMate: React.FC = () => {
     setImgResolution({ width: 0, height: 0 });
   }, [resetFile, resetAllBlocks, resetUpload]);
 
+  const handleReset = useCallback(() => {
+    clearWorkspace();
+    lastUploadedFileRef.current = null;
+    // 현재 탭의 보관된 작업물도 비운다(사용자가 명시적으로 지움).
+    setTabSnapshots((prev) => ({ ...prev, [activeTab]: undefined }));
+  }, [clearWorkspace, activeTab]);
+
   const handleTabChange = (tab: ConversionTab) => {
+    if (tab === activeTab) return;
+
+    // 1) 떠나는 탭의 작업물을 저장
+    setTabSnapshots((prev) => ({ ...prev, [activeTab]: captureState() }));
+    // 진행 중이던 업로드/스트림 상태는 탭별로 공유되므로 초기화
+    resetUpload();
+
+    // 2) 들어가는 탭의 작업물을 복원(없으면 빈 화면)
+    const saved = tabSnapshots[tab];
+    if (saved) {
+      restoreState(saved.fileState);
+      setAllBlocks(saved.blocksByPage);
+      setBboxDataByPage(saved.bboxDataByPage);
+      setOriginalTextsByPage(saved.originalTextsByPage);
+      setImgResolution(saved.imgResolution);
+      setSelectedBlockId(saved.selectedBlockId);
+      // 복원된 파일은 이미 변환됐으므로 재업로드 트리거를 막는다.
+      lastUploadedFileRef.current = saved.fileState.file;
+    } else {
+      clearWorkspace();
+      lastUploadedFileRef.current = null;
+    }
+
     setActiveTab(tab);
-    handleReset();
+  };
+
+  // OCR 결과를 점역 변환 입력으로 넘겨 자동 점역한다.
+  // OCR 블록 텍스트를 페이지 순서대로 합쳐 .txt File을 만들고, 점역 탭으로 전환한 뒤
+  // 입력으로 주입하면 자동 업로드 useEffect가 점역 변환(mode 'b')을 트리거한다.
+  const handleSendOcrToBraille = () => {
+    const text = Object.keys(blocksByPage)
+      .map(Number)
+      .sort((a, b) => a - b)
+      .flatMap((p) => blocksByPage[p].map((b) => b.currentText))
+      .filter((t) => t.trim().length > 0)
+      .join('\n');
+    if (!text.trim()) return;
+
+    // 현재 OCR 탭 작업물을 저장해 두어 돌아와도 유지되게 한다.
+    setTabSnapshots((prev) => ({ ...prev, [activeTab]: captureState() }));
+
+    // 점역 탭으로 전환 + 화면 초기화 (이전 점역 작업물은 새 입력으로 대체)
+    clearWorkspace();
+    setTabSnapshots((prev) => ({ ...prev, [TABS.BRAILLE]: undefined }));
+    setActiveTab(TABS.BRAILLE);
+
+    // OCR 텍스트를 점역 입력 파일로 주입 → 자동 업로드가 점역 변환을 시작
+    const file = new File([text], 'ocr-result.txt', { type: 'text/plain' });
+    lastUploadedFileRef.current = null; // 새 파일이므로 업로드 허용
+    handleFileDrop([file], TABS.BRAILLE);
   };
 
   // 메인 측에서 직접 호출되는 액션 처리기. 팝업은 BroadcastChannel을 통해 메인에 위임.
@@ -185,17 +289,12 @@ const BrailleMate: React.FC = () => {
 
   useEffect(() => {
     if (isPopup) return;
-    if (!fileState.file || isUploading || jobId) return;
+    if (!fileState.file || isUploading) return;
+    // 이미 업로드한 그 File이면(탭 복원 등으로 다시 마운트된 경우 포함) 재업로드하지 않는다.
+    if (fileState.file === lastUploadedFileRef.current) return;
+    lastUploadedFileRef.current = fileState.file;
     uploadFile(fileState.file, activeTab, auth.token);
-  }, [
-    isPopup,
-    fileState.file,
-    activeTab,
-    uploadFile,
-    isUploading,
-    jobId,
-    auth.token,
-  ]);
+  }, [isPopup, fileState.file, activeTab, uploadFile, isUploading, auth.token]);
 
   const handlePageReceived = usePageStreamHandler({
     activeTab,
@@ -571,6 +670,16 @@ const BrailleMate: React.FC = () => {
                 </h2>
                 {Object.keys(blocksByPage).length > 0 && (
                   <div className="flex items-center gap-2">
+                    {!isPopup && activeTab === TABS.OCR && (
+                      <button
+                        onClick={handleSendOcrToBraille}
+                        className="flex items-center gap-1.5 border border-[#407FAC] text-[#407FAC] px-3 py-1.5 rounded-lg hover:bg-[#407FAC]/10 transition-colors shadow-sm text-sm font-medium"
+                        title="이 OCR 결과를 점역 변환 입력으로 보내 자동 점역합니다"
+                      >
+                        <ArrowRightCircle size={16} />{' '}
+                        <span>점역으로 보내기</span>
+                      </button>
+                    )}
                     <button
                       onClick={handleDownload}
                       className="flex items-center gap-1.5 bg-[#407FAC] text-white px-3 py-1.5 rounded-lg hover:bg-[#356a91] transition-colors shadow-sm text-sm font-medium"

@@ -96,6 +96,22 @@ export const useFileHandler = () => {
     [],
   );
 
+  // 탭 전환 시 저장해 둔 입력 상태를 복원한다. 미리보기 blob URL은 탭 전환 과정에서
+  // revoke 되므로, 원본 File이 있으면 새 blob URL을 재생성한다(없으면 저장된 URL 그대로).
+  const restoreState = useCallback((snapshot: FileState) => {
+    setFileState((prev) => {
+      if (prev.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      let previewUrl = snapshot.previewUrl;
+      if (
+        snapshot.file &&
+        (snapshot.fileType === 'pdf' || snapshot.fileType === 'image')
+      ) {
+        previewUrl = URL.createObjectURL(snapshot.file);
+      }
+      return { ...snapshot, previewUrl };
+    });
+  }, []);
+
   const setPage = useCallback((page: number) => {
     setFileState((prev) => ({ ...prev, currentPage: page }));
   }, []);
@@ -130,6 +146,7 @@ export const useFileHandler = () => {
     fileState,
     handleFileDrop,
     setRestoredPreview,
+    restoreState,
     setPage,
     setTotalPages,
     setFileError,
