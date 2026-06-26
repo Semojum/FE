@@ -50,12 +50,19 @@ import {
   BoundingBox,
   ConversionTab,
   FileState,
+  FileType,
   ImageResolution,
   OriginalTextBlock,
   TranslationBlock,
   TABS,
   TAB_VALUES,
 } from './types';
+import { JobDetail, JobPageOriginal } from './types/auth';
+import {
+  fileValidationMessage,
+  TAB_ALLOWED_FILE_LABEL,
+} from './utils/fileValidation';
+import { checkForUpdates } from './utils/updater';
 
 // 탭별로 보존하는 작업물 스냅샷 — 탭을 전환해도 각 탭의 입력/결과가 날아가지 않게 한다.
 interface TabState {
@@ -65,13 +72,9 @@ interface TabState {
   originalTextsByPage: Record<number, OriginalTextBlock[]>;
   imgResolution: ImageResolution;
   selectedBlockId: string | null;
+  // 마이페이지 복원 작업의 페이지별 원본(없으면 null) — 페이지 전환 시 미리보기 교체용
+  savedOriginalsByPage: Record<number, JobPageOriginal> | null;
 }
-import { JobDetail } from './types/auth';
-import {
-  fileValidationMessage,
-  TAB_ALLOWED_FILE_LABEL,
-} from './utils/fileValidation';
-import { checkForUpdates } from './utils/updater';
 
 const BrailleMate: React.FC = () => {
   const isPopup = useMemo(
@@ -114,6 +117,12 @@ const BrailleMate: React.FC = () => {
     width: 0,
     height: 0,
   });
+  // 마이페이지에서 불러온 작업의 페이지별 원본. 설정돼 있으면 페이지 전환 시
+  // 왼쪽 미리보기를 해당 페이지 원본(단일 페이지 PDF/이미지)으로 교체한다.
+  const [savedOriginalsByPage, setSavedOriginalsByPage] = useState<Record<
+    number,
+    JobPageOriginal
+  > | null>(null);
 
   const {
     blocksByPage,
@@ -164,6 +173,7 @@ const BrailleMate: React.FC = () => {
       originalTextsByPage,
       imgResolution,
       selectedBlockId,
+      savedOriginalsByPage,
     }),
     [
       fileState,
@@ -172,6 +182,7 @@ const BrailleMate: React.FC = () => {
       originalTextsByPage,
       imgResolution,
       selectedBlockId,
+      savedOriginalsByPage,
     ],
   );
 
@@ -184,6 +195,7 @@ const BrailleMate: React.FC = () => {
     setOriginalTextsByPage({});
     setSelectedBlockId(null);
     setImgResolution({ width: 0, height: 0 });
+    setSavedOriginalsByPage(null);
   }, [resetFile, resetAllBlocks, resetUpload]);
 
   const handleReset = useCallback(() => {
@@ -210,6 +222,7 @@ const BrailleMate: React.FC = () => {
       setOriginalTextsByPage(saved.originalTextsByPage);
       setImgResolution(saved.imgResolution);
       setSelectedBlockId(saved.selectedBlockId);
+      setSavedOriginalsByPage(saved.savedOriginalsByPage);
       // 복원된 파일은 이미 변환됐으므로 재업로드 트리거를 막는다.
       lastUploadedFileRef.current = saved.fileState.file;
     } else {
@@ -387,16 +400,45 @@ const BrailleMate: React.FC = () => {
           .filter((t) => t.trim().length > 0)
           .join('\n');
         setRestoredPreview({ fileType: 'text', textContent: restoredText });
+        // 점역은 페이지별 originalTextsByPage로 원본을 표시하므로 페이지별 원본 경로는 미사용.
+        setSavedOriginalsByPage(null);
       } else {
-        setRestoredPreview({
-          fileType: 'image',
-          previewUrl: job.thumbnailUrl ?? null,
-        });
+        // 이미지 모드(a/c): 페이지별 원본 PDF가 있으면 1페이지 원본을 띄우고, 페이지 전환은
+        // 아래 effect가 처리한다. 원본이 없으면 썸네일(페이지 고정)로 폴백.
+        const first = job.originalByPage?.[1];
+        if (first?.url) {
+          setRestoredPreview({
+            fileType: first.type === 'image' ? 'image' : 'pdf',
+            previewUrl: first.url,
+            isRestoredPages: true,
+          });
+          setSavedOriginalsByPage(job.originalByPage ?? null);
+        } else {
+          setRestoredPreview({
+            fileType: 'image',
+            previewUrl: job.thumbnailUrl ?? null,
+          });
+          setSavedOriginalsByPage(null);
+        }
       }
       setIsMyPageOpen(false);
     },
     [handleReset, setAllBlocks, setTotalPages, setPage, setRestoredPreview],
   );
+
+  // 마이페이지 복원 작업에서 페이지를 바꾸면 왼쪽 원본 미리보기를 해당 페이지 원본으로 교체.
+  // 이미지 모드(a/c)만 해당(원본 url 존재). 점역(b)은 url이 null이라 건너뛴다.
+  useEffect(() => {
+    if (!savedOriginalsByPage) return;
+    const orig = savedOriginalsByPage[currentPage];
+    if (!orig?.url) return;
+    const fileType: FileType = orig.type === 'image' ? 'image' : 'pdf';
+    setRestoredPreview({
+      fileType,
+      previewUrl: orig.url,
+      isRestoredPages: true,
+    });
+  }, [savedOriginalsByPage, currentPage, setRestoredPreview]);
 
   const { handleSelectJob } = useSavedJobs({
     token: auth.token,
@@ -412,7 +454,11 @@ const BrailleMate: React.FC = () => {
   }, [activeTab]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop: (files) => handleFileDrop(files, activeTab),
+    onDrop: (files) => {
+      // 새 파일 업로드 시 마이페이지 복원 원본 경로를 해제(라이브 미리보기로 전환)
+      setSavedOriginalsByPage(null);
+      handleFileDrop(files, activeTab);
+    },
     onDropRejected: () => setFileError(fileValidationMessage(activeTab)),
     accept: acceptConfig,
     multiple: false,

@@ -91,4 +91,7 @@ export interface JobDetail {
   imgResolution: ImageResolution;
   // 입력 미리보기용 썸네일(이미지 모드 a/c). 서버는 원본 파일을 보관하지 않는다.
   thumbnailUrl?: string;
+  // 페이지별 원본 입력(명세 #11 original). 이미지 모드(a/c)는 페이지별 PDF URL이 들어와
+  // 페이지 전환 시 왼쪽 미리보기를 해당 페이지 원본으로 교체하는 데 쓴다.
+  originalByPage?: Record<number, JobPageOriginal>;
 }

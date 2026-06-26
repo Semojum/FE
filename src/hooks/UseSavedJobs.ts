@@ -51,6 +51,7 @@ export const useSavedJobs = ({ token, onJobLoaded }: UseSavedJobsOptions) => {
       const blocksByPage: Record<number, TranslationBlock[]> = {};
       const bboxDataByPage: Record<number, BoundingBox[]> = {};
       const originalTextsByPage: Record<number, OriginalTextBlock[]> = {};
+      const originalByPage: Record<number, JobPageOriginal> = {};
       let imgResolution: ImageResolution = { width: 0, height: 0 };
 
       try {
@@ -72,6 +73,7 @@ export const useSavedJobs = ({ token, onJobLoaded }: UseSavedJobsOptions) => {
             mapped.originalTexts.length > 0
               ? mapped.originalTexts
               : originalTextsFromOriginal(pageData.original, page);
+          if (pageData.original) originalByPage[page] = pageData.original;
           if (mapped.imgResolution) imgResolution = mapped.imgResolution;
         }
 
@@ -82,6 +84,7 @@ export const useSavedJobs = ({ token, onJobLoaded }: UseSavedJobsOptions) => {
           blocksByPage,
           bboxDataByPage,
           originalTextsByPage,
+          originalByPage,
           imgResolution,
         });
       } catch (err) {

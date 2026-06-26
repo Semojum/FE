@@ -22,6 +22,10 @@ export interface FileState {
   currentPage: number;
   totalPages: number;
   error?: string | null; // 모드별 허용 파일 검증 실패 메시지
+  // 마이페이지에서 불러온 작업의 원본은 페이지별로 분리된 단일 페이지 PDF/이미지다.
+  // true면 미리보기를 (currentPage가 아닌) 1페이지로 렌더하고, 총 페이지 수를
+  // 이 미리보기의 onLoadSuccess로 덮어쓰지 않는다.
+  isRestoredPages?: boolean;
 }
 
 export interface PaginationProps {

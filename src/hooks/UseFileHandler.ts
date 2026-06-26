@@ -80,6 +80,7 @@ export const useFileHandler = () => {
       fileType: FileType | null;
       previewUrl?: string | null;
       textContent?: string;
+      isRestoredPages?: boolean;
     }) => {
       setFileState((prev) => {
         if (prev.previewUrl) URL.revokeObjectURL(prev.previewUrl);
@@ -89,6 +90,7 @@ export const useFileHandler = () => {
           fileType: preview.fileType,
           previewUrl: preview.previewUrl ?? null,
           textContent: preview.textContent ?? '',
+          isRestoredPages: preview.isRestoredPages ?? false,
           error: null,
         };
       });

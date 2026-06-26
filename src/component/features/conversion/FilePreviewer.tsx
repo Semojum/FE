@@ -31,7 +31,8 @@ const FilePreviewer: React.FC<Props> = memo(
     originalTextBlocks,
     onBlockClick,
   }) => {
-    const { previewUrl, fileType, currentPage, textContent } = state;
+    const { previewUrl, fileType, currentPage, textContent, isRestoredPages } =
+      state;
     const activeTextRef = useRef<HTMLDivElement>(null);
 
     // 선택된 텍스트 블록으로 스크롤 이동
@@ -98,11 +99,15 @@ const FilePreviewer: React.FC<Props> = memo(
             ) : (
               <Document
                 file={previewUrl}
-                onLoadSuccess={({ numPages }) => onLoadSuccess(numPages)}
+                // 마이페이지 복원본은 페이지별로 분리된 단일 페이지 PDF이므로 총 페이지 수를
+                // 덮어쓰지 않는다(총 페이지는 작업 메타에서 이미 설정됨).
+                onLoadSuccess={({ numPages }) =>
+                  !isRestoredPages && onLoadSuccess(numPages)
+                }
                 className="flex justify-center"
               >
                 <Page
-                  pageNumber={currentPage}
+                  pageNumber={isRestoredPages ? 1 : currentPage}
                   width={500}
                   renderTextLayer={false}
                   renderAnnotationLayer={false}
