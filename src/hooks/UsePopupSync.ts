@@ -6,9 +6,8 @@ import {
   OriginalTextBlock,
   TranslationBlock,
 } from '../types';
-
-const SYNC_CHANNEL = 'braillemate-sync';
-const POPUP_FEATURES = 'width=900,height=900,resizable=yes,scrollbars=yes';
+import { createSyncTransport, SyncTransport } from '../utils/syncTransport';
+import { openOutputWindow, OutputWindowHandle } from '../utils/outputWindow';
 
 export type PanelMode = 'both' | 'input-only' | 'output-only';
 
@@ -64,11 +63,13 @@ export const usePopupSync = ({
   applyAction,
   onSnapshotReceived,
 }: UsePopupSyncOptions): UsePopupSyncReturn => {
-  const popupRef = useRef<Window | null>(null);
-  const channelRef = useRef<BroadcastChannel | null>(null);
+  const popupRef = useRef<OutputWindowHandle | null>(null);
+  const transportRef = useRef<SyncTransport | null>(null);
   const snapshotRef = useRef<SyncSnapshot | null>(null);
   const applyActionRef = useRef(applyAction);
   const onSnapshotReceivedRef = useRef(onSnapshotReceived);
+  // 팝업이 최초 스냅샷을 받았는지(요청 재시도 종료 조건)
+  const receivedSnapshotRef = useRef(false);
 
   useEffect(() => {
     applyActionRef.current = applyAction;
@@ -83,21 +84,18 @@ export const usePopupSync = ({
     snapshotRef.current = snapshot;
     if (isPopup) return;
     if (panelMode !== 'input-only') return;
-    channelRef.current?.postMessage({ type: 'state-snapshot', payload: snapshot });
+    transportRef.current?.post({ type: 'state-snapshot', payload: snapshot });
   }, [snapshot, isPopup, panelMode]);
 
   useEffect(() => {
-    const channel = new BroadcastChannel(SYNC_CHANNEL);
-    channelRef.current = channel;
-
-    channel.onmessage = (e: MessageEvent<SyncMessage>) => {
-      const data = e.data;
+    const transport = createSyncTransport((raw) => {
+      const data = raw as SyncMessage;
       if (!data) return;
 
       if (!isPopup) {
         if (data.type === 'request-snapshot') {
           if (snapshotRef.current) {
-            channel.postMessage({
+            transport.post({
               type: 'state-snapshot',
               payload: snapshotRef.current,
             });
@@ -109,38 +107,40 @@ export const usePopupSync = ({
           setPanelMode('both');
         }
       } else if (data.type === 'state-snapshot') {
+        receivedSnapshotRef.current = true;
         onSnapshotReceivedRef.current(data.payload);
       }
-    };
+    });
+    transportRef.current = transport;
 
+    // 팝업: 초기 스냅샷 요청. Tauri 이벤트 리스너 준비 타이밍 때문에 한 번에 누락될 수
+    // 있어, 스냅샷을 받을 때까지 짧게 재시도한다.
+    let retryId: number | undefined;
     if (isPopup) {
-      channel.postMessage({ type: 'request-snapshot' });
+      transport.post({ type: 'request-snapshot' });
+      let tries = 0;
+      retryId = window.setInterval(() => {
+        if (receivedSnapshotRef.current || tries >= 8) {
+          window.clearInterval(retryId);
+          return;
+        }
+        tries += 1;
+        transport.post({ type: 'request-snapshot' });
+      }, 300);
     }
 
     return () => {
-      channel.close();
-      channelRef.current = null;
+      if (retryId !== undefined) window.clearInterval(retryId);
+      transport.close();
+      transportRef.current = null;
     };
   }, [isPopup, setPanelMode]);
 
-  // 팝업이 외부 X로 닫힌 경우 백업 감지 (beforeunload 메시지가 누락될 때 대비)
-  useEffect(() => {
-    if (isPopup) return;
-    if (panelMode !== 'input-only') return;
-    const id = setInterval(() => {
-      if (popupRef.current?.closed) {
-        popupRef.current = null;
-        setPanelMode('both');
-      }
-    }, 500);
-    return () => clearInterval(id);
-  }, [isPopup, panelMode, setPanelMode]);
-
-  // 팝업 unload 시 메인에 알림
+  // 팝업 unload 시 메인에 알림(웹 fallback). 데스크톱은 onClosed로도 감지.
   useEffect(() => {
     if (!isPopup) return;
     const handler = () => {
-      channelRef.current?.postMessage({ type: 'popup-closing' });
+      transportRef.current?.post({ type: 'popup-closing' });
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
@@ -149,7 +149,7 @@ export const usePopupSync = ({
   const dispatchAction = useCallback(
     (action: SyncAction) => {
       if (isPopup) {
-        channelRef.current?.postMessage({ type: 'action', payload: action });
+        transportRef.current?.post({ type: 'action', payload: action });
       } else {
         applyActionRef.current(action);
       }
@@ -163,14 +163,20 @@ export const usePopupSync = ({
       return;
     }
     if (panelMode === 'both') {
-      const url = `${window.location.pathname}?panel=output`;
-      const popup = window.open(url, 'braillemate-output', POPUP_FEATURES);
-      if (!popup) {
-        alert('팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 시도해주세요.');
-        return;
-      }
-      popupRef.current = popup;
-      setPanelMode('input-only');
+      void (async () => {
+        const handle = await openOutputWindow();
+        if (!handle) {
+          alert('결과 창을 열지 못했습니다. 잠시 후 다시 시도해주세요.');
+          return;
+        }
+        popupRef.current = handle;
+        // 창이 (직접) 닫히면 메인을 원래대로 되돌린다.
+        handle.onClosed(() => {
+          popupRef.current = null;
+          setPanelMode('both');
+        });
+        setPanelMode('input-only');
+      })();
     } else {
       popupRef.current?.close();
       popupRef.current = null;

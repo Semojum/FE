@@ -63,6 +63,7 @@ import {
   TAB_ALLOWED_FILE_LABEL,
 } from './utils/fileValidation';
 import { checkForUpdates } from './utils/updater';
+import { httpFetch } from './api/httpFetch';
 
 // 탭별로 보존하는 작업물 스냅샷 — 탭을 전환해도 각 탭의 입력/결과가 날아가지 않게 한다.
 interface TabState {
@@ -407,9 +408,12 @@ const BrailleMate: React.FC = () => {
         // 아래 effect가 처리한다. 원본이 없으면 썸네일(페이지 고정)로 폴백.
         const first = job.originalByPage?.[1];
         if (first?.url) {
+          const ft: FileType = first.type === 'image' ? 'image' : 'pdf';
           setRestoredPreview({
-            fileType: first.type === 'image' ? 'image' : 'pdf',
-            previewUrl: first.url,
+            fileType: ft,
+            // 이미지는 <img>로 바로 표시 가능. PDF는 CORS 때문에 아래 effect가
+            // httpFetch로 받아 blob URL을 채운다(여기선 빈 값으로 두어 hasInputPreview만 켬).
+            previewUrl: ft === 'image' ? first.url : null,
             isRestoredPages: true,
           });
           setSavedOriginalsByPage(job.originalByPage ?? null);
@@ -428,16 +432,50 @@ const BrailleMate: React.FC = () => {
 
   // 마이페이지 복원 작업에서 페이지를 바꾸면 왼쪽 원본 미리보기를 해당 페이지 원본으로 교체.
   // 이미지 모드(a/c)만 해당(원본 url 존재). 점역(b)은 url이 null이라 건너뛴다.
+  // PDF는 원격 GCS URL이라 webview fetch가 CORS로 막히므로, 네이티브 httpFetch로
+  // 바이트를 받아 blob URL로 렌더한다(이미지는 <img>로 바로 표시 가능).
   useEffect(() => {
     if (!savedOriginalsByPage) return;
     const orig = savedOriginalsByPage[currentPage];
     if (!orig?.url) return;
-    const fileType: FileType = orig.type === 'image' ? 'image' : 'pdf';
-    setRestoredPreview({
-      fileType,
-      previewUrl: orig.url,
-      isRestoredPages: true,
-    });
+
+    if (orig.type === 'image') {
+      setRestoredPreview({
+        fileType: 'image',
+        previewUrl: orig.url,
+        isRestoredPages: true,
+      });
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await httpFetch(orig.url as string, { method: 'GET' });
+        if (!res.ok) throw new Error(`원본 PDF 로드 실패: ${res.status}`);
+        const buf = await res.arrayBuffer();
+        if (cancelled) return;
+        const blobUrl = URL.createObjectURL(
+          new Blob([buf], { type: 'application/pdf' }),
+        );
+        if (cancelled) {
+          URL.revokeObjectURL(blobUrl); // 적용 전 취소되면 누수 방지
+          return;
+        }
+        // 이후 blob URL의 폐기는 setRestoredPreview/reset의 revoke가 담당.
+        setRestoredPreview({
+          fileType: 'pdf',
+          previewUrl: blobUrl,
+          isRestoredPages: true,
+        });
+      } catch (e) {
+        if (!cancelled) console.error(e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [savedOriginalsByPage, currentPage, setRestoredPreview]);
 
   const { handleSelectJob } = useSavedJobs({
