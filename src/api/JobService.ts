@@ -32,3 +32,25 @@ export const getJobStatus = (
   token?: string | null,
 ): Promise<JobStatusResponse> =>
   apiRequest<JobStatusResponse>(`/api/jobs/${jobId}/status`, { token });
+
+// PATCH /api/jobs/{jobId}/pages/{pageNo}/elements/{elementId} — 요소 편집 저장.
+// 모드별 수정 대상: a(text_list)=TEXT, b/c(braille_text_list)=BRAILLE.
+// 현재값(contents)만 교체되며 AI 원본과 수정 이력은 서버가 보존한다.
+export type ElementType = 'TEXT' | 'BRAILLE';
+
+export const patchElement = (
+  jobId: string,
+  pageNo: number,
+  elementId: string,
+  elementType: ElementType,
+  contents: string[],
+  token?: string | null,
+): Promise<string[]> =>
+  apiRequest<string[]>(
+    `/api/jobs/${jobId}/pages/${pageNo}/elements/${elementId}`,
+    {
+      method: 'PATCH',
+      token,
+      body: { elementType, contents },
+    },
+  );

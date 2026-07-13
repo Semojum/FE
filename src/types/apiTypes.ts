@@ -45,9 +45,15 @@ export interface JobStatusResponse {
 // 각 변환 요소에 적용된 점역 규정 목록
 export interface RuleTrail {
   rule_id: string; // 예: §2.2
+  source?: string; // 규정 출처 문서 (예: 한국점자규정)
   section: string;
   title: string;
   excerpt: string;
+  priority?: 'primary' | 'secondary'; // primary=주 적용 / secondary=보조 참고
+  line_no?: number; // 적용된 줄 번호(0-based). -1이면 요소 전체
+  col_start?: number; // 해당 줄 내 시작 칸(0-based)
+  col_end?: number; // 해당 줄 내 끝 칸(미포함)
+  tag?: string; // 변환 종류 (number_sign, contraction, line_wrap 등)
 }
 
 export interface QualityReport {
@@ -80,9 +86,11 @@ export interface OcrTextItem {
   type: string;
   order: number;
   is_blocked: boolean;
+  tn_text?: string | null; // AI가 생성한 점역사주 원문(한글) — 시각 요소 설명
   contents: string[];
   selected_idx?: number;
-  drafts?: Draft[];
+  // 명세는 Draft[]지만 실서버가 JSON 문자열로 이중 인코딩해 보내는 경우가 있다
+  drafts?: Draft[] | string | null;
   rule_trail?: RuleTrail[];
 }
 
@@ -99,9 +107,11 @@ export interface BrailleTextItem {
   id: number | string;
   type: string;
   is_blocked: boolean;
+  tn_text?: string | null; // AI가 생성한 점역사주 원문(한글) — 시각 요소 설명
   contents: string[];
   selected_idx?: number;
-  drafts?: Draft[];
+  // 명세는 Draft[]지만 실서버가 JSON 문자열로 이중 인코딩해 보내는 경우가 있다
+  drafts?: Draft[] | string | null;
   rule_trail?: RuleTrail[];
 }
 

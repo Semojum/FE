@@ -78,6 +78,7 @@ export const useSavedJobs = ({ token, onJobLoaded }: UseSavedJobsOptions) => {
         }
 
         onJobLoaded({
+          jobId: job.jobId,
           mode: tab,
           totalPages: job.totalPages,
           thumbnailUrl: job.thumbnailUrl,

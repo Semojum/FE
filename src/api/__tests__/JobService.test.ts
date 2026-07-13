@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createJob, getJobStatus } from '../JobService';
+import { createJob, getJobStatus, patchElement } from '../JobService';
 import { API_BASE_URL } from '../apiClient';
 
 const envelope = (result: unknown, overrides: Record<string, unknown> = {}) => ({
@@ -129,5 +129,51 @@ describe('JobService.getJobStatus', () => {
     expect(res.overallStatus).toBe('IN_PROGRESS');
     const [url] = fetchSpy.mock.calls[0];
     expect(url).toBe(`${API_BASE_URL}/api/jobs/j1/status`);
+  });
+});
+
+describe('JobService.patchElement', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch');
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it('PATCHes elementType/contents and unwraps result', async () => {
+    fetchSpy.mockResolvedValue(makeJsonResponse(200, envelope(['⠟', '⠠⠍'])));
+
+    const res = await patchElement('j1', 2, 'el-1', 'BRAILLE', ['⠟', '⠠⠍'], 'tok');
+
+    expect(res).toEqual(['⠟', '⠠⠍']);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe(`${API_BASE_URL}/api/jobs/j1/pages/2/elements/el-1`);
+    expect((init as RequestInit).method).toBe('PATCH');
+    const headers = (init as RequestInit).headers as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer tok');
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      elementType: 'BRAILLE',
+      contents: ['⠟', '⠠⠍'],
+    });
+  });
+
+  it('throws ApiError on JOB4005 (잘못된 elementType)', async () => {
+    fetchSpy.mockResolvedValue(
+      makeJsonResponse(
+        400,
+        envelope(null, {
+          isSuccess: false,
+          code: 'JOB4005',
+          message: 'elementType은 TEXT 또는 BRAILLE만 허용됩니다.',
+        }),
+      ),
+    );
+
+    await expect(
+      patchElement('j1', 1, 'el-1', 'BRAILLE', ['x']),
+    ).rejects.toMatchObject({ code: 'JOB4005', status: 400 });
   });
 });

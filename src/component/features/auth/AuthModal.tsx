@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Loader2 } from 'lucide-react';
+import { X, Loader2, Eye, EyeOff } from 'lucide-react';
 import { OAuthProvider } from '../../../types/auth';
+import { checkEmail } from '../../../api/AuthService';
 
 interface Props {
   isOpen: boolean;
@@ -42,10 +43,13 @@ const AuthModal: React.FC<Props> = ({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 이메일 중복확인 결과. 전용 API가 없어 형식 검증으로 대체한다(아래 handleCheckEmail).
-  const [emailCheck, setEmailCheck] = useState<'valid' | 'invalid' | null>(null);
+  // 이메일 중복확인 상태 (GET /api/auth/email/check)
+  const [emailCheck, setEmailCheck] = useState<
+    'checking' | 'valid' | 'invalid' | 'error' | null
+  >(null);
 
   // 외부 에러(소셜 로그인 콜백 실패 등)를 모달 에러로 반영
   useEffect(() => {
@@ -58,14 +62,15 @@ const AuthModal: React.FC<Props> = ({
     setEmail('');
     setPassword('');
     setName('');
+    setShowPassword(false);
     setError(null);
     setEmailCheck(null);
   };
 
+  // 로그인 ↔ 회원가입 전환 시 입력값이 서로 넘어가지 않도록 전부 초기화한다.
   const handleSwitch = (next: 'login' | 'signup') => {
     setTab(next);
-    setError(null);
-    setEmailCheck(null);
+    reset();
   };
 
   // 소셜 로그인 시작은 상위(useOAuth)에 위임. 결과/에러는 externalError로 전달됨.
@@ -74,11 +79,46 @@ const AuthModal: React.FC<Props> = ({
     void onOAuthLogin(provider);
   };
 
-  // 이메일 중복확인: 전용 백엔드 엔드포인트가 없어 형식만 검증해 사용 가능 여부를 표시한다.
-  // 서버 측 중복 검사 API가 생기면 이 핸들러를 해당 호출로 교체하면 된다.
-  const handleCheckEmail = () => {
-    setEmailCheck(EMAIL_RE.test(email.trim()) ? 'valid' : 'invalid');
+  // 이메일 중복확인: 형식 검증 후 BE(GET /api/auth/email/check)에 사용 가능 여부를 조회한다.
+  // 중복이어도 200 + { available: false }로 오므로 available 값으로 문구를 표시한다.
+  const handleCheckEmail = async () => {
+    const trimmed = email.trim();
+    if (!EMAIL_RE.test(trimmed)) {
+      setEmailCheck('invalid');
+      return;
+    }
+    setEmailCheck('checking');
+    try {
+      const { available } = await checkEmail(trimmed);
+      setEmailCheck(available ? 'valid' : 'invalid');
+    } catch {
+      setEmailCheck('error');
+    }
   };
+
+  // 비밀번호 입력 + 표시/숨김 토글. 브라우저 내장 표시 버튼은 포커스를 잃으면
+  // 사라지므로(QA 지적) 항상 보이는 자체 토글 버튼을 제공한다.
+  const passwordField = (placeholder: string) => (
+    <div className="relative">
+      <input
+        type={showPassword ? 'text' : 'password'}
+        placeholder={placeholder}
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        required
+        minLength={4}
+        className={`${inputCls} pr-12`}
+      />
+      <button
+        type="button"
+        onClick={() => setShowPassword((v) => !v)}
+        aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 표시'}
+        className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-[#5b8ce6]"
+      >
+        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+      </button>
+    </div>
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,15 +161,7 @@ const AuthModal: React.FC<Props> = ({
           autoFocus
           className={inputCls}
         />
-        <input
-          type="password"
-          placeholder="비밀번호"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          minLength={4}
-          className={inputCls}
-        />
+        {passwordField('비밀번호')}
 
         {error && <p className="px-2 text-sm text-red-500">{error}</p>}
 
@@ -213,7 +245,7 @@ const AuthModal: React.FC<Props> = ({
 
       <form
         onSubmit={handleSubmit}
-        className="mx-auto mt-12 flex max-w-[450px] flex-col gap-5 md:ml-[120px]"
+        className="mx-auto mt-12 flex w-full max-w-[450px] flex-col gap-5"
       >
         <div>
           <label className="mb-2 block text-sm font-medium text-[#828282]">
@@ -249,9 +281,10 @@ const AuthModal: React.FC<Props> = ({
             <button
               type="button"
               onClick={handleCheckEmail}
-              className="h-[38px] shrink-0 rounded-[10px] bg-[#f47726] px-4 text-sm font-medium text-white transition hover:brightness-95"
+              disabled={emailCheck === 'checking'}
+              className="h-[38px] shrink-0 rounded-[10px] bg-[#f47726] px-4 text-sm font-medium text-white transition hover:brightness-95 disabled:opacity-60"
             >
-              중복확인
+              {emailCheck === 'checking' ? '확인 중...' : '중복확인'}
             </button>
           </div>
           {emailCheck === 'valid' && (
@@ -264,21 +297,18 @@ const AuthModal: React.FC<Props> = ({
               사용 불가능한 이메일입니다.
             </p>
           )}
+          {emailCheck === 'error' && (
+            <p className="mt-1.5 text-[11px] font-medium text-[#ff3b30]">
+              중복확인에 실패했습니다. 잠시 후 다시 시도해주세요.
+            </p>
+          )}
         </div>
 
         <div>
           <label className="mb-2 block text-sm font-medium text-[#828282]">
             비밀번호
           </label>
-          <input
-            type="password"
-            placeholder="비밀번호를 입력하세요"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={4}
-            className={inputCls}
-          />
+          {passwordField('비밀번호를 입력하세요')}
         </div>
 
         {error && <p className="text-sm text-red-500">{error}</p>}

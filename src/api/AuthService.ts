@@ -20,6 +20,12 @@ export const signup = (
     body: { email, name, password },
   });
 
+// GET /api/auth/email/check?email=... — 인증 불필요. 중복이어도 200 + { available: false }.
+export const checkEmail = (email: string): Promise<{ available: boolean }> =>
+  apiRequest<{ available: boolean }>(
+    `/api/auth/email/check?email=${encodeURIComponent(email)}`,
+  );
+
 // POST /api/auth/login — { accessToken, refreshToken } 반환
 export const login = (
   email: string,

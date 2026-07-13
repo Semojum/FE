@@ -83,6 +83,7 @@ export interface JobPageResponse {
 // 마이페이지에서 불러온 작업을 앱 내부 상태로 복원한 형태.
 // 서버는 페이지별로 결과를 내려주므로 클라이언트에서 페이지들을 합쳐 구성한다.
 export interface JobDetail {
+  jobId: string; // 요소 편집(PATCH) 저장 대상 식별용
   mode: ConversionTab;
   totalPages: number;
   blocksByPage: Record<number, TranslationBlock[]>;

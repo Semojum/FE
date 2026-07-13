@@ -57,6 +57,13 @@ export interface OCRResponse {
   text_list: { id: string; order: number; contents: string }[];
 }
 
+// 대체 초안(명세 drafts) 한 건 — 피커에 방식명/설명과 함께 표시한다.
+export interface BlockDraft {
+  label?: string; // 방식명 (예: "격자형", "행↔열 전치")
+  text?: string; // 점역사주 원문(한글) — 이 초안이 어떤 방식인지 설명
+  content: string; // 초안 결과(줄 목록을 \n으로 합친 값). 선택 시 본문이 됨
+}
+
 // 기존 TranslationBlock 확장
 export interface TranslationBlock {
   id: string;
@@ -66,6 +73,8 @@ export interface TranslationBlock {
   bbox?: BoundingBox; // bbox 정보 추가
   isBlocked?: boolean; // 명세 is_blocked: 처리 불가/검토 필요 요소
   ruleTrail?: RuleTrail[]; // 명세 rule_trail: 적용된 점역 규정
+  tnText?: string; // 명세 tn_text: AI 점역사주 원문(시각 요소 설명)
+  drafts?: BlockDraft[]; // 명세 drafts: 대체 초안(라벨/설명 포함)
 }
 
 export interface OriginalTextBlock {

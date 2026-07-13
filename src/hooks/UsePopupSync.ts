@@ -11,6 +11,9 @@ import { openOutputWindow, OutputWindowHandle } from '../utils/outputWindow';
 
 export type PanelMode = 'both' | 'input-only' | 'output-only';
 
+// 블록별 서버 저장 상태. 성공하면 엔트리가 제거된다(표시 없음).
+export type BlockSaveState = 'saving' | 'error';
+
 export type SyncAction =
   | { type: 'updateBlock'; page: number; id: string; text: string }
   | { type: 'applyCandidate'; page: number; id: string; text: string }
@@ -19,6 +22,8 @@ export type SyncAction =
   | { type: 'reorderBlocks'; page: number; reordered: TranslationBlock[] }
   | { type: 'setSelected'; id: string | null }
   | { type: 'setPage'; page: number }
+  // 블록 편집을 서버에 저장(PATCH). 팝업에서도 메인이 실행한다(토큰/jobId 보유).
+  | { type: 'persistBlock'; page: number; id: string; text: string }
   | { type: 'reset' };
 
 export interface SyncSnapshot {
@@ -33,6 +38,8 @@ export interface SyncSnapshot {
   isUploading: boolean;
   isStreaming: boolean;
   uploadError: string | null;
+  // 블록별 저장 상태 — 팝업이 저장 중/실패 표시를 미러링하는 데 사용
+  blockSaveStates: Record<string, BlockSaveState>;
 }
 
 type SyncMessage =

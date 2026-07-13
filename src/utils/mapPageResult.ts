@@ -1,4 +1,5 @@
 import {
+  BlockDraft,
   BoundingBox,
   ConversionTab,
   ImageResolution,
@@ -39,12 +40,43 @@ const itemContents = (item: {
 const itemText = (item: { contents?: string[]; content?: string | string[] }) =>
   itemContents(item).join('\n');
 
+// AI가 tn_text/draft.text를 "<!점역자주>...<!/점역자주>" 래퍼로 감싸 보낸다(실서버 확인).
+// 화면 표시용 텍스트에서는 래퍼를 벗긴다.
+const stripTnWrapper = (text: string | null | undefined): string | undefined => {
+  const stripped = (text ?? '').replace(/<!\/?점역자주>/g, '').trim();
+  return stripped.length > 0 ? stripped : undefined;
+};
+
+// 실서버는 drafts를 명세(객체 배열)와 달리 JSON 문자열로 이중 인코딩해 보내는 경우가
+// 있다(예: "[{\"text\":...}]"). 문자열이면 파싱을 시도해 배열로 복원한다.
+const parseDrafts = (drafts: Draft[] | string | null | undefined): Draft[] => {
+  if (typeof drafts === 'string') {
+    try {
+      return asArray(JSON.parse(drafts) as Draft[]);
+    } catch {
+      return [];
+    }
+  }
+  return asArray(drafts);
+};
+
 // 대체 텍스트 후보는 contents의 여러 줄이 아니라 drafts에서 온다(시각 요소에만 존재).
-// 각 draft의 줄 목록을 한 문자열로 합쳐 후보로 노출한다.
-const itemCandidates = (item: { drafts?: Draft[] }): string[] =>
-  asArray(item.drafts)
-    .map((d) => toArray(d.contents).join('\n'))
-    .filter((text) => text.length > 0);
+// 라벨·점역사주 설명을 유지한 채 매핑해 피커에서 방식을 구분할 수 있게 한다.
+const itemDrafts = (item: {
+  drafts?: Draft[] | string | null;
+}): BlockDraft[] =>
+  parseDrafts(item.drafts)
+    .map((d) => ({
+      label: d.label,
+      text: stripTnWrapper(d.text),
+      content: toArray(d.contents).join('\n'),
+    }))
+    .filter((d) => d.content.length > 0);
+
+const itemCandidates = (item: {
+  drafts?: Draft[] | string | null;
+}): string[] =>
+  itemDrafts(item).map((d) => d.content);
 
 const mapBoundingBoxes = (list: BoundingBoxDto[] | undefined): BoundingBox[] =>
   asArray(list).map((b) => ({
@@ -86,6 +118,8 @@ export const mapPageResult = (
           originalText: '',
           currentText: itemText(item),
           candidates: itemCandidates(item),
+          drafts: itemDrafts(item),
+          tnText: stripTnWrapper(item.tn_text),
           bbox: matchedBBox,
           isBlocked: item.is_blocked,
           ruleTrail: item.rule_trail,
@@ -108,6 +142,8 @@ export const mapPageResult = (
           originalText: originalItem ? itemText(originalItem) : '',
           currentText: itemText(item),
           candidates: itemCandidates(item),
+          drafts: itemDrafts(item),
+          tnText: stripTnWrapper(item.tn_text),
           bbox: undefined,
           isBlocked: item.is_blocked,
           ruleTrail: item.rule_trail,
@@ -127,13 +163,16 @@ export const mapPageResult = (
     const ocr = item as {
       is_blocked?: boolean;
       rule_trail?: TranslationBlock['ruleTrail'];
-      drafts?: Draft[];
+      drafts?: Draft[] | string | null;
+      tn_text?: string | null;
     };
     return {
       id: String(item.id),
       originalText: text,
       currentText: text,
       candidates: itemCandidates(ocr),
+      drafts: itemDrafts(ocr),
+      tnText: stripTnWrapper(ocr.tn_text),
       bbox: matchedBBox,
       isBlocked: ocr.is_blocked,
       ruleTrail: ocr.rule_trail,

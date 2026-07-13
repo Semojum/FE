@@ -81,9 +81,18 @@ export const useOAuth = (onTokens: OnTokens) => {
 
       try {
         // 카카오 redirect URI 일치를 위해 고정 포트만 시도한다.
+        // response는 loopback 서버가 charset 없이 내려보내므로, 한글이 깨지지 않게
+        // meta charset을 명시한 HTML 전체를 넘긴다.
         port = await start({
           ports: [OAUTH_LOOPBACK_PORT],
-          response: '로그인이 완료되었습니다. 이 창을 닫고 앱으로 돌아가세요.',
+          response: [
+            '<!doctype html>',
+            '<html lang="ko"><head><meta charset="utf-8">',
+            '<title>로그인 완료</title></head>',
+            '<body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#333">',
+            '<p>로그인이 완료되었습니다. 이 창을 닫고 앱으로 돌아가세요.</p>',
+            '</body></html>',
+          ].join(''),
         });
         const redirectUri = `http://127.0.0.1:${port}`;
         const state = randomState();

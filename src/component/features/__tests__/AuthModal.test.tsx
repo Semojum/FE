@@ -1,7 +1,17 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AuthModal from '../auth/AuthModal';
+
+// 이메일 중복확인 API(checkEmail)를 모킹한다.
+vi.mock('../../../api/AuthService', () => ({
+  checkEmail: vi.fn(),
+}));
+import { checkEmail } from '../../../api/AuthService';
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('AuthModal', () => {
   it('renders nothing when isOpen=false', () => {
@@ -95,7 +105,8 @@ describe('AuthModal', () => {
     expect(onSignup).toHaveBeenCalledWith('hong@x.com', 'pw12', '홍길동');
   });
 
-  it('email 중복확인 shows availability message based on format', async () => {
+  it('email 중복확인 shows available message when API returns available=true', async () => {
+    vi.mocked(checkEmail).mockResolvedValue({ available: true });
     render(
       <AuthModal
         isOpen={true}
@@ -114,6 +125,68 @@ describe('AuthModal', () => {
     expect(
       await screen.findByText('사용 가능한 이메일입니다.'),
     ).toBeInTheDocument();
+    expect(checkEmail).toHaveBeenCalledWith('good@x.com');
+  });
+
+  it('email 중복확인 shows unavailable message when API returns available=false', async () => {
+    vi.mocked(checkEmail).mockResolvedValue({ available: false });
+    render(
+      <AuthModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onLogin={vi.fn().mockResolvedValue(undefined)}
+        onSignup={vi.fn().mockResolvedValue(undefined)}
+        onOAuthLogin={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: '회원가입' }));
+    await userEvent.type(
+      screen.getByPlaceholderText('이메일을 입력하세요'),
+      'dup@x.com',
+    );
+    await userEvent.click(screen.getByRole('button', { name: '중복확인' }));
+    expect(
+      await screen.findByText('사용 불가능한 이메일입니다.'),
+    ).toBeInTheDocument();
+  });
+
+  it('email 중복확인 rejects invalid format without calling the API', async () => {
+    render(
+      <AuthModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onLogin={vi.fn().mockResolvedValue(undefined)}
+        onSignup={vi.fn().mockResolvedValue(undefined)}
+        onOAuthLogin={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: '회원가입' }));
+    await userEvent.type(
+      screen.getByPlaceholderText('이메일을 입력하세요'),
+      'not-an-email',
+    );
+    await userEvent.click(screen.getByRole('button', { name: '중복확인' }));
+    expect(
+      await screen.findByText('사용 불가능한 이메일입니다.'),
+    ).toBeInTheDocument();
+    expect(checkEmail).not.toHaveBeenCalled();
+  });
+
+  it('switching tabs clears the entered credentials', async () => {
+    render(
+      <AuthModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onLogin={vi.fn().mockResolvedValue(undefined)}
+        onSignup={vi.fn().mockResolvedValue(undefined)}
+        onOAuthLogin={vi.fn()}
+      />,
+    );
+    await userEvent.type(screen.getByPlaceholderText('이메일 주소'), 'a@b.com');
+    await userEvent.type(screen.getByPlaceholderText('비밀번호'), 'secret');
+    await userEvent.click(screen.getByRole('button', { name: '회원가입' }));
+    expect(screen.getByPlaceholderText('이메일을 입력하세요')).toHaveValue('');
+    expect(screen.getByPlaceholderText('비밀번호를 입력하세요')).toHaveValue('');
   });
 
   it('renders error message when onLogin throws', async () => {

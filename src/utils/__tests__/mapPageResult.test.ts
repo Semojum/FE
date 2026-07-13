@@ -67,6 +67,59 @@ describe('mapPageResult', () => {
     expect(blocks[0].candidates).toEqual([]);
   });
 
+  it('실서버: JSON 문자열로 이중 인코딩된 drafts를 파싱한다', () => {
+    // 실서버(mode c 시각 요소)가 drafts를 "[{...}]" 문자열로 보내는 것을 확인함.
+    const result = {
+      braille_text_list: [
+        {
+          id: 'v1',
+          type: 'chart_graph',
+          is_blocked: false,
+          tn_text: '<!점역자주>그래프: 막대 네 개.<!/점역자주>',
+          contents: ['⠠⠄⠈⠪'],
+          drafts: JSON.stringify([
+            {
+              label: '수학적 서술',
+              text: '<!점역자주>그래프: 막대 네 개.<!/점역자주>',
+              contents: ['⠠⠄⠈⠪', '⠐⠗⠙⠪'],
+            },
+          ]),
+        },
+      ],
+    } as unknown as StreamPageResult;
+
+    const { blocks } = mapPageResult(TABS.INTEGRATED, result);
+
+    expect(blocks[0].tnText).toBe('그래프: 막대 네 개.');
+    expect(blocks[0].drafts).toEqual([
+      {
+        label: '수학적 서술',
+        text: '그래프: 막대 네 개.',
+        content: '⠠⠄⠈⠪\n⠐⠗⠙⠪',
+      },
+    ]);
+    expect(blocks[0].candidates).toEqual(['⠠⠄⠈⠪\n⠐⠗⠙⠪']);
+  });
+
+  it('실서버: 깨진 drafts 문자열은 무시하고 throw하지 않는다', () => {
+    const result = {
+      braille_text_list: [
+        {
+          id: 'v2',
+          type: 'image',
+          is_blocked: false,
+          contents: ['⠟'],
+          drafts: 'not-json{{{',
+        },
+      ],
+    } as unknown as StreamPageResult;
+
+    expect(() => mapPageResult(TABS.INTEGRATED, result)).not.toThrow();
+    expect(mapPageResult(TABS.INTEGRATED, result).blocks[0].candidates).toEqual(
+      [],
+    );
+  });
+
   it('OCR(a): 여러 텍스트 항목이 각각 별도 블록이 된다', () => {
     const result: StreamPageResult = {
       image_resolution: { width: 2480, height: 3505 },

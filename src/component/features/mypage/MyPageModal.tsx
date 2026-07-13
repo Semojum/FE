@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Loader2, FileText } from 'lucide-react';
+import { ArrowLeft, Loader2, FileText } from 'lucide-react';
 import { JobSummary, User } from '../../../types/auth';
 import { listJobs } from '../../../api/HistoryService';
 import { JobMode } from '../../../types/apiTypes';
@@ -116,40 +116,38 @@ const MyPageModal: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
+  // 팝업(모달)이 아닌 전체 페이지로 렌더한다 — 작업 목록을 넓게 보여주고,
+  // 뒤로 가기 버튼으로 작업 화면에 복귀한다.
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+      <div className="fixed inset-0 z-50 overflow-hidden bg-[#f8f9fa]">
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={onClose}
-          className="absolute inset-0 bg-black/30 backdrop-blur-sm"
-        />
-        <motion.div
-          initial={{ opacity: 0, scale: 0.97, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.97, y: 10 }}
-          className="relative flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-gray-100 bg-[#f8f9fa] shadow-xl"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 12 }}
+          className="mx-auto flex h-full w-full max-w-6xl flex-col"
         >
           {/* 헤더 — Figma "마이페이지" 탭 */}
-          <div className="flex items-end justify-between px-6 pt-5">
-            <h3 className="border-b-2 border-[#5b8ce6] pb-2 text-lg font-bold tracking-[0.18px] text-[#5b8ce6]">
-              마이페이지
-            </h3>
+          <div className="flex items-end justify-between px-6 pt-8">
+            <div className="flex items-end gap-4">
+              <button
+                onClick={onClose}
+                className="mb-1 flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-200/70 hover:text-[#5b8ce6]"
+                aria-label="닫기"
+              >
+                <ArrowLeft size={18} />
+                <span>돌아가기</span>
+              </button>
+              <h3 className="border-b-2 border-[#5b8ce6] pb-2 text-lg font-bold tracking-[0.18px] text-[#5b8ce6]">
+                마이페이지
+              </h3>
+            </div>
             <div className="flex items-center gap-3 pb-2">
               {user?.name && (
                 <span className="hidden text-sm text-gray-500 sm:inline">
                   {user.name}
                 </span>
               )}
-              <button
-                onClick={onClose}
-                className="rounded-full p-1 transition-colors hover:bg-gray-200/70"
-                aria-label="닫기"
-              >
-                <X size={18} className="text-gray-500" />
-              </button>
             </div>
           </div>
           <div className="mx-6 border-b border-gray-200" />

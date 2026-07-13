@@ -1,6 +1,17 @@
 // component/features/conversion/BlockItem.tsx
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Trash2, Plus, Sparkles, GripVertical, Code2, Eye } from 'lucide-react';
+import {
+  Trash2,
+  Plus,
+  Sparkles,
+  GripVertical,
+  Code2,
+  Eye,
+  BookOpen,
+  Info,
+  Loader2,
+  AlertCircle,
+} from 'lucide-react';
 import { Reorder, useDragControls } from 'framer-motion';
 import { TranslationBlock, ConversionTab, TABS } from '../../../types';
 import CandidateModal from './CandidateModal';
@@ -19,6 +30,10 @@ interface BlockItemProps {
   onAdd: (index: number) => void;
   onSelect: (id: string) => void;
   isSelected: boolean;
+  // 블록 편집을 서버에 저장. 포커스가 블록을 벗어나거나 초안을 선택할 때 호출.
+  onPersist?: (id: string, text: string) => void;
+  // 서버 저장 상태 — 'saving' 저장 중 / 'error' 실패(재시도 표시)
+  saveState?: 'saving' | 'error';
 }
 
 const BlockItem: React.FC<BlockItemProps> = memo(
@@ -32,10 +47,16 @@ const BlockItem: React.FC<BlockItemProps> = memo(
     onAdd,
     onSelect,
     isSelected,
+    onPersist,
+    saveState,
   }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isPreviewMode, setIsPreviewMode] = useState(mode === TABS.BRAILLE);
+    // 이 블록에 적용된 점역 규정(rule_trail) 패널 표시 여부
+    const [showRules, setShowRules] = useState(false);
     const dragControls = useDragControls();
+
+    const ruleTrail = block.ruleTrail ?? [];
 
     const itemRef = useRef<HTMLLIElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null); // ✅ 커서 제어용 Ref
@@ -177,6 +198,13 @@ const BlockItem: React.FC<BlockItemProps> = memo(
 
           {/* 2. 메인 컨텐츠 */}
           <div className="flex-1 min-w-0 mt-1">
+            {/* 점역사주(tn_text): 시각 요소를 AI가 한글로 설명한 원문 — 점역 방향 판단용 */}
+            {block.tnText && (
+              <p className="mb-1.5 flex items-start gap-1.5 rounded-lg bg-amber-50/70 px-2.5 py-1.5 text-xs text-amber-800">
+                <Info size={13} className="mt-0.5 shrink-0" />
+                <span className="whitespace-pre-wrap">{block.tnText}</span>
+              </p>
+            )}
             <div className="relative min-h-[2.5rem]">
               {isPreviewMode ? (
                 <div
@@ -198,6 +226,7 @@ const BlockItem: React.FC<BlockItemProps> = memo(
                   renderHighlight={renderHighlight} // ✅ 하이라이트된 Node 전달
                   onFocus={() => onSelect(block.id)}
                   onChange={(e) => onUpdate(block.id, e.target.value)}
+                  onBlur={() => onPersist?.(block.id, block.currentText)}
                   onKeyDown={handleKeyDown}
                   onKeyUp={handleKeyUp}
                   className={
@@ -212,6 +241,50 @@ const BlockItem: React.FC<BlockItemProps> = memo(
                 />
               )}
             </div>
+
+            {/* 서버 저장 상태 — 저장 중이거나 실패했을 때만 표시 */}
+            {saveState === 'saving' && (
+              <p className="mt-1 flex items-center gap-1 text-[11px] text-gray-400">
+                <Loader2 size={11} className="animate-spin" /> 저장 중...
+              </p>
+            )}
+            {saveState === 'error' && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPersist?.(block.id, block.currentText);
+                }}
+                className="mt-1 flex items-center gap-1 text-[11px] font-medium text-red-500 hover:underline"
+              >
+                <AlertCircle size={11} /> 저장 실패 — 다시 시도
+              </button>
+            )}
+
+            {/* 적용된 점역 규정(rule_trail) 목록 */}
+            {showRules && ruleTrail.length > 0 && (
+              <ul className="mt-2 flex flex-col gap-1.5 rounded-lg border border-[#5A8FBB]/20 bg-[#5A8FBB]/5 p-2.5">
+                {ruleTrail.map((rule, idx) => (
+                  <li key={idx} className="text-xs leading-relaxed">
+                    <span className="font-semibold text-[#407FAC]">
+                      {rule.rule_id} {rule.title}
+                    </span>
+                    {rule.priority === 'secondary' && (
+                      <span className="ml-1.5 rounded bg-gray-200 px-1 py-0.5 text-[10px] text-gray-500">
+                        보조
+                      </span>
+                    )}
+                    <span className="block text-gray-600">{rule.excerpt}</span>
+                    {rule.source && (
+                      <span className="block text-[10px] text-gray-400">
+                        {rule.source}
+                        {rule.section ? ` §${rule.section}` : ''}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           {/* 3. 오른쪽 컨트롤러 */}
@@ -226,6 +299,23 @@ const BlockItem: React.FC<BlockItemProps> = memo(
             >
               {isPreviewMode ? <Code2 size={16} /> : <Eye size={16} />}
             </button>
+
+            {ruleTrail.length > 0 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowRules((v) => !v);
+                }}
+                className={`p-1.5 rounded-lg transition-colors ${
+                  showRules
+                    ? 'text-[#407FAC] bg-blue-50'
+                    : 'text-gray-400 hover:text-[#407FAC] hover:bg-blue-50'
+                }`}
+                title="적용된 점역 규정 보기"
+              >
+                <BookOpen size={16} />
+              </button>
+            )}
 
             {block.candidates && block.candidates.length > 0 && (
               <button
@@ -255,8 +345,13 @@ const BlockItem: React.FC<BlockItemProps> = memo(
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
           candidates={block.candidates}
+          drafts={block.drafts}
           currentText={block.currentText}
-          onSelect={(text) => onApplyCandidate(block.id, text)}
+          onSelect={(text) => {
+            onApplyCandidate(block.id, text);
+            // 초안 선택은 blur를 거치지 않으므로 즉시 서버에 저장한다.
+            onPersist?.(block.id, text);
+          }}
         />
       </Reorder.Item>
     );

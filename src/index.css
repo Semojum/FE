@@ -4,3 +4,18 @@
 @theme {
     --font-sans: "Roboto", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
+
+@layer base {
+    /* Tailwind v4는 버튼 기본 커서가 default라 클릭 가능함이 드러나지 않는다. */
+    button:not(:disabled),
+    [role="button"]:not(:disabled) {
+        cursor: pointer;
+    }
+
+    /* 비밀번호 표시는 앱의 토글 버튼으로 제공하므로 브라우저(Edge) 내장 버튼은 숨긴다.
+       (내장 버튼은 입력창 밖 클릭 시 사라지는 문제가 있음) */
+    input::-ms-reveal,
+    input::-ms-clear {
+        display: none;
+    }
+}

@@ -29,6 +29,7 @@ import { useJobUpload } from './hooks/UseJobUpload.ts';
 import { useJobStream } from './hooks/UseJobStream.ts';
 import { useAuth } from './hooks/UseAuth';
 import {
+  BlockSaveState,
   PanelMode,
   SyncAction,
   SyncSnapshot,
@@ -64,6 +65,7 @@ import {
 } from './utils/fileValidation';
 import { checkForUpdates } from './utils/updater';
 import { httpFetch } from './api/httpFetch';
+import { patchElement } from './api/JobService';
 
 // 탭별로 보존하는 작업물 스냅샷 — 탭을 전환해도 각 탭의 입력/결과가 날아가지 않게 한다.
 interface TabState {
@@ -75,6 +77,8 @@ interface TabState {
   selectedBlockId: string | null;
   // 마이페이지 복원 작업의 페이지별 원본(없으면 null) — 페이지 전환 시 미리보기 교체용
   savedOriginalsByPage: Record<number, JobPageOriginal> | null;
+  // 이 탭 작업물의 서버 Job ID(블록 편집 저장 대상). 없으면 저장 불가.
+  jobId: string | null;
 }
 
 const BrailleMate: React.FC = () => {
@@ -141,6 +145,17 @@ const BrailleMate: React.FC = () => {
   const auth = useAuth();
   const [isMyPageOpen, setIsMyPageOpen] = useState(false);
 
+  // 블록 편집 저장(PATCH) 대상 Job ID. 라이브 업로드/마이페이지 복원/탭 복원 시 갱신된다.
+  const [workingJobId, setWorkingJobId] = useState<string | null>(null);
+  // 블록별 저장 상태(저장 중/실패). 성공하면 엔트리를 지운다.
+  const [blockSaveStates, setBlockSaveStates] = useState<
+    Record<string, BlockSaveState>
+  >({});
+  // 서버가 알고 있는 블록 내용(id → currentText). 변경 없으면 저장을 건너뛰고,
+  // 여기 없는 id는 에디터에서 새로 추가한 로컬 블록이라 서버 저장 대상이 아니다.
+  // (UUID는 전역 유일하므로 탭이 바뀌어도 그대로 둔다.)
+  const serverContentRef = useRef<Record<string, string>>({});
+
   // 탭별 작업물 보관소. 탭을 떠날 때 현재 상태를 저장하고, 돌아오면 복원한다.
   const [tabSnapshots, setTabSnapshots] = useState<
     Partial<Record<ConversionTab, TabState>>
@@ -175,6 +190,7 @@ const BrailleMate: React.FC = () => {
       imgResolution,
       selectedBlockId,
       savedOriginalsByPage,
+      jobId: workingJobId,
     }),
     [
       fileState,
@@ -184,6 +200,7 @@ const BrailleMate: React.FC = () => {
       imgResolution,
       selectedBlockId,
       savedOriginalsByPage,
+      workingJobId,
     ],
   );
 
@@ -197,6 +214,8 @@ const BrailleMate: React.FC = () => {
     setSelectedBlockId(null);
     setImgResolution({ width: 0, height: 0 });
     setSavedOriginalsByPage(null);
+    setWorkingJobId(null);
+    setBlockSaveStates({});
   }, [resetFile, resetAllBlocks, resetUpload]);
 
   const handleReset = useCallback(() => {
@@ -208,6 +227,14 @@ const BrailleMate: React.FC = () => {
 
   const handleTabChange = (tab: ConversionTab) => {
     if (tab === activeTab) return;
+
+    // 변환이 진행 중이면 바로 이동해 작업이 끊기지 않도록 먼저 확인을 받는다.
+    if (isUploading || isStreaming) {
+      const ok = window.confirm(
+        '변환 작업이 아직 진행 중입니다.\n지금 다른 모드로 이동하면 진행 중인 작업이 중단됩니다. 이동할까요?',
+      );
+      if (!ok) return;
+    }
 
     // 1) 떠나는 탭의 작업물을 저장
     setTabSnapshots((prev) => ({ ...prev, [activeTab]: captureState() }));
@@ -224,6 +251,8 @@ const BrailleMate: React.FC = () => {
       setImgResolution(saved.imgResolution);
       setSelectedBlockId(saved.selectedBlockId);
       setSavedOriginalsByPage(saved.savedOriginalsByPage);
+      setWorkingJobId(saved.jobId);
+      setBlockSaveStates({});
       // 복원된 파일은 이미 변환됐으므로 재업로드 트리거를 막는다.
       lastUploadedFileRef.current = saved.fileState.file;
     } else {
@@ -260,6 +289,52 @@ const BrailleMate: React.FC = () => {
     handleFileDrop([file], TABS.BRAILLE);
   };
 
+  // SSE로 받은 페이지 블록을 상태에 반영하면서, 서버가 알고 있는 내용(저장 기준값)도 기록
+  const setBlocksForPageWithBaseline = useCallback(
+    (page: number, blocks: TranslationBlock[]) => {
+      blocks.forEach((b) => {
+        serverContentRef.current[b.id] = b.currentText;
+      });
+      setBlocksForPage(page, blocks);
+    },
+    [setBlocksForPage],
+  );
+
+  // 블록 편집을 서버에 저장(PATCH). 블록에서 포커스가 벗어나거나 초안을 선택할 때 호출된다.
+  // 변경이 없거나, 서버에 없는 로컬 추가 블록이거나, 저장 대상 Job이 없으면 건너뛴다.
+  const persistBlock = useCallback(
+    (page: number, id: string, text: string) => {
+      if (!workingJobId || !auth.token) return;
+      if (!(id in serverContentRef.current)) return; // 로컬 추가 블록(서버에 요소 없음)
+      if (serverContentRef.current[id] === text) return; // 변경 없음
+
+      // 명세 elementType: a(text_list)=TEXT, b/c(braille_text_list)=BRAILLE
+      const elementType = activeTab === TABS.OCR ? 'TEXT' : 'BRAILLE';
+      setBlockSaveStates((prev) => ({ ...prev, [id]: 'saving' }));
+      patchElement(
+        workingJobId,
+        page,
+        id,
+        elementType,
+        text.split('\n'),
+        auth.token,
+      )
+        .then(() => {
+          serverContentRef.current[id] = text;
+          setBlockSaveStates((prev) => {
+            const next = { ...prev };
+            delete next[id];
+            return next;
+          });
+        })
+        .catch((e) => {
+          console.error('블록 저장 실패', e);
+          setBlockSaveStates((prev) => ({ ...prev, [id]: 'error' }));
+        });
+    },
+    [workingJobId, auth.token, activeTab],
+  );
+
   // 메인 측에서 직접 호출되는 액션 처리기. 팝업은 BroadcastChannel을 통해 메인에 위임.
   const applyAction = useCallback(
     (action: SyncAction) => {
@@ -285,6 +360,9 @@ const BrailleMate: React.FC = () => {
         case 'setPage':
           setPage(action.page);
           break;
+        case 'persistBlock':
+          persistBlock(action.page, action.id, action.text);
+          break;
         case 'reset':
           handleReset();
           break;
@@ -297,6 +375,7 @@ const BrailleMate: React.FC = () => {
       addBlock,
       reorderBlocks,
       setPage,
+      persistBlock,
       handleReset,
     ],
   );
@@ -310,6 +389,11 @@ const BrailleMate: React.FC = () => {
     uploadFile(fileState.file, activeTab, auth.token);
   }, [isPopup, fileState.file, activeTab, uploadFile, isUploading, auth.token]);
 
+  // 라이브 업로드로 생성된 Job을 블록 편집 저장 대상으로 등록
+  useEffect(() => {
+    if (jobId) setWorkingJobId(jobId);
+  }, [jobId]);
+
   const handlePageReceived = usePageStreamHandler({
     activeTab,
     currentPage: fileState.currentPage,
@@ -318,7 +402,7 @@ const BrailleMate: React.FC = () => {
     setImgResolution,
     setBboxDataByPage,
     setOriginalTextsByPage,
-    setBlocksForPage,
+    setBlocksForPage: setBlocksForPageWithBaseline,
   });
 
   const { isStreaming } = useJobStream({
@@ -340,6 +424,7 @@ const BrailleMate: React.FC = () => {
       isUploading,
       isStreaming,
       uploadError,
+      blockSaveStates,
     }),
     [
       activeTab,
@@ -353,6 +438,7 @@ const BrailleMate: React.FC = () => {
       isUploading,
       isStreaming,
       uploadError,
+      blockSaveStates,
     ],
   );
 
@@ -366,6 +452,7 @@ const BrailleMate: React.FC = () => {
       setSelectedBlockId(s.selectedBlockId);
       setPage(s.currentPage);
       setTotalPages(s.totalPages);
+      setBlockSaveStates(s.blockSaveStates ?? {});
     },
     [setAllBlocks, setPage, setTotalPages],
   );
@@ -384,6 +471,13 @@ const BrailleMate: React.FC = () => {
       handleReset();
       setActiveTab(job.mode);
       setAllBlocks(job.blocksByPage);
+      // 복원된 블록의 서버 기준값을 기록하고, 이 Job을 편집 저장 대상으로 등록한다.
+      Object.values(job.blocksByPage).forEach((blocks) =>
+        blocks.forEach((b) => {
+          serverContentRef.current[b.id] = b.currentText;
+        }),
+      );
+      setWorkingJobId(job.jobId);
       setBboxDataByPage(job.bboxDataByPage);
       setOriginalTextsByPage(job.originalTextsByPage);
       setImgResolution(job.imgResolution);
@@ -608,27 +702,30 @@ const BrailleMate: React.FC = () => {
                 >
                   <LogOut size={16} />
                 </button>
+                {/* 합치기/나누기 토글은 메인 창에서만 노출한다.
+                    결과 전용 창에서 합치기를 누르면 window.close가 막혀 흰 화면이
+                    되는 문제가 있어, 결과 창은 창 닫기(X)로만 합치도록 한다. */}
+                <button
+                  onClick={togglePopup}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:text-[#407FAC] hover:border-[#407FAC]/40 transition-colors shadow-sm text-sm font-medium"
+                  title={
+                    panelMode === 'both'
+                      ? '결과를 새 창으로 분리'
+                      : '한 창으로 합치기'
+                  }
+                  aria-pressed={panelMode !== 'both'}
+                >
+                  {panelMode === 'both' ? (
+                    <Columns2 size={16} />
+                  ) : (
+                    <Square size={16} />
+                  )}
+                  <span>
+                    {panelMode === 'both' ? '반으로 나누기' : '합치기'}
+                  </span>
+                </button>
               </>
             )}
-            <button
-              onClick={togglePopup}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:text-[#407FAC] hover:border-[#407FAC]/40 transition-colors shadow-sm text-sm font-medium"
-              title={
-                panelMode === 'both'
-                  ? '결과를 새 창으로 분리'
-                  : '한 창으로 합치기'
-              }
-              aria-pressed={panelMode !== 'both'}
-            >
-              {panelMode === 'both' ? (
-                <Columns2 size={16} />
-              ) : (
-                <Square size={16} />
-              )}
-              <span>
-                {panelMode === 'both' ? '반으로 나누기' : '합치기'}
-              </span>
-            </button>
           </div>
         </div>
         {!isPopup && (
@@ -825,6 +922,15 @@ const BrailleMate: React.FC = () => {
                           onApplyCandidate={(id, text) =>
                             dispatchAction({
                               type: 'applyCandidate',
+                              page: currentPage,
+                              id,
+                              text,
+                            })
+                          }
+                          saveState={blockSaveStates[block.id]}
+                          onPersist={(id, text) =>
+                            dispatchAction({
+                              type: 'persistBlock',
                               page: currentPage,
                               id,
                               text,
