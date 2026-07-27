@@ -54,3 +54,59 @@ export const patchElement = (
       body: { elementType, contents },
     },
   );
+
+// POST /api/jobs/{jobId}/pages/{pageNo}/elements — 블록 추가.
+// afterElementId 뒤에 삽입되며 null이면 페이지 맨 앞. 요소 ID는 서버가 발급하고
+// (응답 result.id) 읽기 순서는 삽입 후 서버가 1..N으로 재번호한다.
+export interface CreatedElement {
+  id: string;
+  contents: string[];
+}
+
+export const createElement = (
+  jobId: string,
+  pageNo: number,
+  elementType: ElementType,
+  contents: string[],
+  afterElementId: string | null,
+  token?: string | null,
+): Promise<CreatedElement> =>
+  apiRequest<CreatedElement>(`/api/jobs/${jobId}/pages/${pageNo}/elements`, {
+    method: 'POST',
+    token,
+    body: { elementType, contents, afterElementId },
+  });
+
+// DELETE /api/jobs/{jobId}/pages/{pageNo}/elements/{elementId}?elementType=... — 블록 삭제.
+// soft-delete이며 남은 블록의 순서는 서버가 재번호한다. 이미 삭제된 요소는 JOB4004.
+// (elementType 쿼리를 빼면 실서버가 500을 주므로 항상 붙인다.)
+export const deleteElement = (
+  jobId: string,
+  pageNo: number,
+  elementId: string,
+  elementType: ElementType,
+  token?: string | null,
+): Promise<null> =>
+  apiRequest<null>(
+    `/api/jobs/${jobId}/pages/${pageNo}/elements/${elementId}?elementType=${elementType}`,
+    { method: 'DELETE', token },
+  );
+
+// PATCH /api/jobs/{jobId}/pages/{pageNo}/elements/order — 블록 순서변경.
+// orderedElementIds는 그 페이지의 "살아있는 요소 전체의 순열"이어야 한다.
+// 누락/중복/미지의 ID가 있으면 JOB4006.
+export const reorderElements = (
+  jobId: string,
+  pageNo: number,
+  elementType: ElementType,
+  orderedElementIds: string[],
+  token?: string | null,
+): Promise<string[]> =>
+  apiRequest<string[]>(
+    `/api/jobs/${jobId}/pages/${pageNo}/elements/order`,
+    {
+      method: 'PATCH',
+      token,
+      body: { elementType, orderedElementIds },
+    },
+  );

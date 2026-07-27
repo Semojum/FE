@@ -63,7 +63,9 @@ export const useTranslationBlocks = () => {
     }));
   }, []);
 
-  const addBlock = useCallback((page: number, index: number) => {
+  // index 뒤에 빈 블록을 추가하고 그 로컬 ID를 반환한다.
+  // 반환된 ID로 호출부가 서버 생성(POST)을 걸고, 발급받은 요소 ID로 교체한다.
+  const addBlock = useCallback((page: number, index: number): string => {
     const newBlock: TranslationBlock = {
       id: crypto.randomUUID(),
       currentText: '',
@@ -74,7 +76,35 @@ export const useTranslationBlocks = () => {
       pageBlocks.splice(index + 1, 0, newBlock);
       return { ...prev, [page]: pageBlocks };
     });
+    return newBlock.id;
   }, []);
+
+  // 삭제 롤백용 — 서버 삭제(DELETE)가 실패했을 때 원래 자리에 되돌린다.
+  const insertBlockAt = useCallback(
+    (page: number, index: number, block: TranslationBlock) => {
+      setBlocksByPage((prev) => {
+        const pageBlocks = [...(prev[page] || [])];
+        if (pageBlocks.some((b) => b.id === block.id)) return prev; // 이미 있으면 무시
+        pageBlocks.splice(Math.max(0, index), 0, block);
+        return { ...prev, [page]: pageBlocks };
+      });
+    },
+    [],
+  );
+
+  // 로컬 임시 ID(추가 직후)를 서버가 발급한 요소 ID로 교체.
+  // 이후 수정/삭제/순서변경 API가 이 ID를 사용한다.
+  const replaceBlockId = useCallback(
+    (page: number, oldId: string, newId: string) => {
+      setBlocksByPage((prev) => ({
+        ...prev,
+        [page]: (prev[page] || []).map((block) =>
+          block.id === oldId ? { ...block, id: newId } : block,
+        ),
+      }));
+    },
+    [],
+  );
 
   // Reorder.Group용 순서 업데이트
   const reorderBlocks = useCallback(
@@ -96,6 +126,8 @@ export const useTranslationBlocks = () => {
     applyCandidate,
     removeBlock,
     addBlock,
+    insertBlockAt,
+    replaceBlockId,
     reorderBlocks,
     resetAllBlocks,
   };

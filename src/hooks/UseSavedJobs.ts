@@ -81,6 +81,7 @@ export const useSavedJobs = ({ token, onJobLoaded }: UseSavedJobsOptions) => {
           jobId: job.jobId,
           mode: tab,
           totalPages: job.totalPages,
+          failedPages: job.failedPages ?? [],
           thumbnailUrl: job.thumbnailUrl,
           blocksByPage,
           bboxDataByPage,

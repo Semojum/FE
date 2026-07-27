@@ -86,6 +86,8 @@ export interface JobDetail {
   jobId: string; // 요소 편집(PATCH) 저장 대상 식별용
   mode: ConversionTab;
   totalPages: number;
+  // 변환에 실패한 페이지 번호 — 복원 시 해당 페이지에 실패 안내를 띄운다.
+  failedPages: number[];
   blocksByPage: Record<number, TranslationBlock[]>;
   bboxDataByPage: Record<number, BoundingBox[]>;
   originalTextsByPage: Record<number, OriginalTextBlock[]>;

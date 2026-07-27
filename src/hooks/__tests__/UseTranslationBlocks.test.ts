@@ -70,6 +70,45 @@ describe('useTranslationBlocks', () => {
     expect(result.current.getBlocks(1)[1].id).toEqual(expect.any(String));
   });
 
+  it('addBlock returns the new block id (server 생성 대상 식별용)', () => {
+    const { result } = renderHook(() => useTranslationBlocks());
+    act(() => result.current.setBlocksForPage(1, [block('a')]));
+    let newId = '';
+    act(() => {
+      newId = result.current.addBlock(1, 0);
+    });
+    expect(result.current.getBlocks(1)[1].id).toBe(newId);
+  });
+
+  it('replaceBlockId swaps the local id for the server-issued one', () => {
+    const { result } = renderHook(() => useTranslationBlocks());
+    act(() => result.current.setBlocksForPage(1, [block('a'), block('tmp')]));
+    act(() => result.current.replaceBlockId(1, 'tmp', 'srv-1'));
+    expect(result.current.getBlocks(1).map((b) => b.id)).toEqual(['a', 'srv-1']);
+    // 내용은 유지된다
+    expect(result.current.getBlocks(1)[1].currentText).toBe('tmp');
+  });
+
+  it('insertBlockAt restores a block at its original index', () => {
+    const { result } = renderHook(() => useTranslationBlocks());
+    const blocks = [block('a'), block('b'), block('c')];
+    act(() => result.current.setBlocksForPage(1, blocks));
+    act(() => result.current.removeBlock(1, 'b'));
+    act(() => result.current.insertBlockAt(1, 1, blocks[1]));
+    expect(result.current.getBlocks(1).map((b) => b.id)).toEqual([
+      'a',
+      'b',
+      'c',
+    ]);
+  });
+
+  it('insertBlockAt ignores a block that is already present', () => {
+    const { result } = renderHook(() => useTranslationBlocks());
+    act(() => result.current.setBlocksForPage(1, [block('a')]));
+    act(() => result.current.insertBlockAt(1, 0, block('a')));
+    expect(result.current.getBlocks(1)).toHaveLength(1);
+  });
+
   it('reorderBlocks accepts a fully reordered array', () => {
     const { result } = renderHook(() => useTranslationBlocks());
     const blocks = [block('a'), block('b'), block('c')];

@@ -59,13 +59,20 @@ import {
   TAB_VALUES,
 } from './types';
 import { JobDetail, JobPageOriginal } from './types/auth';
+import { JobDoneData, PageEventStatus } from './types/apiTypes';
 import {
   fileValidationMessage,
   TAB_ALLOWED_FILE_LABEL,
 } from './utils/fileValidation';
 import { checkForUpdates } from './utils/updater';
 import { httpFetch } from './api/httpFetch';
-import { patchElement } from './api/JobService';
+import {
+  createElement,
+  deleteElement,
+  patchElement,
+  reorderElements,
+  ElementType,
+} from './api/JobService';
 
 // 탭별로 보존하는 작업물 스냅샷 — 탭을 전환해도 각 탭의 입력/결과가 날아가지 않게 한다.
 interface TabState {
@@ -79,6 +86,8 @@ interface TabState {
   savedOriginalsByPage: Record<number, JobPageOriginal> | null;
   // 이 탭 작업물의 서버 Job ID(블록 편집 저장 대상). 없으면 저장 불가.
   jobId: string | null;
+  // 페이지별 변환 상태(BLOCKED 페이지 안내용)
+  pageStatuses: Record<number, PageEventStatus>;
 }
 
 const BrailleMate: React.FC = () => {
@@ -138,6 +147,8 @@ const BrailleMate: React.FC = () => {
     applyCandidate,
     removeBlock,
     addBlock,
+    insertBlockAt,
+    replaceBlockId,
     reorderBlocks,
     resetAllBlocks,
   } = useTranslationBlocks();
@@ -151,10 +162,21 @@ const BrailleMate: React.FC = () => {
   const [blockSaveStates, setBlockSaveStates] = useState<
     Record<string, BlockSaveState>
   >({});
-  // 서버가 알고 있는 블록 내용(id → currentText). 변경 없으면 저장을 건너뛰고,
-  // 여기 없는 id는 에디터에서 새로 추가한 로컬 블록이라 서버 저장 대상이 아니다.
+  // 서버가 알고 있는 블록 내용(id → currentText). 변경 없으면 저장을 건너뛴다.
+  // 여기 없는 id는 아직 서버에 요소가 없는 블록(추가 직후/생성 실패)이다.
   // (UUID는 전역 유일하므로 탭이 바뀌어도 그대로 둔다.)
   const serverContentRef = useRef<Record<string, string>>({});
+  // 페이지별 변환 상태 — page_done/job_done의 BLOCKED 페이지를 안내하는 데 쓴다.
+  const [pageStatuses, setPageStatuses] = useState<
+    Record<number, PageEventStatus>
+  >({});
+  // 비동기 콜백에서 참조할 최신 블록 목록(state 미러)
+  const blocksRef = useRef<Record<number, TranslationBlock[]>>({});
+  // 서버 생성(POST) 진행 중인 블록 — blur가 겹쳐도 중복 생성되지 않게 막는다.
+  const creatingRef = useRef<Set<string>>(new Set());
+  // 순서 저장 디바운스 — 드래그 중 onReorder가 연속 발생해도 PATCH는 한 번만 보낸다.
+  const orderTimerRef = useRef<number | undefined>(undefined);
+  const pendingOrderRef = useRef<{ page: number; ids: string[] } | null>(null);
 
   // 탭별 작업물 보관소. 탭을 떠날 때 현재 상태를 저장하고, 돌아오면 복원한다.
   const [tabSnapshots, setTabSnapshots] = useState<
@@ -180,6 +202,13 @@ const BrailleMate: React.FC = () => {
   // 미리보기(file은 없지만 fileType/미리보기가 있는 경우)도 포함한다.
   const hasInputPreview = !!fileState.fileType;
 
+  // 명세 elementType: a(text_list)=TEXT, b/c(braille_text_list)=BRAILLE
+  const elementType: ElementType = activeTab === TABS.OCR ? 'TEXT' : 'BRAILLE';
+
+  useEffect(() => {
+    blocksRef.current = blocksByPage;
+  }, [blocksByPage]);
+
   // 현재 화면 상태를 탭 스냅샷으로 캡처
   const captureState = useCallback(
     (): TabState => ({
@@ -191,6 +220,7 @@ const BrailleMate: React.FC = () => {
       selectedBlockId,
       savedOriginalsByPage,
       jobId: workingJobId,
+      pageStatuses,
     }),
     [
       fileState,
@@ -201,6 +231,7 @@ const BrailleMate: React.FC = () => {
       selectedBlockId,
       savedOriginalsByPage,
       workingJobId,
+      pageStatuses,
     ],
   );
 
@@ -216,6 +247,7 @@ const BrailleMate: React.FC = () => {
     setSavedOriginalsByPage(null);
     setWorkingJobId(null);
     setBlockSaveStates({});
+    setPageStatuses({});
   }, [resetFile, resetAllBlocks, resetUpload]);
 
   const handleReset = useCallback(() => {
@@ -253,6 +285,7 @@ const BrailleMate: React.FC = () => {
       setSavedOriginalsByPage(saved.savedOriginalsByPage);
       setWorkingJobId(saved.jobId);
       setBlockSaveStates({});
+      setPageStatuses(saved.pageStatuses ?? {});
       // 복원된 파일은 이미 변환됐으므로 재업로드 트리거를 막는다.
       lastUploadedFileRef.current = saved.fileState.file;
     } else {
@@ -300,39 +333,221 @@ const BrailleMate: React.FC = () => {
     [setBlocksForPage],
   );
 
-  // 블록 편집을 서버에 저장(PATCH). 블록에서 포커스가 벗어나거나 초안을 선택할 때 호출된다.
-  // 변경이 없거나, 서버에 없는 로컬 추가 블록이거나, 저장 대상 Job이 없으면 건너뛴다.
+  const clearSaveState = useCallback((id: string) => {
+    setBlockSaveStates((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
+  // 페이지의 최종 순서를 서버에 반영(PATCH .../elements/order).
+  // 명세상 orderedElementIds는 "살아있는 요소 전체의 순열"이어야 하므로,
+  // 아직 서버에 생성되지 않은 블록이 하나라도 있으면 보류한다(생성 후 다시 동기화된다).
+  const syncOrder = useCallback(
+    (page: number, ids: string[]) => {
+      if (!workingJobId || !auth.token) return;
+      if (ids.length < 2) return;
+      if (ids.some((id) => !(id in serverContentRef.current))) return;
+      reorderElements(workingJobId, page, elementType, ids, auth.token).catch(
+        (e) => console.error('블록 순서 저장 실패', e),
+      );
+    },
+    [workingJobId, auth.token, elementType],
+  );
+
+  // 드래그 중 onReorder가 연속으로 울리므로 마지막 순서만 한 번 저장한다.
+  const scheduleOrderSync = useCallback(
+    (page: number, ids: string[]) => {
+      pendingOrderRef.current = { page, ids };
+      window.clearTimeout(orderTimerRef.current);
+      orderTimerRef.current = window.setTimeout(() => {
+        const pending = pendingOrderRef.current;
+        pendingOrderRef.current = null;
+        if (pending) syncOrder(pending.page, pending.ids);
+      }, 600);
+    },
+    [syncOrder],
+  );
+
+  useEffect(() => () => window.clearTimeout(orderTimerRef.current), []);
+
+  // 생성(POST) 응답을 화면 블록에 반영한다. 응답이 오기 전에 그 블록이 삭제됐다면
+  // 서버에만 남은 고아 요소가 되므로(이후 순서 저장이 JOB4006으로 실패) 곧바로 지운다.
+  const adoptCreatedElement = useCallback(
+    (page: number, tempId: string, createdId: string, text: string) => {
+      const stillPresent = (blocksRef.current[page] || []).some(
+        (b) => b.id === tempId,
+      );
+      if (!stillPresent) {
+        if (workingJobId && auth.token) {
+          deleteElement(
+            workingJobId,
+            page,
+            createdId,
+            elementType,
+            auth.token,
+          ).catch((e) => console.error('취소된 블록 정리 실패', e));
+        }
+        return false;
+      }
+      serverContentRef.current[createdId] = text;
+      replaceBlockId(page, tempId, createdId);
+      clearSaveState(tempId);
+      return true;
+    },
+    [workingJobId, auth.token, elementType, replaceBlockId, clearSaveState],
+  );
+
+  // 블록 편집을 서버에 저장. 블록에서 포커스가 벗어나거나 초안을 선택할 때 호출된다.
+  //  - 서버에 이미 있는 요소: 내용 교체(PATCH)
+  //  - 아직 서버에 없는 블록(추가 직후 생성 실패 등): 생성(POST) 재시도
   const persistBlock = useCallback(
     (page: number, id: string, text: string) => {
       if (!workingJobId || !auth.token) return;
-      if (!(id in serverContentRef.current)) return; // 로컬 추가 블록(서버에 요소 없음)
-      if (serverContentRef.current[id] === text) return; // 변경 없음
 
-      // 명세 elementType: a(text_list)=TEXT, b/c(braille_text_list)=BRAILLE
-      const elementType = activeTab === TABS.OCR ? 'TEXT' : 'BRAILLE';
+      if (id in serverContentRef.current) {
+        if (serverContentRef.current[id] === text) return; // 변경 없음
+        setBlockSaveStates((prev) => ({ ...prev, [id]: 'saving' }));
+        patchElement(
+          workingJobId,
+          page,
+          id,
+          elementType,
+          text.split('\n'),
+          auth.token,
+        )
+          .then(() => {
+            serverContentRef.current[id] = text;
+            clearSaveState(id);
+          })
+          .catch((e) => {
+            console.error('블록 저장 실패', e);
+            setBlockSaveStates((prev) => ({ ...prev, [id]: 'error' }));
+          });
+        return;
+      }
+
+      // 서버에 없는 블록 → 생성(POST). 추가 시 생성이 실패했던 블록의 재시도 경로다.
+      if (creatingRef.current.has(id)) return;
+      const blocks = blocksRef.current[page] || [];
+      const index = blocks.findIndex((b) => b.id === id);
+      if (index === -1) return; // 이미 삭제된 블록
+      const afterElementId =
+        blocks
+          .slice(0, index)
+          .reverse()
+          .find((b) => b.id in serverContentRef.current)?.id ?? null;
+
+      creatingRef.current.add(id);
       setBlockSaveStates((prev) => ({ ...prev, [id]: 'saving' }));
-      patchElement(
+      createElement(
         workingJobId,
         page,
-        id,
         elementType,
         text.split('\n'),
+        afterElementId,
         auth.token,
       )
-        .then(() => {
-          serverContentRef.current[id] = text;
-          setBlockSaveStates((prev) => {
-            const next = { ...prev };
-            delete next[id];
-            return next;
-          });
+        .then((created) => {
+          if (!adoptCreatedElement(page, id, created.id, text)) return;
+          // 삽입 위치가 로컬 순서와 어긋날 수 있으므로 최종 순서를 한 번 맞춘다.
+          const ids = (blocksRef.current[page] || []).map((b) =>
+            b.id === id ? created.id : b.id,
+          );
+          scheduleOrderSync(page, ids);
         })
         .catch((e) => {
-          console.error('블록 저장 실패', e);
+          console.error('블록 추가 저장 실패', e);
           setBlockSaveStates((prev) => ({ ...prev, [id]: 'error' }));
+        })
+        .finally(() => {
+          creatingRef.current.delete(id);
         });
     },
-    [workingJobId, auth.token, activeTab],
+    [
+      workingJobId,
+      auth.token,
+      elementType,
+      clearSaveState,
+      adoptCreatedElement,
+      scheduleOrderSync,
+    ],
+  );
+
+  // 블록 추가 — 화면에 먼저 빈 블록을 넣고(즉시 편집 가능) 서버에 생성(POST)한다.
+  // 서버가 발급한 요소 ID로 교체해야 이후 수정/삭제/순서변경이 저장된다.
+  const handleAddBlock = useCallback(
+    (page: number, index: number) => {
+      const tempId = addBlock(page, index);
+      if (!workingJobId || !auth.token) return;
+
+      // addBlock은 index 뒤에 삽입하므로, index 이하에서 가장 가까운 "서버에 있는" 블록 뒤.
+      const blocks = blocksRef.current[page] || [];
+      const afterElementId =
+        blocks
+          .slice(0, index + 1)
+          .reverse()
+          .find((b) => b.id in serverContentRef.current)?.id ?? null;
+
+      creatingRef.current.add(tempId);
+      setBlockSaveStates((prev) => ({ ...prev, [tempId]: 'saving' }));
+      createElement(
+        workingJobId,
+        page,
+        elementType,
+        [''],
+        afterElementId,
+        auth.token,
+      )
+        .then((created) => {
+          adoptCreatedElement(page, tempId, created.id, '');
+        })
+        .catch((e) => {
+          // 실패해도 블록은 화면에 남긴다 — 내용을 쓰고 blur하면 persistBlock이 재시도한다.
+          console.error('블록 추가 실패', e);
+          setBlockSaveStates((prev) => ({ ...prev, [tempId]: 'error' }));
+        })
+        .finally(() => {
+          creatingRef.current.delete(tempId);
+        });
+    },
+    [addBlock, workingJobId, auth.token, elementType, adoptCreatedElement],
+  );
+
+  // 블록 삭제 — 화면에서 먼저 지우고 서버에 DELETE. 실패하면 원래 자리로 되돌려
+  // 서버 상태와 어긋나지 않게 하고, 블록에 "삭제 실패" 재시도를 표시한다.
+  const handleRemoveBlock = useCallback(
+    (page: number, id: string) => {
+      const blocks = blocksRef.current[page] || [];
+      const index = blocks.findIndex((b) => b.id === id);
+      const removed = index === -1 ? null : blocks[index];
+
+      removeBlock(page, id);
+      clearSaveState(id);
+
+      if (!workingJobId || !auth.token) return;
+      if (!(id in serverContentRef.current)) return; // 서버에 아직 없는 블록
+
+      deleteElement(workingJobId, page, id, elementType, auth.token)
+        .then(() => {
+          delete serverContentRef.current[id];
+        })
+        .catch((e) => {
+          console.error('블록 삭제 실패', e);
+          if (removed) insertBlockAt(page, index, removed);
+          setBlockSaveStates((prev) => ({ ...prev, [id]: 'delete-error' }));
+        });
+    },
+    [
+      removeBlock,
+      clearSaveState,
+      workingJobId,
+      auth.token,
+      elementType,
+      insertBlockAt,
+    ],
   );
 
   // 메인 측에서 직접 호출되는 액션 처리기. 팝업은 BroadcastChannel을 통해 메인에 위임.
@@ -346,13 +561,17 @@ const BrailleMate: React.FC = () => {
           applyCandidate(action.page, action.id, action.text);
           break;
         case 'removeBlock':
-          removeBlock(action.page, action.id);
+          handleRemoveBlock(action.page, action.id);
           break;
         case 'addBlock':
-          addBlock(action.page, action.index);
+          handleAddBlock(action.page, action.index);
           break;
         case 'reorderBlocks':
           reorderBlocks(action.page, action.reordered);
+          scheduleOrderSync(
+            action.page,
+            action.reordered.map((b) => b.id),
+          );
           break;
         case 'setSelected':
           setSelectedBlockId(action.id);
@@ -371,9 +590,10 @@ const BrailleMate: React.FC = () => {
     [
       updateBlock,
       applyCandidate,
-      removeBlock,
-      addBlock,
+      handleRemoveBlock,
+      handleAddBlock,
       reorderBlocks,
+      scheduleOrderSync,
       setPage,
       persistBlock,
       handleReset,
@@ -394,7 +614,7 @@ const BrailleMate: React.FC = () => {
     if (jobId) setWorkingJobId(jobId);
   }, [jobId]);
 
-  const handlePageReceived = usePageStreamHandler({
+  const handlePageMapped = usePageStreamHandler({
     activeTab,
     currentPage: fileState.currentPage,
     totalPages: fileState.totalPages,
@@ -405,10 +625,36 @@ const BrailleMate: React.FC = () => {
     setBlocksForPage: setBlocksForPageWithBaseline,
   });
 
+  // page_done은 변환에 실패한 페이지도 status만 담아(result 없이) 내려온다.
+  // 그 페이지는 결과가 비므로, 빈 화면 대신 실패 안내를 띄우기 위해 상태를 기록한다.
+  const handlePageReceived = useCallback(
+    (data: Parameters<typeof handlePageMapped>[0]) => {
+      setPageStatuses((prev) => ({
+        ...prev,
+        [data.page_no]: data.status ?? 'COMPLETED',
+      }));
+      handlePageMapped(data);
+    },
+    [handlePageMapped],
+  );
+
+  // job_done의 failed_pages — page_done을 놓친 페이지에 대한 보완.
+  const handleJobDone = useCallback((data: JobDoneData) => {
+    if (!data.failed_pages?.length) return;
+    setPageStatuses((prev) => {
+      const next = { ...prev };
+      data.failed_pages.forEach((p) => {
+        if (next[p] !== 'COMPLETED') next[p] = 'BLOCKED';
+      });
+      return next;
+    });
+  }, []);
+
   const { isStreaming } = useJobStream({
     jobId: isPopup ? null : jobId,
     token: auth.token,
     onPageReceived: handlePageReceived,
+    onJobDone: handleJobDone,
   });
 
   const snapshot: SyncSnapshot = useMemo(
@@ -425,6 +671,7 @@ const BrailleMate: React.FC = () => {
       isStreaming,
       uploadError,
       blockSaveStates,
+      pageStatuses,
     }),
     [
       activeTab,
@@ -439,6 +686,7 @@ const BrailleMate: React.FC = () => {
       isStreaming,
       uploadError,
       blockSaveStates,
+      pageStatuses,
     ],
   );
 
@@ -453,6 +701,7 @@ const BrailleMate: React.FC = () => {
       setPage(s.currentPage);
       setTotalPages(s.totalPages);
       setBlockSaveStates(s.blockSaveStates ?? {});
+      setPageStatuses(s.pageStatuses ?? {});
     },
     [setAllBlocks, setPage, setTotalPages],
   );
@@ -482,6 +731,11 @@ const BrailleMate: React.FC = () => {
       setOriginalTextsByPage(job.originalTextsByPage);
       setImgResolution(job.imgResolution);
       setTotalPages(job.totalPages);
+      setPageStatuses(
+        Object.fromEntries(
+          (job.failedPages ?? []).map((p) => [p, 'BLOCKED' as PageEventStatus]),
+        ),
+      );
       setPage(1);
       // 입력 미리보기 복원: 점역(텍스트→점자)은 복원된 원본 텍스트를, 이미지 모드(a/c)는
       // 작업 썸네일을 보여준다. (서버가 원본 파일을 보관하지 않아 썸네일이 최선)
@@ -953,6 +1207,19 @@ const BrailleMate: React.FC = () => {
                         />
                       ))}
                     </Reorder.Group>
+                  </div>
+                ) : pageStatuses[currentPage] === 'BLOCKED' ? (
+                  // 서버가 이 페이지를 변환하지 못한 경우(page_done status=BLOCKED /
+                  // job_done failed_pages). 결과가 비어 있어 빈 화면처럼 보이므로 이유를 알린다.
+                  <div className="h-full bg-red-50/40 rounded-[2rem] flex flex-col items-center justify-center text-center text-red-500 px-8">
+                    <AlertCircle size={40} className="mb-3" />
+                    <p className="font-medium">
+                      이 페이지는 변환하지 못했습니다.
+                    </p>
+                    <p className="mt-1 text-sm text-red-400">
+                      서버에서 변환이 차단된 페이지입니다. 잠시 후 다시
+                      시도하거나 다른 파일로 변환해 주세요.
+                    </p>
                   </div>
                 ) : (
                   <div className="h-full bg-gray-50/50 rounded-[2rem] flex flex-col items-center justify-center text-center text-gray-400">

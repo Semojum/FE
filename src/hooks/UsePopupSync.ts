@@ -6,13 +6,15 @@ import {
   OriginalTextBlock,
   TranslationBlock,
 } from '../types';
+import { PageEventStatus } from '../types/apiTypes';
 import { createSyncTransport, SyncTransport } from '../utils/syncTransport';
 import { openOutputWindow, OutputWindowHandle } from '../utils/outputWindow';
 
 export type PanelMode = 'both' | 'input-only' | 'output-only';
 
 // 블록별 서버 저장 상태. 성공하면 엔트리가 제거된다(표시 없음).
-export type BlockSaveState = 'saving' | 'error';
+//  - saving: 저장/생성 중, error: 내용 저장 실패, delete-error: 삭제 실패(블록이 되돌려짐)
+export type BlockSaveState = 'saving' | 'error' | 'delete-error';
 
 export type SyncAction =
   | { type: 'updateBlock'; page: number; id: string; text: string }
@@ -40,6 +42,8 @@ export interface SyncSnapshot {
   uploadError: string | null;
   // 블록별 저장 상태 — 팝업이 저장 중/실패 표시를 미러링하는 데 사용
   blockSaveStates: Record<string, BlockSaveState>;
+  // 페이지별 변환 상태 — 팝업도 BLOCKED 페이지 안내를 동일하게 보여준다
+  pageStatuses: Record<number, PageEventStatus>;
 }
 
 type SyncMessage =

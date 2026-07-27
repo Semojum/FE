@@ -32,8 +32,8 @@ interface BlockItemProps {
   isSelected: boolean;
   // 블록 편집을 서버에 저장. 포커스가 블록을 벗어나거나 초안을 선택할 때 호출.
   onPersist?: (id: string, text: string) => void;
-  // 서버 저장 상태 — 'saving' 저장 중 / 'error' 실패(재시도 표시)
-  saveState?: 'saving' | 'error';
+  // 서버 저장 상태 — 'saving' 저장 중 / 'error' 저장 실패 / 'delete-error' 삭제 실패
+  saveState?: 'saving' | 'error' | 'delete-error';
 }
 
 const BlockItem: React.FC<BlockItemProps> = memo(
@@ -258,6 +258,19 @@ const BlockItem: React.FC<BlockItemProps> = memo(
                 className="mt-1 flex items-center gap-1 text-[11px] font-medium text-red-500 hover:underline"
               >
                 <AlertCircle size={11} /> 저장 실패 — 다시 시도
+              </button>
+            )}
+            {/* 삭제가 실패해 블록이 되돌려진 상태 — 삭제를 다시 시도한다. */}
+            {saveState === 'delete-error' && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(block.id);
+                }}
+                className="mt-1 flex items-center gap-1 text-[11px] font-medium text-red-500 hover:underline"
+              >
+                <AlertCircle size={11} /> 삭제 실패 — 다시 시도
               </button>
             )}
 
