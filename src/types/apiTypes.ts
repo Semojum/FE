@@ -12,6 +12,8 @@ export interface CreateJobResponse {
   mode: JobMode;
   totalPages: number;
   status: string; // PENDING ...
+  // 업로드 시 선택한 쪽번호 삽입 여부를 서버가 기록해 되돌려준다.
+  insertPageNumber?: boolean;
 }
 
 export interface ApiError {

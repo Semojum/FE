@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { listJobs, getJobPage } from '../HistoryService';
+import { listActiveJobs, listJobs, getJobPage } from '../HistoryService';
 import { API_BASE_URL } from '../apiClient';
-import type { JobSummary } from '../../types/auth';
+import type { DirectoryContents } from '../../types/mypage';
 
-const envelope = (result: unknown, overrides: Record<string, unknown> = {}) => ({
+const envelope = (
+  result: unknown,
+  overrides: Record<string, unknown> = {},
+) => ({
   isSuccess: true,
   code: 'COMMON2000',
   message: '성공입니다.',
@@ -17,15 +20,35 @@ const makeJsonResponse = (status: number, body: unknown): Response =>
     headers: { 'content-type': 'application/json' },
   });
 
-const sampleJob: JobSummary = {
-  jobId: 'job_260622213353_8465c6cfcb',
-  mode: 'a',
-  status: 'COMPLETED',
-  totalPages: 5,
-  failedPages: [],
-  originalFileName: '교과서.pdf',
-  startedAt: '2026-06-02T23:31:55',
-  finishedAt: '2026-06-02T23:45:00',
+// V3: result가 배열 → { folders, files } 객체로 바뀌었다.
+const sampleContents: DirectoryContents = {
+  folders: [
+    {
+      folderId: 'e102a515-5b7e-4a12-9baf-8547189374be',
+      name: '1학기',
+      isFavorite: false,
+      createdAt: '2026-08-05T10:49:17',
+    },
+  ],
+  files: {
+    items: [
+      {
+        jobId: 'job_260622213353_8465c6cfcb',
+        mode: 'a',
+        status: 'COMPLETED',
+        originalFileName: '교과서.pdf',
+        thumbnailUrl: null,
+        displayDate: '7. 28.',
+        totalPages: 5,
+        lastEditedPage: 3,
+        isFavorite: false,
+        folderId: null,
+        folderPath: null,
+      },
+    ],
+    nextCursor: null,
+    hasMore: false,
+  },
 };
 
 describe('HistoryService', () => {
@@ -38,16 +61,65 @@ describe('HistoryService', () => {
     fetchSpy.mockRestore();
   });
 
-  it('listJobs GETs /api/users/jobs with Bearer and unwraps the array', async () => {
-    fetchSpy.mockResolvedValue(makeJsonResponse(200, envelope([sampleJob])));
+  it('listJobs GETs /api/users/jobs with Bearer and unwraps { folders, files }', async () => {
+    fetchSpy.mockResolvedValue(makeJsonResponse(200, envelope(sampleContents)));
     const res = await listJobs('tok');
-    expect(res).toEqual([sampleJob]);
+    expect(res).toEqual(sampleContents);
 
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe(`${API_BASE_URL}/api/users/jobs`);
     expect((init as RequestInit).method ?? 'GET').toBe('GET');
     const headers = (init as RequestInit).headers as Record<string, string>;
     expect(headers.Authorization).toBe('Bearer tok');
+  });
+
+  it('listJobs serializes search · sort · cursor · 복수 status/mode', async () => {
+    fetchSpy.mockResolvedValue(makeJsonResponse(200, envelope(sampleContents)));
+    await listJobs('tok', {
+      search: '수학',
+      status: ['COMPLETED', 'FAILED'],
+      mode: ['a', 'b'],
+      favorite: true,
+      sort: 'oldest',
+      cursor: 'MjAyNi0=',
+      size: 30,
+    });
+
+    const url = new URL(fetchSpy.mock.calls[0][0] as string);
+    expect(url.pathname).toBe('/api/users/jobs');
+    expect(url.searchParams.get('search')).toBe('수학');
+    expect(url.searchParams.getAll('status')).toEqual(['COMPLETED', 'FAILED']);
+    expect(url.searchParams.getAll('mode')).toEqual(['a', 'b']);
+    expect(url.searchParams.get('favorite')).toBe('true');
+    expect(url.searchParams.get('sort')).toBe('oldest');
+    expect(url.searchParams.get('cursor')).toBe('MjAyNi0=');
+    expect(url.searchParams.get('size')).toBe('30');
+  });
+
+  it('listActiveJobs GETs /api/users/jobs/active for restart recovery', async () => {
+    fetchSpy.mockResolvedValue(
+      makeJsonResponse(
+        200,
+        envelope([
+          {
+            jobId: 'job_1',
+            mode: 'a',
+            status: 'IN_PROGRESS',
+            totalPages: 12,
+            originalFileName: '확통.pdf',
+            progress: 58,
+            lastModifiedAt: '2026-08-02T10:25:33',
+            lastEditedPage: 10,
+          },
+        ]),
+      ),
+    );
+
+    const res = await listActiveJobs('tok');
+    expect(res[0].lastEditedPage).toBe(10);
+    expect(fetchSpy.mock.calls[0][0]).toBe(
+      `${API_BASE_URL}/api/users/jobs/active`,
+    );
   });
 
   it('getJobPage GETs /api/users/jobs/{id}/pages/{n} and unwraps result', async () => {

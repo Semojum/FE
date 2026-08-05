@@ -41,7 +41,9 @@ describe('CandidateModal', () => {
         onSelect={vi.fn()}
       />,
     );
-    expect(screen.getByText(/추천할 대체 텍스트가 없습니다/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/추천할 대체 텍스트가 없습니다/),
+    ).toBeInTheDocument();
   });
 
   it('clicking a candidate fires onSelect and onClose', async () => {
@@ -57,8 +59,25 @@ describe('CandidateModal', () => {
       />,
     );
     await userEvent.click(screen.getByText('y'));
-    expect(onSelect).toHaveBeenCalledWith('y');
+    // 두 번째 후보(idx 1)를 고른다.
+    expect(onSelect).toHaveBeenCalledWith('y', 1);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('이미 채택된 후보를 다시 누르면 원본으로 스와프한다 (idx -1)', async () => {
+    const onSelect = vi.fn();
+    render(
+      <CandidateModal
+        isOpen={true}
+        onClose={vi.fn()}
+        candidates={['x', 'y']}
+        currentText="y"
+        originalText="원본"
+        onSelect={onSelect}
+      />,
+    );
+    await userEvent.click(screen.getByText('y'));
+    expect(onSelect).toHaveBeenCalledWith('원본', -1);
   });
 
   it('marks the currentText as selected', () => {

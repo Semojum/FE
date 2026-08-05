@@ -1,10 +1,22 @@
 // vite.config.ts
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
+// 앱 버전은 Tauri 설정을 단일 출처로 삼는다. GET /api/app/version?current= 에 그대로 보내고,
+// 서버가 minSupportedVersion과 비교해 강제 업데이트 여부를 계산한다.
+const appVersion = (
+  JSON.parse(
+    readFileSync(new URL('./src-tauri/tauri.conf.json', import.meta.url), 'utf-8'),
+  ) as { version?: string }
+).version ?? '0.0.0';
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
+  },
   clearScreen: false,
   server: {
     port: 5173,

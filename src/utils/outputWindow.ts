@@ -17,51 +17,52 @@ export interface OutputWindowHandle {
 
 const outputUrl = (): string => `${window.location.pathname}?panel=output`;
 
-export const openOutputWindow = async (): Promise<OutputWindowHandle | null> => {
-  const url = outputUrl();
+export const openOutputWindow =
+  async (): Promise<OutputWindowHandle | null> => {
+    const url = outputUrl();
 
-  // ── 웹: window.open ────────────────────────────────────────────────
-  if (!isTauri()) {
-    const popup = window.open(url, 'braillemate-output', WEB_FEATURES);
-    if (!popup) return null; // 팝업 차단
-    return {
-      close: () => popup.close(),
-      onClosed: (cb) => {
-        const id = window.setInterval(() => {
-          if (popup.closed) {
-            window.clearInterval(id);
-            cb();
-          }
-        }, 500);
-      },
-    };
-  }
+    // ── 웹: window.open ────────────────────────────────────────────────
+    if (!isTauri()) {
+      const popup = window.open(url, 'braillemate-output', WEB_FEATURES);
+      if (!popup) return null; // 팝업 차단
+      return {
+        close: () => popup.close(),
+        onClosed: (cb) => {
+          const id = window.setInterval(() => {
+            if (popup.closed) {
+              window.clearInterval(id);
+              cb();
+            }
+          }, 500);
+        },
+      };
+    }
 
-  // ── 데스크톱: WebviewWindow ────────────────────────────────────────
-  const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+    // ── 데스크톱: WebviewWindow ────────────────────────────────────────
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
 
-  // 이미 열려 있으면 닫고 새로 만든다(중복 라벨 생성 에러 방지).
-  const existing = await WebviewWindow.getByLabel(OUTPUT_LABEL);
-  if (existing) await existing.close();
+    // 이미 열려 있으면 닫고 새로 만든다(중복 라벨 생성 에러 방지).
+    const existing = await WebviewWindow.getByLabel(OUTPUT_LABEL);
+    if (existing) await existing.close();
 
-  const win = new WebviewWindow(OUTPUT_LABEL, {
-    url,
-    title: 'BrailleMate — 결과',
-    width: 900,
-    height: 900,
-    resizable: true,
-  });
+    const win = new WebviewWindow(OUTPUT_LABEL, {
+      url,
+      title: 'BrailleMate — 결과',
+      width: 900,
+      height: 900,
+      resizable: true,
+    });
 
-  return new Promise<OutputWindowHandle | null>((resolve) => {
-    win.once('tauri://created', () => {
-      resolve({
-        close: () => void win.close(),
-        onClosed: (cb) => void win.once('tauri://destroyed', () => cb()),
+    return new Promise<OutputWindowHandle | null>((resolve) => {
+      win.once('tauri://created', () => {
+        resolve({
+          close: () => void win.close(),
+          onClosed: (cb) => void win.once('tauri://destroyed', () => cb()),
+        });
+      });
+      win.once('tauri://error', (e) => {
+        console.error('결과 창 생성 실패:', e);
+        resolve(null);
       });
     });
-    win.once('tauri://error', (e) => {
-      console.error('결과 창 생성 실패:', e);
-      resolve(null);
-    });
-  });
-};
+  };

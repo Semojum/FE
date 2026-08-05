@@ -1,0 +1,100 @@
+import React, { useEffect, useRef } from 'react';
+import { motion } from 'framer-motion';
+
+// Figma V3 모달 공통 껍데기 (S3~S6 · 다운로드 · 덮어쓰기 확인).
+// 공통 규칙(마이페이지 3-2 "모달 공통"): 바깥 클릭이나 ESC로 닫힌다.
+// 요청 중에는 호출부가 버튼을 비활성화하고, 실패하면 토스트를 띄운다.
+
+interface ModalProps {
+  isOpen: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  // 하단 우측 버튼 영역
+  footer?: React.ReactNode;
+  // 요청 중이면 ESC·바깥 클릭 닫기를 막는다.
+  busy?: boolean;
+}
+
+export const Modal: React.FC<ModalProps> = ({
+  isOpen,
+  title,
+  onClose,
+  children,
+  footer,
+  busy = false,
+}) => {
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy) {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose, busy]);
+
+  // 열릴 때 첫 입력 요소로 포커스를 옮긴다.
+  useEffect(() => {
+    if (!isOpen) return;
+    const first = cardRef.current?.querySelector<HTMLElement>(
+      'input, textarea, button',
+    );
+    first?.focus();
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 px-4"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !busy) onClose();
+      }}
+    >
+      <motion.div
+        ref={cardRef}
+        initial={{ opacity: 0, scale: 0.97 }}
+        animate={{ opacity: 1, scale: 1 }}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="w-full max-w-[400px] rounded-[14px] bg-white p-6 shadow-xl"
+      >
+        <h2 className="text-[15px] font-bold text-gray-800">{title}</h2>
+        <div className="mt-3">{children}</div>
+        {footer && <div className="mt-5 flex justify-end gap-2">{footer}</div>}
+      </motion.div>
+    </div>
+  );
+};
+
+// 모달 공통 버튼 — 파랑은 이동·선택, 오렌지는 행동·주의(마이페이지 UX 원칙).
+export const ModalButton: React.FC<
+  React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    variant?: 'primary' | 'ghost' | 'danger';
+  }
+> = ({ variant = 'ghost', className = '', ...props }) => {
+  const styles = {
+    primary: 'bg-[#5b8ce6] text-white hover:bg-[#4a7bd4]',
+    ghost: 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50',
+    danger: 'bg-[#f47726] text-white hover:brightness-95',
+  }[variant];
+  return (
+    <button
+      type="button"
+      {...props}
+      className={`h-[38px] rounded-[10px] px-5 text-sm font-semibold transition-colors disabled:opacity-50 ${styles} ${className}`}
+    />
+  );
+};
+
+// 모달 안 텍스트 입력 공통 스타일
+export const modalInputCls =
+  'h-[42px] w-full rounded-[10px] border border-[#5b8ce6] bg-white px-4 text-sm text-gray-700 placeholder:text-[#adadad] outline-none focus:ring-2 focus:ring-[#5b8ce6]/20';
+
+export default Modal;

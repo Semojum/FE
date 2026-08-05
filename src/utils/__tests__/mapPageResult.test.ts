@@ -57,7 +57,13 @@ describe('mapPageResult', () => {
     const result = {
       text_list: {},
       braille_text_list: [
-        { id: '1', type: 'text', is_blocked: false, contents: ['⠟'], drafts: {} },
+        {
+          id: '1',
+          type: 'text',
+          is_blocked: false,
+          contents: ['⠟'],
+          drafts: {},
+        },
       ],
     } as unknown as StreamPageResult;
 
@@ -124,7 +130,13 @@ describe('mapPageResult', () => {
     const result: StreamPageResult = {
       image_resolution: { width: 2480, height: 3505 },
       text_list: [
-        { id: 'a', type: 'title', order: 1, is_blocked: false, contents: ['제목'] },
+        {
+          id: 'a',
+          type: 'title',
+          order: 1,
+          is_blocked: false,
+          contents: ['제목'],
+        },
         {
           id: 'b',
           type: 'text',

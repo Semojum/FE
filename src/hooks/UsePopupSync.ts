@@ -12,20 +12,24 @@ import { openOutputWindow, OutputWindowHandle } from '../utils/outputWindow';
 
 export type PanelMode = 'both' | 'input-only' | 'output-only';
 
-// 블록별 서버 저장 상태. 성공하면 엔트리가 제거된다(표시 없음).
-//  - saving: 저장/생성 중, error: 내용 저장 실패, delete-error: 삭제 실패(블록이 되돌려짐)
-export type BlockSaveState = 'saving' | 'error' | 'delete-error';
+// V3는 페이지 단위로 저장하므로 저장 상태도 페이지 단위다.
+import { PageSaveState } from './UsePageEditor';
+export type { PageSaveState };
 
 export type SyncAction =
   | { type: 'updateBlock'; page: number; id: string; text: string }
   | { type: 'applyCandidate'; page: number; id: string; text: string }
+  // 대체 초안 선택 — idx가 -1이면 AI 원본으로 되돌리는 스와프
+  | { type: 'selectDraft'; page: number; id: string; idx: number }
   | { type: 'removeBlock'; page: number; id: string }
   | { type: 'addBlock'; page: number; index: number }
   | { type: 'reorderBlocks'; page: number; reordered: TranslationBlock[] }
   | { type: 'setSelected'; id: string | null }
   | { type: 'setPage'; page: number }
-  // 블록 편집을 서버에 저장(PATCH). 팝업에서도 메인이 실행한다(토큰/jobId 보유).
-  | { type: 'persistBlock'; page: number; id: string; text: string }
+  // 현재 페이지 저장(Ctrl+S) — 토큰·jobId를 가진 메인 창이 실행한다.
+  | { type: 'savePage'; page: number }
+  | { type: 'undo'; page: number }
+  | { type: 'redo'; page: number }
   | { type: 'reset' };
 
 export interface SyncSnapshot {
@@ -40,8 +44,8 @@ export interface SyncSnapshot {
   isUploading: boolean;
   isStreaming: boolean;
   uploadError: string | null;
-  // 블록별 저장 상태 — 팝업이 저장 중/실패 표시를 미러링하는 데 사용
-  blockSaveStates: Record<string, BlockSaveState>;
+  // 페이지별 저장 상태 — 팝업이 저장 중/실패 표시를 미러링하는 데 사용
+  pageSaveStates: Record<number, PageSaveState>;
   // 페이지별 변환 상태 — 팝업도 BLOCKED 페이지 안내를 동일하게 보여준다
   pageStatuses: Record<number, PageEventStatus>;
 }

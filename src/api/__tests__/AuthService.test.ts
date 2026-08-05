@@ -3,7 +3,10 @@ import * as authService from '../AuthService';
 import { API_BASE_URL } from '../apiClient';
 
 // mock 제거 후 모든 호출이 실 API(공통 엔벨로프)로 나가므로 fetch를 스텁한다.
-const envelope = (result: unknown, overrides: Record<string, unknown> = {}) => ({
+const envelope = (
+  result: unknown,
+  overrides: Record<string, unknown> = {},
+) => ({
   isSuccess: true,
   code: 'COMMON2000',
   message: '성공입니다.',
@@ -88,5 +91,4 @@ describe('AuthService', () => {
     expect(headersOf(call).Authorization).toBeUndefined();
     expect(bodyJson(call)).toEqual({ refreshToken: 'ref' });
   });
-
 });

@@ -22,9 +22,9 @@ describe('detectFileType', () => {
 
 describe('isFileAllowedForTab', () => {
   it('OCR(a)/통합(c) 모드는 PDF만 허용', () => {
-    expect(isFileAllowedForTab(file('a.pdf', 'application/pdf'), TABS.OCR)).toBe(
-      true,
-    );
+    expect(
+      isFileAllowedForTab(file('a.pdf', 'application/pdf'), TABS.OCR),
+    ).toBe(true);
     expect(
       isFileAllowedForTab(file('a.pdf', 'application/pdf'), TABS.INTEGRATED),
     ).toBe(true);

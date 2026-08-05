@@ -29,21 +29,21 @@ import { useJobUpload } from './hooks/UseJobUpload.ts';
 import { useJobStream } from './hooks/UseJobStream.ts';
 import { useAuth } from './hooks/UseAuth';
 import {
-  BlockSaveState,
   PanelMode,
   SyncAction,
   SyncSnapshot,
   usePopupSync,
 } from './hooks/UsePopupSync';
 import { usePageStreamHandler } from './hooks/UsePageStreamHandler';
-import { useSavedJobs } from './hooks/UseSavedJobs';
+import { modeToTab, useSavedJobs } from './hooks/UseSavedJobs';
+import { listActiveJobs } from './api/HistoryService';
 
 // Components
 import FilePreviewer from './component/features/conversion/FilePreviewer';
 import Pagination from './component/features/conversion/Pagination';
 import BlockItem from './component/features/conversion/BlockItem';
 import LoginScreen from './component/features/auth/LoginScreen';
-import MyPageModal from './component/features/mypage/MyPageModal';
+import MyPage from './component/features/mypage/MyPage';
 
 // Types
 import {
@@ -63,15 +63,23 @@ import {
   fileValidationMessage,
   TAB_ALLOWED_FILE_LABEL,
 } from './utils/fileValidation';
-import { checkForUpdates } from './utils/updater';
 import { httpFetch } from './api/httpFetch';
 import {
-  createElement,
-  deleteElement,
-  patchElement,
-  reorderElements,
+  downloadJobResult,
   ElementType,
+  selectDraft,
+  sendToBraille,
 } from './api/JobService';
+import { toUserMessage, errorCode } from './api/errorMessages';
+import { saveBlob } from './utils/download';
+import DownloadModal from './component/features/conversion/DownloadModal';
+import SendToBrailleModal from './component/features/conversion/SendToBrailleModal';
+import { usePageEditor } from './hooks/UsePageEditor';
+import { useAppVersion } from './hooks/UseAppVersion';
+import {
+  ForceUpdateGate,
+  UpdateReadyToast,
+} from './component/features/update/UpdateGate';
 
 // 탭별로 보존하는 작업물 스냅샷 — 탭을 전환해도 각 탭의 입력/결과가 날아가지 않게 한다.
 interface TabState {
@@ -91,8 +99,7 @@ interface TabState {
 
 const BrailleMate: React.FC = () => {
   const isPopup = useMemo(
-    () =>
-      new URLSearchParams(window.location.search).get('panel') === 'output',
+    () => new URLSearchParams(window.location.search).get('panel') === 'output',
     [],
   );
 
@@ -117,6 +124,7 @@ const BrailleMate: React.FC = () => {
     jobId,
     error: uploadError,
     resetUpload,
+    attachJob,
   } = useJobUpload();
 
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
@@ -146,36 +154,32 @@ const BrailleMate: React.FC = () => {
     applyCandidate,
     removeBlock,
     addBlock,
-    insertBlockAt,
     replaceBlockId,
     reorderBlocks,
     resetAllBlocks,
   } = useTranslationBlocks();
 
   const auth = useAuth();
+  // 앱 시작 시 서버 기준 버전 확인 + 백그라운드 업데이트 (결과 팝업 창은 제외)
+  const appVersion = useAppVersion(!isPopup);
   const [isMyPageOpen, setIsMyPageOpen] = useState(false);
+  const [isDownloadOpen, setIsDownloadOpen] = useState(false);
+  // 업로드 시 확정하는 쪽번호 삽입 여부(2026-08-04 확정 — 에디터 토글이 아니라 업로드 옵션).
+  const [insertPageNumber, setInsertPageNumber] = useState(false);
+  // 점역으로 보내기 — 기존 연결 문서가 있어 덮어쓰기 확인이 필요한 상태(JOB4011)
+  const [isOverwriteOpen, setIsOverwriteOpen] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  // 화면 하단 토스트 — 저장·이동·삭제 실패 등 짧은 안내
+  const [toast, setToast] = useState<string | null>(null);
 
-  // 블록 편집 저장(PATCH) 대상 Job ID. 라이브 업로드/마이페이지 복원/탭 복원 시 갱신된다.
+  // 페이지 일괄 저장(PUT) 대상 Job ID. 라이브 업로드/마이페이지 복원/탭 복원 시 갱신된다.
   const [workingJobId, setWorkingJobId] = useState<string | null>(null);
-  // 블록별 저장 상태(저장 중/실패). 성공하면 엔트리를 지운다.
-  const [blockSaveStates, setBlockSaveStates] = useState<
-    Record<string, BlockSaveState>
-  >({});
-  // 서버가 알고 있는 블록 내용(id → currentText). 변경 없으면 저장을 건너뛴다.
-  // 여기 없는 id는 아직 서버에 요소가 없는 블록(추가 직후/생성 실패)이다.
-  // (UUID는 전역 유일하므로 탭이 바뀌어도 그대로 둔다.)
-  const serverContentRef = useRef<Record<string, string>>({});
   // 페이지별 변환 상태 — page_done/job_done의 BLOCKED 페이지를 안내하는 데 쓴다.
   const [pageStatuses, setPageStatuses] = useState<
     Record<number, PageEventStatus>
   >({});
   // 비동기 콜백에서 참조할 최신 블록 목록(state 미러)
   const blocksRef = useRef<Record<number, TranslationBlock[]>>({});
-  // 서버 생성(POST) 진행 중인 블록 — blur가 겹쳐도 중복 생성되지 않게 막는다.
-  const creatingRef = useRef<Set<string>>(new Set());
-  // 순서 저장 디바운스 — 드래그 중 onReorder가 연속 발생해도 PATCH는 한 번만 보낸다.
-  const orderTimerRef = useRef<number | undefined>(undefined);
-  const pendingOrderRef = useRef<{ page: number; ids: string[] } | null>(null);
 
   // 탭별 작업물 보관소. 탭을 떠날 때 현재 상태를 저장하고, 돌아오면 복원한다.
   const [tabSnapshots, setTabSnapshots] = useState<
@@ -199,6 +203,28 @@ const BrailleMate: React.FC = () => {
   useEffect(() => {
     blocksRef.current = blocksByPage;
   }, [blocksByPage]);
+
+  // 콜백(페이지 이동 저장·단축키)에서 최신 페이지 번호를 읽기 위한 미러
+  const currentPageRef = useRef(fileState.currentPage);
+  useEffect(() => {
+    currentPageRef.current = fileState.currentPage;
+  }, [fileState.currentPage]);
+
+  const readBlocks = useCallback(
+    (page: number) => blocksRef.current[page] ?? [],
+    [],
+  );
+
+  // V3 편집 모델: 페이지 안의 편집을 로컬에서 모았다가 페이지 이동·종료·Ctrl+S에
+  // 한 번에 저장한다. 되돌리기도 이 훅이 페이지 단위로 들고 있다.
+  const editor = usePageEditor({
+    jobId: workingJobId,
+    token: auth.token,
+    elementType,
+    readBlocks,
+    setBlocksForPage,
+    replaceBlockId,
+  });
 
   // 현재 화면 상태를 탭 스냅샷으로 캡처
   const captureState = useCallback(
@@ -237,9 +263,9 @@ const BrailleMate: React.FC = () => {
     setImgResolution({ width: 0, height: 0 });
     setSavedOriginalsByPage(null);
     setWorkingJobId(null);
-    setBlockSaveStates({});
+    editor.resetEditor();
     setPageStatuses({});
-  }, [resetFile, resetAllBlocks, resetUpload]);
+  }, [resetFile, resetAllBlocks, resetUpload, editor]);
 
   const handleReset = useCallback(() => {
     clearWorkspace();
@@ -259,7 +285,8 @@ const BrailleMate: React.FC = () => {
       if (!ok) return;
     }
 
-    // 1) 떠나는 탭의 작업물을 저장
+    // 1) 떠나는 탭의 편집 내용을 서버에 밀어내고 화면 상태를 스냅샷으로 보관
+    void editor.saveAllDirty();
     setTabSnapshots((prev) => ({ ...prev, [activeTab]: captureState() }));
     // 진행 중이던 업로드/스트림 상태는 탭별로 공유되므로 초기화
     resetUpload();
@@ -275,7 +302,8 @@ const BrailleMate: React.FC = () => {
       setSelectedBlockId(saved.selectedBlockId);
       setSavedOriginalsByPage(saved.savedOriginalsByPage);
       setWorkingJobId(saved.jobId);
-      setBlockSaveStates({});
+      editor.resetEditor();
+      editor.registerServerBlocks(Object.values(saved.blocksByPage).flat());
       setPageStatuses(saved.pageStatuses ?? {});
       // 복원된 파일은 이미 변환됐으므로 재업로드 트리거를 막는다.
       lastUploadedFileRef.current = saved.fileState.file;
@@ -287,258 +315,134 @@ const BrailleMate: React.FC = () => {
     setActiveTab(tab);
   };
 
-  // OCR 결과를 점역 변환 입력으로 넘겨 자동 점역한다.
-  // OCR 블록 텍스트를 페이지 순서대로 합쳐 .txt File을 만들고, 점역 탭으로 전환한 뒤
-  // 입력으로 주입하면 자동 업로드 useEffect가 점역 변환(mode 'b')을 트리거한다.
-  const handleSendOcrToBraille = () => {
-    const text = Object.keys(blocksByPage)
-      .map(Number)
-      .sort((a, b) => a - b)
-      .flatMap((p) => blocksByPage[p].map((b) => b.currentText))
-      .filter((t) => t.trim().length > 0)
-      .join('\n');
-    if (!text.trim()) return;
+  // OCR 결과를 점역 변환으로 넘긴다. V3에서는 FE가 텍스트를 합쳐 재업로드하지 않고
+  // 서버가 교정 결과를 페이지 순서대로 병합해 모드 b Job을 만든다.
+  const runSendToBraille = useCallback(
+    async (overwrite: boolean) => {
+      if (!workingJobId || !auth.token) return;
+      setIsSending(true);
+      try {
+        // 아직 저장되지 않은 교정이 있으면 먼저 밀어낸다(서버가 최종본을 병합해야 한다).
+        await editor.saveAllDirty();
+        const res = await sendToBraille(workingJobId, overwrite, auth.token);
+        setIsOverwriteOpen(false);
 
-    // 현재 OCR 탭 작업물을 저장해 두어 돌아와도 유지되게 한다.
-    setTabSnapshots((prev) => ({ ...prev, [activeTab]: captureState() }));
-
-    // 점역 탭으로 전환 + 화면 초기화 (이전 점역 작업물은 새 입력으로 대체)
-    clearWorkspace();
-    setTabSnapshots((prev) => ({ ...prev, [TABS.BRAILLE]: undefined }));
-    setActiveTab(TABS.BRAILLE);
-
-    // OCR 텍스트를 점역 입력 파일로 주입 → 자동 업로드가 점역 변환을 시작
-    const file = new File([text], 'ocr-result.txt', { type: 'text/plain' });
-    lastUploadedFileRef.current = null; // 새 파일이므로 업로드 허용
-    handleFileDrop([file], TABS.BRAILLE);
-  };
-
-  // SSE로 받은 페이지 블록을 상태에 반영하면서, 서버가 알고 있는 내용(저장 기준값)도 기록
-  const setBlocksForPageWithBaseline = useCallback(
-    (page: number, blocks: TranslationBlock[]) => {
-      blocks.forEach((b) => {
-        serverContentRef.current[b.id] = b.currentText;
-      });
-      setBlocksForPage(page, blocks);
+        // 현재 OCR 탭 작업물을 보관하고 점역 탭으로 이동해 새 Job의 변환을 지켜본다.
+        setTabSnapshots((prev) => ({ ...prev, [activeTab]: captureState() }));
+        clearWorkspace();
+        setTabSnapshots((prev) => ({ ...prev, [TABS.BRAILLE]: undefined }));
+        setActiveTab(TABS.BRAILLE);
+        lastUploadedFileRef.current = null;
+        setWorkingJobId(res.newJobId);
+        setTotalPages(res.totalPages);
+        attachJob(res.newJobId);
+        if (res.archivedJobId) {
+          setToast('기존 점역 문서는 마이페이지에 보관했습니다.');
+        }
+      } catch (err) {
+        if (errorCode(err) === 'JOB4011') {
+          // 이 작업에서 이미 만든 점역 문서가 있다 — 덮어쓸지 확인받는다.
+          setIsOverwriteOpen(true);
+        } else {
+          setToast(toUserMessage(err, '점역으로 보내지 못했습니다.'));
+        }
+      } finally {
+        setIsSending(false);
+      }
     },
-    [setBlocksForPage],
+    [
+      workingJobId,
+      auth.token,
+      editor,
+      activeTab,
+      captureState,
+      clearWorkspace,
+      setTotalPages,
+      attachJob,
+    ],
   );
 
-  const clearSaveState = useCallback((id: string) => {
-    setBlockSaveStates((prev) => {
-      if (!(id in prev)) return prev;
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
-  }, []);
+  const handleSendOcrToBraille = useCallback(
+    () => void runSendToBraille(false),
+    [runSendToBraille],
+  );
 
-  // 페이지의 최종 순서를 서버에 반영(PATCH .../elements/order).
-  // 명세상 orderedElementIds는 "살아있는 요소 전체의 순열"이어야 하므로,
-  // 아직 서버에 생성되지 않은 블록이 하나라도 있으면 보류한다(생성 후 다시 동기화된다).
-  const syncOrder = useCallback(
-    (page: number, ids: string[]) => {
+  // SSE로 받은 페이지 블록을 상태에 반영하면서, 서버가 아는 요소 id로 등록해 둔다.
+  // 여기 등록되지 않은 id는 FE가 만든 신규 블록이라 저장 시 elementId=null로 나간다.
+  const setBlocksForPageWithBaseline = useCallback(
+    (page: number, blocks: TranslationBlock[]) => {
+      editor.registerServerBlocks(blocks);
+      setBlocksForPage(page, blocks);
+    },
+    [editor, setBlocksForPage],
+  );
+
+  // 블록 추가 — 화면에만 넣고 저장은 페이지 단위로 미룬다(elementId는 저장 응답에서 받는다).
+  const handleAddBlock = useCallback(
+    (page: number, index: number) => {
+      editor.pushHistory(page);
+      addBlock(page, index);
+      editor.markDirty(page);
+    },
+    [editor, addBlock],
+  );
+
+  // 블록 삭제 — 화면에서 지우기만 한다. 저장 시 배열에 없는 요소를 서버가 삭제 처리하고,
+  // 실수로 지웠다면 Ctrl+Z로 되돌린다 (D-2: 별도 확인 창을 두지 않는다).
+  const handleRemoveBlock = useCallback(
+    (page: number, id: string) => {
+      editor.pushHistory(page);
+      removeBlock(page, id);
+      editor.markDirty(page);
+    },
+    [editor, removeBlock],
+  );
+
+  // 블록 내 편집 — 타이핑마다 히스토리를 쌓으면 Ctrl+Z가 한 글자씩 되돌아가므로,
+  // 그 블록을 처음 건드릴 때만 스냅샷을 남긴다.
+  const editingBlockRef = useRef<string | null>(null);
+  const handleUpdateBlock = useCallback(
+    (page: number, id: string, text: string) => {
+      if (editingBlockRef.current !== id) {
+        editor.pushHistory(page);
+        editingBlockRef.current = id;
+      }
+      updateBlock(page, id, text);
+      editor.markDirty(page);
+    },
+    [editor, updateBlock],
+  );
+
+  // 대체 초안 채택 — 화면 본문을 후보 내용으로 바꾸고, 선택 상태(selected_idx)는
+  // 서버가 별도로 관리하므로 draft API로 즉시 알린다.
+  const handleApplyCandidate = useCallback(
+    (page: number, id: string, text: string) => {
+      editor.pushHistory(page);
+      editingBlockRef.current = null;
+      applyCandidate(page, id, text);
+      editor.markDirty(page);
+    },
+    [editor, applyCandidate],
+  );
+
+  const handleSelectDraft = useCallback(
+    (page: number, id: string, idx: number) => {
       if (!workingJobId || !auth.token) return;
-      if (ids.length < 2) return;
-      if (ids.some((id) => !(id in serverContentRef.current))) return;
-      reorderElements(workingJobId, page, elementType, ids, auth.token).catch(
-        (e) => console.error('블록 순서 저장 실패', e),
+      selectDraft(workingJobId, page, id, elementType, idx, auth.token).catch(
+        (e) => console.error('대체 초안 선택 저장 실패', e),
       );
     },
     [workingJobId, auth.token, elementType],
   );
 
-  // 드래그 중 onReorder가 연속으로 울리므로 마지막 순서만 한 번 저장한다.
-  const scheduleOrderSync = useCallback(
-    (page: number, ids: string[]) => {
-      pendingOrderRef.current = { page, ids };
-      window.clearTimeout(orderTimerRef.current);
-      orderTimerRef.current = window.setTimeout(() => {
-        const pending = pendingOrderRef.current;
-        pendingOrderRef.current = null;
-        if (pending) syncOrder(pending.page, pending.ids);
-      }, 600);
+  const handleReorderBlocks = useCallback(
+    (page: number, reordered: TranslationBlock[]) => {
+      editor.pushHistory(page);
+      editingBlockRef.current = null;
+      reorderBlocks(page, reordered);
+      editor.markDirty(page);
     },
-    [syncOrder],
-  );
-
-  useEffect(() => () => window.clearTimeout(orderTimerRef.current), []);
-
-  // 생성(POST) 응답을 화면 블록에 반영한다. 응답이 오기 전에 그 블록이 삭제됐다면
-  // 서버에만 남은 고아 요소가 되므로(이후 순서 저장이 JOB4006으로 실패) 곧바로 지운다.
-  const adoptCreatedElement = useCallback(
-    (page: number, tempId: string, createdId: string, text: string) => {
-      const stillPresent = (blocksRef.current[page] || []).some(
-        (b) => b.id === tempId,
-      );
-      if (!stillPresent) {
-        if (workingJobId && auth.token) {
-          deleteElement(
-            workingJobId,
-            page,
-            createdId,
-            elementType,
-            auth.token,
-          ).catch((e) => console.error('취소된 블록 정리 실패', e));
-        }
-        return false;
-      }
-      serverContentRef.current[createdId] = text;
-      replaceBlockId(page, tempId, createdId);
-      clearSaveState(tempId);
-      return true;
-    },
-    [workingJobId, auth.token, elementType, replaceBlockId, clearSaveState],
-  );
-
-  // 블록 편집을 서버에 저장. 블록에서 포커스가 벗어나거나 초안을 선택할 때 호출된다.
-  //  - 서버에 이미 있는 요소: 내용 교체(PATCH)
-  //  - 아직 서버에 없는 블록(추가 직후 생성 실패 등): 생성(POST) 재시도
-  const persistBlock = useCallback(
-    (page: number, id: string, text: string) => {
-      if (!workingJobId || !auth.token) return;
-
-      if (id in serverContentRef.current) {
-        if (serverContentRef.current[id] === text) return; // 변경 없음
-        setBlockSaveStates((prev) => ({ ...prev, [id]: 'saving' }));
-        patchElement(
-          workingJobId,
-          page,
-          id,
-          elementType,
-          text.split('\n'),
-          auth.token,
-        )
-          .then(() => {
-            serverContentRef.current[id] = text;
-            clearSaveState(id);
-          })
-          .catch((e) => {
-            console.error('블록 저장 실패', e);
-            setBlockSaveStates((prev) => ({ ...prev, [id]: 'error' }));
-          });
-        return;
-      }
-
-      // 서버에 없는 블록 → 생성(POST). 추가 시 생성이 실패했던 블록의 재시도 경로다.
-      if (creatingRef.current.has(id)) return;
-      const blocks = blocksRef.current[page] || [];
-      const index = blocks.findIndex((b) => b.id === id);
-      if (index === -1) return; // 이미 삭제된 블록
-      const afterElementId =
-        blocks
-          .slice(0, index)
-          .reverse()
-          .find((b) => b.id in serverContentRef.current)?.id ?? null;
-
-      creatingRef.current.add(id);
-      setBlockSaveStates((prev) => ({ ...prev, [id]: 'saving' }));
-      createElement(
-        workingJobId,
-        page,
-        elementType,
-        text.split('\n'),
-        afterElementId,
-        auth.token,
-      )
-        .then((created) => {
-          if (!adoptCreatedElement(page, id, created.id, text)) return;
-          // 삽입 위치가 로컬 순서와 어긋날 수 있으므로 최종 순서를 한 번 맞춘다.
-          const ids = (blocksRef.current[page] || []).map((b) =>
-            b.id === id ? created.id : b.id,
-          );
-          scheduleOrderSync(page, ids);
-        })
-        .catch((e) => {
-          console.error('블록 추가 저장 실패', e);
-          setBlockSaveStates((prev) => ({ ...prev, [id]: 'error' }));
-        })
-        .finally(() => {
-          creatingRef.current.delete(id);
-        });
-    },
-    [
-      workingJobId,
-      auth.token,
-      elementType,
-      clearSaveState,
-      adoptCreatedElement,
-      scheduleOrderSync,
-    ],
-  );
-
-  // 블록 추가 — 화면에 먼저 빈 블록을 넣고(즉시 편집 가능) 서버에 생성(POST)한다.
-  // 서버가 발급한 요소 ID로 교체해야 이후 수정/삭제/순서변경이 저장된다.
-  const handleAddBlock = useCallback(
-    (page: number, index: number) => {
-      const tempId = addBlock(page, index);
-      if (!workingJobId || !auth.token) return;
-
-      // addBlock은 index 뒤에 삽입하므로, index 이하에서 가장 가까운 "서버에 있는" 블록 뒤.
-      const blocks = blocksRef.current[page] || [];
-      const afterElementId =
-        blocks
-          .slice(0, index + 1)
-          .reverse()
-          .find((b) => b.id in serverContentRef.current)?.id ?? null;
-
-      creatingRef.current.add(tempId);
-      setBlockSaveStates((prev) => ({ ...prev, [tempId]: 'saving' }));
-      createElement(
-        workingJobId,
-        page,
-        elementType,
-        [''],
-        afterElementId,
-        auth.token,
-      )
-        .then((created) => {
-          adoptCreatedElement(page, tempId, created.id, '');
-        })
-        .catch((e) => {
-          // 실패해도 블록은 화면에 남긴다 — 내용을 쓰고 blur하면 persistBlock이 재시도한다.
-          console.error('블록 추가 실패', e);
-          setBlockSaveStates((prev) => ({ ...prev, [tempId]: 'error' }));
-        })
-        .finally(() => {
-          creatingRef.current.delete(tempId);
-        });
-    },
-    [addBlock, workingJobId, auth.token, elementType, adoptCreatedElement],
-  );
-
-  // 블록 삭제 — 화면에서 먼저 지우고 서버에 DELETE. 실패하면 원래 자리로 되돌려
-  // 서버 상태와 어긋나지 않게 하고, 블록에 "삭제 실패" 재시도를 표시한다.
-  const handleRemoveBlock = useCallback(
-    (page: number, id: string) => {
-      const blocks = blocksRef.current[page] || [];
-      const index = blocks.findIndex((b) => b.id === id);
-      const removed = index === -1 ? null : blocks[index];
-
-      removeBlock(page, id);
-      clearSaveState(id);
-
-      if (!workingJobId || !auth.token) return;
-      if (!(id in serverContentRef.current)) return; // 서버에 아직 없는 블록
-
-      deleteElement(workingJobId, page, id, elementType, auth.token)
-        .then(() => {
-          delete serverContentRef.current[id];
-        })
-        .catch((e) => {
-          console.error('블록 삭제 실패', e);
-          if (removed) insertBlockAt(page, index, removed);
-          setBlockSaveStates((prev) => ({ ...prev, [id]: 'delete-error' }));
-        });
-    },
-    [
-      removeBlock,
-      clearSaveState,
-      workingJobId,
-      auth.token,
-      elementType,
-      insertBlockAt,
-    ],
+    [editor, reorderBlocks],
   );
 
   // 메인 측에서 직접 호출되는 액션 처리기. 팝업은 BroadcastChannel을 통해 메인에 위임.
@@ -546,10 +450,13 @@ const BrailleMate: React.FC = () => {
     (action: SyncAction) => {
       switch (action.type) {
         case 'updateBlock':
-          updateBlock(action.page, action.id, action.text);
+          handleUpdateBlock(action.page, action.id, action.text);
           break;
         case 'applyCandidate':
-          applyCandidate(action.page, action.id, action.text);
+          handleApplyCandidate(action.page, action.id, action.text);
+          break;
+        case 'selectDraft':
+          handleSelectDraft(action.page, action.id, action.idx);
           break;
         case 'removeBlock':
           handleRemoveBlock(action.page, action.id);
@@ -558,20 +465,27 @@ const BrailleMate: React.FC = () => {
           handleAddBlock(action.page, action.index);
           break;
         case 'reorderBlocks':
-          reorderBlocks(action.page, action.reordered);
-          scheduleOrderSync(
-            action.page,
-            action.reordered.map((b) => b.id),
-          );
+          handleReorderBlocks(action.page, action.reordered);
           break;
         case 'setSelected':
           setSelectedBlockId(action.id);
           break;
         case 'setPage':
+          // 페이지를 벗어날 때 그 페이지의 최종 수정본을 한 번에 저장한다.
+          void editor.savePage(currentPageRef.current);
+          editingBlockRef.current = null;
           setPage(action.page);
           break;
-        case 'persistBlock':
-          persistBlock(action.page, action.id, action.text);
+        case 'savePage':
+          void editor.savePage(action.page);
+          break;
+        case 'undo':
+          editingBlockRef.current = null;
+          editor.undo(action.page);
+          break;
+        case 'redo':
+          editingBlockRef.current = null;
+          editor.redo(action.page);
           break;
         case 'reset':
           handleReset();
@@ -579,14 +493,14 @@ const BrailleMate: React.FC = () => {
       }
     },
     [
-      updateBlock,
-      applyCandidate,
+      handleUpdateBlock,
+      handleApplyCandidate,
+      handleSelectDraft,
       handleRemoveBlock,
       handleAddBlock,
-      reorderBlocks,
-      scheduleOrderSync,
+      handleReorderBlocks,
+      editor,
       setPage,
-      persistBlock,
       handleReset,
     ],
   );
@@ -597,8 +511,16 @@ const BrailleMate: React.FC = () => {
     // 이미 업로드한 그 File이면(탭 복원 등으로 다시 마운트된 경우 포함) 재업로드하지 않는다.
     if (fileState.file === lastUploadedFileRef.current) return;
     lastUploadedFileRef.current = fileState.file;
-    uploadFile(fileState.file, activeTab, auth.token);
-  }, [isPopup, fileState.file, activeTab, uploadFile, isUploading, auth.token]);
+    uploadFile(fileState.file, activeTab, auth.token, insertPageNumber);
+  }, [
+    isPopup,
+    fileState.file,
+    activeTab,
+    uploadFile,
+    isUploading,
+    auth.token,
+    insertPageNumber,
+  ]);
 
   // 라이브 업로드로 생성된 Job을 블록 편집 저장 대상으로 등록
   useEffect(() => {
@@ -648,6 +570,26 @@ const BrailleMate: React.FC = () => {
     onJobDone: handleJobDone,
   });
 
+  // 처리가 끝난(성공이든 실패든) 페이지 수. 전체 진행률 프로그레스바(V3)와
+  // 다운로드·점역으로 보내기 버튼 활성 조건의 기준이다.
+  const settledPages = useMemo(() => {
+    const pages = new Set<number>(Object.keys(blocksByPage).map(Number));
+    Object.keys(pageStatuses).forEach((p) => pages.add(Number(p)));
+    return pages.size;
+  }, [blocksByPage, pageStatuses]);
+
+  const conversionProgress =
+    fileState.totalPages > 0
+      ? Math.min(100, Math.round((settledPages / fileState.totalPages) * 100))
+      : 0;
+
+  // 모든 페이지의 AI 변환이 끝난 시점 — 결과 다운로드 D-3 · 점역으로 보내기 D-2
+  const isConversionComplete =
+    !isUploading &&
+    !isStreaming &&
+    fileState.totalPages > 0 &&
+    settledPages >= fileState.totalPages;
+
   const snapshot: SyncSnapshot = useMemo(
     () => ({
       activeTab,
@@ -661,7 +603,7 @@ const BrailleMate: React.FC = () => {
       isUploading,
       isStreaming,
       uploadError,
-      blockSaveStates,
+      pageSaveStates: editor.saveStates,
       pageStatuses,
     }),
     [
@@ -676,7 +618,7 @@ const BrailleMate: React.FC = () => {
       isUploading,
       isStreaming,
       uploadError,
-      blockSaveStates,
+      editor.saveStates,
       pageStatuses,
     ],
   );
@@ -691,7 +633,6 @@ const BrailleMate: React.FC = () => {
       setSelectedBlockId(s.selectedBlockId);
       setPage(s.currentPage);
       setTotalPages(s.totalPages);
-      setBlockSaveStates(s.blockSaveStates ?? {});
       setPageStatuses(s.pageStatuses ?? {});
     },
     [setAllBlocks, setPage, setTotalPages],
@@ -711,12 +652,8 @@ const BrailleMate: React.FC = () => {
       handleReset();
       setActiveTab(job.mode);
       setAllBlocks(job.blocksByPage);
-      // 복원된 블록의 서버 기준값을 기록하고, 이 Job을 편집 저장 대상으로 등록한다.
-      Object.values(job.blocksByPage).forEach((blocks) =>
-        blocks.forEach((b) => {
-          serverContentRef.current[b.id] = b.currentText;
-        }),
-      );
+      // 복원된 블록을 "서버에 있는 요소"로 등록하고, 이 Job을 저장 대상으로 삼는다.
+      editor.registerServerBlocks(Object.values(job.blocksByPage).flat());
       setWorkingJobId(job.jobId);
       setBboxDataByPage(job.bboxDataByPage);
       setOriginalTextsByPage(job.originalTextsByPage);
@@ -727,7 +664,8 @@ const BrailleMate: React.FC = () => {
           (job.failedPages ?? []).map((p) => [p, 'BLOCKED' as PageEventStatus]),
         ),
       );
-      setPage(1);
+      // 재시작 복구·마이페이지 복원은 마지막 편집 페이지로 바로 이동한다.
+      setPage(job.startPage ?? 1);
       // 입력 미리보기 복원: 점역(텍스트→점자)은 복원된 원본 텍스트를, 이미지 모드(a/c)는
       // 작업 썸네일을 보여준다. (서버가 원본 파일을 보관하지 않아 썸네일이 최선)
       if (job.mode === TABS.BRAILLE) {
@@ -846,47 +784,127 @@ const BrailleMate: React.FC = () => {
     setFileError(null);
   }, [activeTab, setFileError]);
 
-  // 데스크톱 앱: 시작 시 새 버전을 조용히 확인·설치(다음 실행 시 적용).
-  // 웹/팝업/테스트 환경에서는 no-op(updater 유틸 내부에서 Tauri 여부를 가드).
+  // 토스트는 몇 초 뒤 스스로 사라진다.
+  useEffect(() => {
+    if (!toast) return;
+    const id = window.setTimeout(() => setToast(null), 4000);
+    return () => window.clearTimeout(id);
+  }, [toast]);
+
+  // 저장 실패를 숨기지 않는다 (블록 편집 UX 원칙) — 페이지 표시와 별개로 토스트로도 알린다.
+  useEffect(() => {
+    if (!editor.saveError) return;
+    setToast(editor.saveError);
+    editor.clearSaveError();
+  }, [editor.saveError, editor.clearSaveError]);
+
+  // 편집 단축키 — Ctrl+Z 되돌리기 / Ctrl+Shift+Z 다시 실행 / Ctrl+S 즉시 저장.
+  // (별도 저장 버튼 UI는 두지 않는다 — 블록 편집 D-4)
+  // 결과 전용 창에서 누른 단축키도 메인 창이 실행하도록 dispatchAction으로 보낸다.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      if (key === 'z') {
+        e.preventDefault();
+        dispatchAction({
+          type: e.shiftKey ? 'redo' : 'undo',
+          page: currentPageRef.current,
+        });
+      } else if (key === 'y') {
+        // 윈도우 관습(Ctrl+Y = 다시 실행)도 함께 받는다.
+        e.preventDefault();
+        dispatchAction({ type: 'redo', page: currentPageRef.current });
+      } else if (key === 's') {
+        e.preventDefault();
+        dispatchAction({ type: 'savePage', page: currentPageRef.current });
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [dispatchAction]);
+
+  // 앱 종료 시 남은 편집을 밀어낸다 (탭별 작업물 보존 D-2: 종료 시 FE → BE로 페이지
+  // 전체 수정 내용을 전달). 브라우저 unload는 비동기 요청을 보장하지 못하므로
+  // 데스크톱에서 창을 닫을 때를 주 경로로 보고, 여기서는 최선 노력으로 처리한다.
   useEffect(() => {
     if (isPopup) return;
-    checkForUpdates().catch((e) => console.warn('업데이트 확인 실패', e));
-  }, [isPopup]);
+    const onBeforeUnload = () => {
+      // 확인 창으로 사용자를 붙잡지 않는다 — 보관은 앱이 알아서 한다.
+      if (editor.hasUnsaved()) void editor.saveAllDirty();
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [isPopup, editor]);
 
-  const handleDownload = () => {
-    const allPages = Object.keys(blocksByPage)
-      .map(Number)
-      .sort((a, b) => a - b);
-    if (allPages.length === 0) return;
+  // 재시작·재접속 복구 (탭별 작업물 보존 D-1·D-3·D-5).
+  // 로그인 직후 진행 중 작업을 조회해, 가장 나중에 수정한 작업의 마지막 편집 페이지로
+  // 별도 팝업 없이 바로 복구한다. lastEditedPage가 null이면 1페이지로 폴백한다.
+  const recoveredRef = useRef(false);
+  useEffect(() => {
+    if (isPopup || !auth.token || recoveredRef.current) return;
+    recoveredRef.current = true;
 
-    const content = allPages
-      .map((page) => {
-        const pageContent = blocksByPage[page]
-          .map((b) => b.currentText)
-          .join('\n\n');
-        return activeTab === TABS.OCR
-          ? `\n${pageContent}\n--- Page ${page} ---\n`
-          : `\n${pageContent}`;
-      })
-      .join('\n\n\n');
+    let cancelled = false;
+    (async () => {
+      try {
+        const active = await listActiveJobs(auth.token as string);
+        if (cancelled || active.length === 0) return;
+        // 응답은 lastModifiedAt 최신순이지만, 순서에 기대지 않고 직접 고른다.
+        const latest = active.reduce((a, b) =>
+          new Date(b.lastModifiedAt) > new Date(a.lastModifiedAt) ? b : a,
+        );
+        setActiveTab(modeToTab(latest.mode));
+        setWorkingJobId(latest.jobId);
+        setTotalPages(latest.totalPages);
+        setPage(latest.lastEditedPage ?? 1);
+        // 아직 변환 중이므로 SSE를 다시 붙여 남은 페이지를 따라잡는다.
+        attachJob(latest.jobId);
+        setToast(
+          `진행 중이던 "${latest.originalFileName}" 작업을 이어서 불러왔습니다.`,
+        );
+      } catch (err) {
+        // 복구 실패는 앱 사용을 막지 않는다.
+        console.warn('진행 중 작업 복구 실패', err);
+      }
+    })();
 
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const fileName =
-      activeTab === TABS.BRAILLE
-        ? `braille_result_${dateStr}.brf`
-        : `result_${dateStr}.txt`;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
+    return () => {
+      cancelled = true;
+    };
+  }, [isPopup, auth.token, setTotalPages, setPage, attachJob]);
+
+  // 다운로드 — 전체 페이지를 reading_order대로 병합한 파일을 서버가 만들어 준다.
+  // 수정 이력이 있으면 서버가 AI 조판을 재처리하므로 수 초 걸릴 수 있다.
+  const handleDownloadFile = useCallback(
+    async (fileName: string) => {
+      if (!workingJobId || !auth.token) {
+        throw new Error('다운로드할 작업이 없습니다.');
+      }
+      // 마지막 편집까지 반영된 파일을 받기 위해 저장을 먼저 밀어낸다.
+      await editor.saveAllDirty();
+      const { blob, fileName: served } = await downloadJobResult(
+        workingJobId,
+        fileName,
+        auth.token,
+      );
+      const ext = activeTab === TABS.OCR ? '.txt' : '.brf';
+      saveBlob(blob, served ?? `${fileName}${ext}`);
+    },
+    [workingJobId, auth.token, editor, activeTab],
+  );
 
   const tabs = TAB_VALUES;
+
+  // 호환성이 깨지는 패치는 업데이트 외의 모든 조작을 막는다 (자동 업데이트 D-1).
+  if (!isPopup && appVersion.forceUpdate) {
+    return (
+      <ForceUpdateGate
+        latestVersion={appVersion.latestVersion}
+        onRelaunch={() => void appVersion.relaunchNow()}
+      />
+    );
+  }
 
   // 인증 게이트 — 결과 전용 팝업이 아닌 메인 창에서는 로그인해야 앱을 쓸 수 있다.
   // V3는 자동 로그인이 없으므로 부트스트랩 대기 없이 바로 로그인 화면을 띄운다.
@@ -991,248 +1009,361 @@ const BrailleMate: React.FC = () => {
           }
         >
           {panelMode !== 'output-only' && (
-          <section
-            className={
-              panelMode === 'both'
-                ? 'flex-1 min-w-0'
-                : 'w-full'
-            }
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-[2.5rem] p-8 shadow-xl border border-white/10 h-150 flex flex-col"
+            <section
+              className={panelMode === 'both' ? 'flex-1 min-w-0' : 'w-full'}
             >
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold text-gray-800">원본 파일</h2>
-                {hasInputPreview && (
-                  <button
-                    onClick={handleReset}
-                    className="p-2 hover:bg-red-50 text-red-400 rounded-full transition-colors"
-                  >
-                    <X size={20} />
-                  </button>
-                )}
-              </div>
-
-              <div
-                className={`flex-1 rounded-[2rem] overflow-hidden border-2 border-dashed transition-all ${!hasInputPreview ? (isDragActive ? 'border-[#5A8FBB] bg-blue-50/50' : 'border-gray-200') : 'border-transparent'}`}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white rounded-[2.5rem] p-8 shadow-xl border border-white/10 h-150 flex flex-col"
               >
-                {!hasInputPreview ? (
-                  <div
-                    {...getRootProps()}
-                    className="w-full h-full flex flex-col items-center justify-center cursor-pointer p-10 text-center"
-                  >
-                    <input {...getInputProps()} />
-                    {activeTab === TABS.BRAILLE ? (
-                      <FileText className="text-gray-400 mb-6" size={32} />
-                    ) : (
-                      <ImageIcon className="text-gray-400 mb-6" size={32} />
-                    )}
-                    <p className="text-gray-600 font-medium">
-                      드래그 앤 드롭 또는 클릭하여 파일 업로드
-                    </p>
-                    <p className="text-xs text-gray-400 mt-2">
-                      지원 형식: {TAB_ALLOWED_FILE_LABEL[activeTab]}
-                    </p>
-                    {fileState.error && (
-                      <p className="flex items-center gap-1 text-sm text-red-500 mt-3">
-                        <AlertCircle size={14} />
-                        {fileState.error}
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-xl font-bold text-gray-800">원본 파일</h2>
+                  {hasInputPreview && (
+                    <button
+                      onClick={handleReset}
+                      className="p-2 hover:bg-red-50 text-red-400 rounded-full transition-colors"
+                    >
+                      <X size={20} />
+                    </button>
+                  )}
+                </div>
+
+                <div
+                  className={`flex-1 rounded-[2rem] overflow-hidden border-2 border-dashed transition-all ${!hasInputPreview ? (isDragActive ? 'border-[#5A8FBB] bg-blue-50/50' : 'border-gray-200') : 'border-transparent'}`}
+                >
+                  {!hasInputPreview ? (
+                    <div
+                      {...getRootProps()}
+                      className="w-full h-full flex flex-col items-center justify-center cursor-pointer p-10 text-center"
+                    >
+                      <input {...getInputProps()} />
+                      {activeTab === TABS.BRAILLE ? (
+                        <FileText className="text-gray-400 mb-6" size={32} />
+                      ) : (
+                        <ImageIcon className="text-gray-400 mb-6" size={32} />
+                      )}
+                      <p className="text-gray-600 font-medium">
+                        드래그 앤 드롭 또는 클릭하여 파일 업로드
                       </p>
-                    )}
-                  </div>
-                ) : (
-                  <FilePreviewer
-                    state={fileState}
-                    onLoadSuccess={setTotalPages}
-                    bboxes={currentBBoxData}
-                    selectedBlockId={selectedBlockId}
-                    imageResolution={imgResolution}
-                    originalTextBlocks={currentOriginalTexts}
-                    onBlockClick={(id) =>
-                      dispatchAction({ type: 'setSelected', id })
-                    }
-                  />
-                )}
-              </div>
-            </motion.div>
-          </section>
+                      <p className="text-xs text-gray-400 mt-2">
+                        지원 형식: {TAB_ALLOWED_FILE_LABEL[activeTab]} · 최대
+                        100MB
+                      </p>
+                      {activeTab === TABS.BRAILLE && (
+                        <p className="text-[11px] text-gray-400 mt-1">
+                          HWPX 형식은 아직 지원하지 않습니다. 한글에서
+                          &ldquo;한글 문서(.hwp)&rdquo;로 저장해 주세요.
+                        </p>
+                      )}
+
+                      {/* 쪽번호 삽입은 업로드 시점에 정한다(에디터 토글 방식은 폐기). */}
+                      {activeTab !== TABS.OCR && (
+                        <label
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-4 flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={insertPageNumber}
+                            onChange={(e) =>
+                              setInsertPageNumber(e.target.checked)
+                            }
+                          />
+                          점자 판면 마지막 줄에 쪽번호 넣기
+                        </label>
+                      )}
+                      {fileState.error && (
+                        <p className="flex items-center gap-1 text-sm text-red-500 mt-3">
+                          <AlertCircle size={14} />
+                          {fileState.error}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <FilePreviewer
+                      state={fileState}
+                      onLoadSuccess={setTotalPages}
+                      bboxes={currentBBoxData}
+                      selectedBlockId={selectedBlockId}
+                      imageResolution={imgResolution}
+                      originalTextBlocks={currentOriginalTexts}
+                      onBlockClick={(id) =>
+                        dispatchAction({ type: 'setSelected', id })
+                      }
+                    />
+                  )}
+                </div>
+              </motion.div>
+            </section>
           )}
 
           {panelMode !== 'input-only' && (
-          <section
-            className={
-              panelMode === 'both'
-                ? 'flex-1 md:flex-[1.4] min-w-0'
-                : 'w-full'
-            }
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="bg-white rounded-[2.5rem] p-8 shadow-xl border border-white/10 h-[600px] flex flex-col"
+            <section
+              className={
+                panelMode === 'both' ? 'flex-1 md:flex-[1.4] min-w-0' : 'w-full'
+              }
             >
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold text-[#407FAC]">
-                  점역/번역 결과
-                </h2>
-                {Object.keys(blocksByPage).length > 0 && (
-                  <div className="flex items-center gap-2">
-                    {!isPopup && activeTab === TABS.OCR && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="bg-white rounded-[2.5rem] p-8 shadow-xl border border-white/10 h-[600px] flex flex-col"
+              >
+                <div className="flex justify-between items-center mb-6">
+                  <div className="flex items-baseline gap-3">
+                    <h2 className="text-xl font-bold text-[#407FAC]">
+                      점역/번역 결과
+                    </h2>
+                    {/* 저장은 페이지 이동·Ctrl+S 시점에 일어난다(별도 저장 버튼 없음). */}
+                    {editor.saveStates[currentPage] === 'saving' && (
+                      <span className="flex items-center gap-1 text-xs text-gray-400">
+                        <Loader2 size={11} className="animate-spin" /> 저장
+                        중...
+                      </span>
+                    )}
+                    {editor.saveStates[currentPage] === 'saved' && (
+                      <span className="text-xs text-gray-400">저장됨</span>
+                    )}
+                    {editor.saveStates[currentPage] === 'error' && (
                       <button
-                        onClick={handleSendOcrToBraille}
-                        className="flex items-center gap-1.5 border border-[#407FAC] text-[#407FAC] px-3 py-1.5 rounded-lg hover:bg-[#407FAC]/10 transition-colors shadow-sm text-sm font-medium"
-                        title="이 OCR 결과를 점역 변환 입력으로 보내 자동 점역합니다"
+                        type="button"
+                        onClick={() =>
+                          dispatchAction({
+                            type: 'savePage',
+                            page: currentPage,
+                          })
+                        }
+                        className="flex items-center gap-1 text-xs font-medium text-red-500 hover:underline"
                       >
-                        <ArrowRightCircle size={16} />{' '}
-                        <span>점역으로 보내기</span>
+                        <AlertCircle size={11} /> 저장 실패 — 다시 시도
                       </button>
                     )}
-                    <button
-                      onClick={handleDownload}
-                      className="flex items-center gap-1.5 bg-[#407FAC] text-white px-3 py-1.5 rounded-lg hover:bg-[#356a91] transition-colors shadow-sm text-sm font-medium"
-                    >
-                      <Download size={16} /> <span>다운로드</span>
-                    </button>
                   </div>
-                )}
-              </div>
+                  {Object.keys(blocksByPage).length > 0 && (
+                    <div className="flex items-center gap-2">
+                      {!isPopup && activeTab === TABS.OCR && (
+                        <button
+                          onClick={handleSendOcrToBraille}
+                          disabled={!isConversionComplete || isSending}
+                          className="flex items-center gap-1.5 border border-[#407FAC] text-[#407FAC] px-3 py-1.5 rounded-lg hover:bg-[#407FAC]/10 transition-colors shadow-sm text-sm font-medium disabled:opacity-40"
+                          title={
+                            isConversionComplete
+                              ? '이 OCR 결과를 점역 변환으로 보내 자동 점역합니다'
+                              : '모든 페이지의 변환이 끝나면 보낼 수 있습니다'
+                          }
+                        >
+                          <ArrowRightCircle size={16} />{' '}
+                          <span>점역으로 보내기</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setIsDownloadOpen(true)}
+                        disabled={!isConversionComplete}
+                        title={
+                          isConversionComplete
+                            ? '결과 파일 다운로드'
+                            : '변환이 끝나면 다운로드할 수 있습니다'
+                        }
+                        className="flex items-center gap-1.5 bg-[#407FAC] text-white px-3 py-1.5 rounded-lg hover:bg-[#356a91] transition-colors shadow-sm text-sm font-medium disabled:opacity-40 disabled:hover:bg-[#407FAC]"
+                      >
+                        <Download size={16} /> <span>다운로드</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
 
-              <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                {uploadError ? (
-                  <div className="h-full flex flex-col items-center justify-center text-red-500 space-y-2">
-                    <AlertCircle size={32} />
-                    <p className="font-medium">업로드 실패</p>
-                  </div>
-                ) : isUploading ? (
-                  <div className="h-full flex flex-col items-center justify-center space-y-4">
-                    <Loader2 className="w-10 h-10 text-[#407FAC] animate-spin" />
-                    <p className="font-medium text-gray-500">전송 중...</p>
-                  </div>
-                ) : isStreaming && currentBlocks.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center space-y-4">
-                    <Loader2 className="w-10 h-10 text-[#407FAC] animate-spin" />
-                    <p className="font-medium text-gray-500">분석 중...</p>
-                  </div>
-                ) : currentBlocks.length > 0 ? (
-                  <div className="pb-10">
-                    <Reorder.Group
-                      axis="y"
-                      values={currentBlocks}
-                      onReorder={(newOrder) =>
-                        dispatchAction({
-                          type: 'reorderBlocks',
-                          page: currentPage,
-                          reordered: newOrder,
-                        })
-                      }
-                      className="flex flex-col gap-1"
-                    >
-                      {currentBlocks.map((block, index) => (
-                        <BlockItem
-                          key={block.id}
-                          block={block}
-                          index={index}
-                          mode={activeTab}
-                          isSelected={block.id === selectedBlockId}
-                          onSelect={(id) =>
-                            dispatchAction({ type: 'setSelected', id })
-                          }
-                          onUpdate={(id, text) =>
-                            dispatchAction({
-                              type: 'updateBlock',
-                              page: currentPage,
-                              id,
-                              text,
-                            })
-                          }
-                          onApplyCandidate={(id, text) =>
-                            dispatchAction({
-                              type: 'applyCandidate',
-                              page: currentPage,
-                              id,
-                              text,
-                            })
-                          }
-                          saveState={blockSaveStates[block.id]}
-                          onPersist={(id, text) =>
-                            dispatchAction({
-                              type: 'persistBlock',
-                              page: currentPage,
-                              id,
-                              text,
-                            })
-                          }
-                          onRemove={(id) =>
-                            dispatchAction({
-                              type: 'removeBlock',
-                              page: currentPage,
-                              id,
-                            })
-                          }
-                          onAdd={(idx) =>
-                            dispatchAction({
-                              type: 'addBlock',
-                              page: currentPage,
-                              index: idx,
-                            })
-                          }
-                        />
-                      ))}
-                    </Reorder.Group>
-                  </div>
-                ) : pageStatuses[currentPage] === 'BLOCKED' ? (
-                  // 서버가 이 페이지를 변환하지 못한 경우(page_done status=BLOCKED /
-                  // job_done failed_pages). 결과가 비어 있어 빈 화면처럼 보이므로 이유를 알린다.
-                  <div className="h-full bg-red-50/40 rounded-[2rem] flex flex-col items-center justify-center text-center text-red-500 px-8">
-                    <AlertCircle size={40} className="mb-3" />
-                    <p className="font-medium">
-                      이 페이지는 변환하지 못했습니다.
-                    </p>
-                    <p className="mt-1 text-sm text-red-400">
-                      서버에서 변환이 차단된 페이지입니다. 잠시 후 다시
-                      시도하거나 다른 파일로 변환해 주세요.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="h-full bg-gray-50/50 rounded-[2rem] flex flex-col items-center justify-center text-center text-gray-400">
-                    <FileText size={48} className="mb-4 opacity-20" />
-                    <p className="font-medium">결과가 없습니다.</p>
+                {isStreaming && currentBlocks.length > 0 && (
+                  <div className="mb-3 flex items-center gap-2">
+                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-gray-100">
+                      <div
+                        className="h-full rounded-full bg-[#407FAC] transition-[width] duration-300"
+                        style={{ width: `${conversionProgress}%` }}
+                      />
+                    </div>
+                    <span className="shrink-0 text-[11px] text-gray-400">
+                      {settledPages}/{fileState.totalPages}
+                    </span>
                   </div>
                 )}
-              </div>
-            </motion.div>
-          </section>
+
+                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                  {uploadError ? (
+                    <div className="h-full flex flex-col items-center justify-center text-red-500 space-y-2">
+                      <AlertCircle size={32} />
+                      <p className="font-medium">업로드 실패</p>
+                    </div>
+                  ) : isUploading ? (
+                    <div className="h-full flex flex-col items-center justify-center space-y-4">
+                      <Loader2 className="w-10 h-10 text-[#407FAC] animate-spin" />
+                      <p className="font-medium text-gray-500">전송 중...</p>
+                    </div>
+                  ) : isStreaming && currentBlocks.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center space-y-4 px-10">
+                      <Loader2 className="w-10 h-10 text-[#407FAC] animate-spin" />
+                      <p className="font-medium text-gray-500">분석 중...</p>
+                      {fileState.totalPages > 0 && (
+                        <div className="w-full max-w-xs">
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+                            <div
+                              className="h-full rounded-full bg-[#407FAC] transition-[width] duration-300"
+                              style={{ width: `${conversionProgress}%` }}
+                            />
+                          </div>
+                          <p className="mt-2 text-center text-xs text-gray-400">
+                            {settledPages} / {fileState.totalPages}페이지 ·{' '}
+                            {conversionProgress}%
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : currentBlocks.length > 0 ? (
+                    <div className="pb-10">
+                      <Reorder.Group
+                        axis="y"
+                        values={currentBlocks}
+                        onReorder={(newOrder) =>
+                          dispatchAction({
+                            type: 'reorderBlocks',
+                            page: currentPage,
+                            reordered: newOrder,
+                          })
+                        }
+                        className="flex flex-col gap-1"
+                      >
+                        {currentBlocks.map((block, index) => (
+                          <BlockItem
+                            key={block.id}
+                            block={block}
+                            index={index}
+                            mode={activeTab}
+                            isSelected={block.id === selectedBlockId}
+                            onSelect={(id) =>
+                              dispatchAction({ type: 'setSelected', id })
+                            }
+                            onUpdate={(id, text) =>
+                              dispatchAction({
+                                type: 'updateBlock',
+                                page: currentPage,
+                                id,
+                                text,
+                              })
+                            }
+                            onApplyCandidate={(id, text) =>
+                              dispatchAction({
+                                type: 'applyCandidate',
+                                page: currentPage,
+                                id,
+                                text,
+                              })
+                            }
+                            onSelectDraft={(id, idx) =>
+                              dispatchAction({
+                                type: 'selectDraft',
+                                page: currentPage,
+                                id,
+                                idx,
+                              })
+                            }
+                            onRemove={(id) =>
+                              dispatchAction({
+                                type: 'removeBlock',
+                                page: currentPage,
+                                id,
+                              })
+                            }
+                            onAdd={(idx) =>
+                              dispatchAction({
+                                type: 'addBlock',
+                                page: currentPage,
+                                index: idx,
+                              })
+                            }
+                          />
+                        ))}
+                      </Reorder.Group>
+                    </div>
+                  ) : pageStatuses[currentPage] === 'BLOCKED' ? (
+                    // 서버가 이 페이지를 변환하지 못한 경우(page_done status=BLOCKED /
+                    // job_done failed_pages). 결과가 비어 있어 빈 화면처럼 보이므로 이유를 알린다.
+                    <div className="h-full bg-red-50/40 rounded-[2rem] flex flex-col items-center justify-center text-center text-red-500 px-8">
+                      <AlertCircle size={40} className="mb-3" />
+                      <p className="font-medium">
+                        이 페이지는 변환하지 못했습니다.
+                      </p>
+                      <p className="mt-1 text-sm text-red-400">
+                        서버에서 변환이 차단된 페이지입니다. 잠시 후 다시
+                        시도하거나 다른 파일로 변환해 주세요.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="h-full bg-gray-50/50 rounded-[2rem] flex flex-col items-center justify-center text-center text-gray-400">
+                      <FileText size={48} className="mb-4 opacity-20" />
+                      <p className="font-medium">결과가 없습니다.</p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </section>
           )}
         </div>
 
         <AnimatePresence>
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              className="w-full"
-            >
-              <Pagination
-                currentPage={currentPage}
-                totalPages={fileState.totalPages}
-                onPageChange={(page) =>
-                  dispatchAction({ type: 'setPage', page })
-                }
-              />
-            </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className="w-full"
+          >
+            <Pagination
+              currentPage={currentPage}
+              totalPages={fileState.totalPages}
+              onPageChange={(page) => dispatchAction({ type: 'setPage', page })}
+            />
+          </motion.div>
         </AnimatePresence>
       </main>
 
+      <DownloadModal
+        isOpen={isDownloadOpen}
+        mode={activeTab}
+        onClose={() => setIsDownloadOpen(false)}
+        onDownload={handleDownloadFile}
+      />
+
+      <SendToBrailleModal
+        isOpen={isOverwriteOpen}
+        busy={isSending}
+        onCancel={() => setIsOverwriteOpen(false)}
+        onConfirm={() => void runSendToBraille(true)}
+      />
+
+      {/* 하단 토스트 — 저장·이동·삭제 실패 등 짧은 안내 (모달 공통 규칙) */}
+      {toast && (
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2 rounded-[10px] bg-gray-800/95 px-4 py-2.5 text-sm text-white shadow-lg"
+        >
+          {toast}
+        </div>
+      )}
+
+      {!isPopup && appVersion.pendingInstall && (
+        <UpdateReadyToast
+          version={appVersion.installedVersion}
+          onRelaunch={() => void appVersion.relaunchNow()}
+          onDismiss={appVersion.dismissToast}
+        />
+      )}
+
       {!isPopup && auth.token && (
-        <MyPageModal
+        <MyPage
           isOpen={isMyPageOpen}
           onClose={() => setIsMyPageOpen(false)}
           token={auth.token}
           user={auth.user}
           onSelect={handleSelectJob}
+          onToast={setToast}
         />
       )}
     </div>

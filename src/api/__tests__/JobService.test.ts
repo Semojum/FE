@@ -1,15 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  createElement,
   createJob,
-  deleteElement,
   getJobStatus,
-  patchElement,
-  reorderElements,
+  moveJobs,
+  renameJob,
+  savePageElements,
+  selectDraft,
+  sendToBraille,
+  toggleJobFavorite,
+  trashJobs,
 } from '../JobService';
 import { API_BASE_URL } from '../apiClient';
 
-const envelope = (result: unknown, overrides: Record<string, unknown> = {}) => ({
+const envelope = (
+  result: unknown,
+  overrides: Record<string, unknown> = {},
+) => ({
   isSuccess: true,
   code: 'COMMON2000',
   message: '성공입니다.',
@@ -67,6 +73,7 @@ describe('JobService.createJob', () => {
     const body = (init as RequestInit).body as FormData;
     expect(body).toBeInstanceOf(FormData);
     expect(body.get('mode')).toBe('a');
+    expect(body.get('insertPageNumber')).toBe('false');
     expect((body.get('file') as File).name).toBe('test.txt');
   });
 
@@ -139,7 +146,7 @@ describe('JobService.getJobStatus', () => {
   });
 });
 
-describe('JobService.patchElement', () => {
+describe('JobService.savePageElements (V3 페이지 일괄 저장)', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -150,20 +157,42 @@ describe('JobService.patchElement', () => {
     fetchSpy.mockRestore();
   });
 
-  it('PATCHes elementType/contents and unwraps result', async () => {
-    fetchSpy.mockResolvedValue(makeJsonResponse(200, envelope(['⠟', '⠠⠍'])));
+  it('PUTs the whole page as the final state', async () => {
+    fetchSpy.mockResolvedValue(
+      makeJsonResponse(
+        200,
+        envelope({
+          savedCount: 2,
+          elementIds: ['el-1', 'el-new-8f2a'],
+          editLogged: { edited: 1, added: 1, deleted: 0 },
+        }),
+      ),
+    );
 
-    const res = await patchElement('j1', 2, 'el-1', 'BRAILLE', ['⠟', '⠠⠍'], 'tok');
+    const res = await savePageElements(
+      'j1',
+      2,
+      'BRAILLE',
+      [
+        { elementId: 'el-1', contents: ['⠟'] },
+        { elementId: null, contents: ['새 블록'] },
+      ],
+      'tok',
+    );
 
-    expect(res).toEqual(['⠟', '⠠⠍']);
+    // 신규 블록의 정식 id는 요청 배열과 같은 순서로 돌아온다.
+    expect(res.elementIds).toEqual(['el-1', 'el-new-8f2a']);
     const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe(`${API_BASE_URL}/api/jobs/j1/pages/2/elements/el-1`);
-    expect((init as RequestInit).method).toBe('PATCH');
+    expect(url).toBe(`${API_BASE_URL}/api/jobs/j1/pages/2/elements`);
+    expect((init as RequestInit).method).toBe('PUT');
     const headers = (init as RequestInit).headers as Record<string, string>;
     expect(headers.Authorization).toBe('Bearer tok');
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
       elementType: 'BRAILLE',
-      contents: ['⠟', '⠠⠍'],
+      elements: [
+        { elementId: 'el-1', contents: ['⠟'] },
+        { elementId: null, contents: ['새 블록'] },
+      ],
     });
   });
 
@@ -180,12 +209,14 @@ describe('JobService.patchElement', () => {
     );
 
     await expect(
-      patchElement('j1', 1, 'el-1', 'BRAILLE', ['x']),
+      savePageElements('j1', 1, 'BRAILLE', [
+        { elementId: 'el-1', contents: ['x'] },
+      ]),
     ).rejects.toMatchObject({ code: 'JOB4005', status: 400 });
   });
 });
 
-describe('JobService 블록 추가/삭제/순서변경', () => {
+describe('JobService.selectDraft', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -196,104 +227,185 @@ describe('JobService 블록 추가/삭제/순서변경', () => {
     fetchSpy.mockRestore();
   });
 
-  it('createElement POSTs elementType/contents/afterElementId and returns the issued id', async () => {
-    fetchSpy.mockResolvedValue(
-      makeJsonResponse(200, envelope({ id: 'srv-9', contents: ['새 블록'] })),
-    );
-
-    const res = await createElement(
-      'j1',
-      2,
-      'TEXT',
-      ['새 블록'],
-      'el-prev',
-      'tok',
-    );
-
-    expect(res).toEqual({ id: 'srv-9', contents: ['새 블록'] });
-    const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe(`${API_BASE_URL}/api/jobs/j1/pages/2/elements`);
-    expect((init as RequestInit).method).toBe('POST');
-    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
-      elementType: 'TEXT',
-      contents: ['새 블록'],
-      afterElementId: 'el-prev',
-    });
-  });
-
-  it('createElement sends afterElementId=null to insert at the top of the page', async () => {
-    fetchSpy.mockResolvedValue(
-      makeJsonResponse(200, envelope({ id: 'srv-1', contents: [''] })),
-    );
-
-    await createElement('j1', 1, 'BRAILLE', [''], null);
-    const [, init] = fetchSpy.mock.calls[0];
-    expect(JSON.parse((init as RequestInit).body as string).afterElementId).toBe(
-      null,
-    );
-  });
-
-  it('deleteElement DELETEs with the elementType query (없으면 서버가 500)', async () => {
-    fetchSpy.mockResolvedValue(makeJsonResponse(200, envelope(null)));
-
-    await deleteElement('j1', 3, 'el-1', 'BRAILLE', 'tok');
-
-    const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe(
-      `${API_BASE_URL}/api/jobs/j1/pages/3/elements/el-1?elementType=BRAILLE`,
-    );
-    expect((init as RequestInit).method).toBe('DELETE');
-    const headers = (init as RequestInit).headers as Record<string, string>;
-    expect(headers.Authorization).toBe('Bearer tok');
-  });
-
-  it('deleteElement throws JOB4004 when the element is already deleted', async () => {
+  it('PATCHes the draft index', async () => {
     fetchSpy.mockResolvedValue(
       makeJsonResponse(
-        404,
-        envelope(null, {
-          isSuccess: false,
-          code: 'JOB4004',
-          message: '존재하지 않는 요소입니다.',
-        }),
+        200,
+        envelope({ elementId: 'el-2', selectedIdx: 1, contents: ['후보'] }),
       ),
     );
 
-    await expect(
-      deleteElement('j1', 1, 'gone', 'BRAILLE'),
-    ).rejects.toMatchObject({ code: 'JOB4004', status: 404 });
-  });
+    const res = await selectDraft('j1', 1, 'el-2', 'BRAILLE', 1, 'tok');
 
-  it('reorderElements PATCHes the full ordered id list', async () => {
-    const ids = ['el-3', 'el-1', 'el-2'];
-    fetchSpy.mockResolvedValue(makeJsonResponse(200, envelope(ids)));
-
-    const res = await reorderElements('j1', 1, 'BRAILLE', ids, 'tok');
-
-    expect(res).toEqual(ids);
+    expect(res.selectedIdx).toBe(1);
     const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe(`${API_BASE_URL}/api/jobs/j1/pages/1/elements/order`);
+    expect(url).toBe(`${API_BASE_URL}/api/jobs/j1/pages/1/elements/el-2/draft`);
     expect((init as RequestInit).method).toBe('PATCH');
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
       elementType: 'BRAILLE',
-      orderedElementIds: ids,
+      selectedIdx: 1,
     });
   });
 
-  it('reorderElements throws JOB4006 when the id list is not a full permutation', async () => {
+  it('sends selectedIdx=-1 to swap back to the AI original', async () => {
     fetchSpy.mockResolvedValue(
       makeJsonResponse(
-        400,
+        200,
+        envelope({ elementId: 'el-2', selectedIdx: -1, contents: ['원본'] }),
+      ),
+    );
+
+    await selectDraft('j1', 1, 'el-2', 'TEXT', -1);
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(JSON.parse((init as RequestInit).body as string).selectedIdx).toBe(
+      -1,
+    );
+  });
+});
+
+describe('JobService 목록 조작 (이동 · 삭제 · 이름 · 즐겨찾기)', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch');
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it('moveJobs POSTs the id array (1개여도 길이 1)', async () => {
+    fetchSpy.mockResolvedValue(
+      makeJsonResponse(200, envelope({ movedCount: 1, targetFolderId: 'f1' })),
+    );
+
+    await moveJobs(['job_1'], 'f1', 'tok');
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe(`${API_BASE_URL}/api/jobs/move`);
+    expect((init as RequestInit).method).toBe('POST');
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      jobIds: ['job_1'],
+      targetFolderId: 'f1',
+    });
+  });
+
+  it('moveJobs sends targetFolderId=null to move to the root', async () => {
+    fetchSpy.mockResolvedValue(
+      makeJsonResponse(200, envelope({ movedCount: 2, targetFolderId: null })),
+    );
+    await moveJobs(['a', 'b'], null, 'tok');
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(
+      JSON.parse((init as RequestInit).body as string).targetFolderId,
+    ).toBe(null);
+  });
+
+  it('moveJobs throws JOB4010 when the batch contains a converting job', async () => {
+    fetchSpy.mockResolvedValue(
+      makeJsonResponse(
+        409,
         envelope(null, {
           isSuccess: false,
-          code: 'JOB4006',
-          message: '순서 목록이 현재 페이지의 요소와 일치하지 않습니다.',
+          code: 'JOB4010',
+          message: '변환 중인 작업입니다.',
+        }),
+      ),
+    );
+    await expect(moveJobs(['a'], null, 'tok')).rejects.toMatchObject({
+      code: 'JOB4010',
+      status: 409,
+    });
+  });
+
+  it('trashJobs POSTs to /api/jobs/trash (DELETE가 아니다)', async () => {
+    fetchSpy.mockResolvedValue(
+      makeJsonResponse(200, envelope({ trashedCount: 1 })),
+    );
+
+    await trashJobs(['job_1'], 'tok');
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe(`${API_BASE_URL}/api/jobs/trash`);
+    expect((init as RequestInit).method).toBe('POST');
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      jobIds: ['job_1'],
+    });
+  });
+
+  it('renameJob PATCHes fileName', async () => {
+    fetchSpy.mockResolvedValue(
+      makeJsonResponse(200, envelope({ jobId: 'j1', fileName: '새이름.pdf' })),
+    );
+
+    await renameJob('j1', '새이름.pdf', 'tok');
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe(`${API_BASE_URL}/api/jobs/j1`);
+    expect((init as RequestInit).method).toBe('PATCH');
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      fileName: '새이름.pdf',
+    });
+  });
+
+  it('toggleJobFavorite PATCHes without a body', async () => {
+    fetchSpy.mockResolvedValue(
+      makeJsonResponse(200, envelope({ jobId: 'j1', isFavorite: true })),
+    );
+
+    const res = await toggleJobFavorite('j1', 'tok');
+
+    expect(res.isFavorite).toBe(true);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe(`${API_BASE_URL}/api/jobs/j1/favorite`);
+    expect((init as RequestInit).method).toBe('PATCH');
+  });
+});
+
+describe('JobService.sendToBraille', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch');
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it('POSTs overwrite=false first', async () => {
+    fetchSpy.mockResolvedValue(
+      makeJsonResponse(
+        200,
+        envelope({ newJobId: 'job_new', archivedJobId: null, totalPages: 8 }),
+      ),
+    );
+
+    const res = await sendToBraille('job_a', false, 'tok');
+
+    expect(res.newJobId).toBe('job_new');
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe(`${API_BASE_URL}/api/jobs/job_a/send-to-braille`);
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      overwrite: false,
+    });
+  });
+
+  it('throws JOB4011 when a linked document already exists', async () => {
+    fetchSpy.mockResolvedValue(
+      makeJsonResponse(
+        409,
+        envelope(null, {
+          isSuccess: false,
+          code: 'JOB4011',
+          message: '기존 연결 문서가 있습니다.',
         }),
       ),
     );
 
-    await expect(
-      reorderElements('j1', 1, 'BRAILLE', ['el-1']),
-    ).rejects.toMatchObject({ code: 'JOB4006', status: 400 });
+    await expect(sendToBraille('job_a', false, 'tok')).rejects.toMatchObject({
+      code: 'JOB4011',
+      status: 409,
+    });
   });
 });

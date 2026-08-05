@@ -100,13 +100,16 @@ export const useJobStream = ({
 
     const run = async () => {
       try {
-        const res = await httpFetch(`${API_BASE_URL}/api/jobs/${jobId}/events`, {
-          headers: {
-            Accept: 'text/event-stream',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        const res = await httpFetch(
+          `${API_BASE_URL}/api/jobs/${jobId}/events`,
+          {
+            headers: {
+              Accept: 'text/event-stream',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            signal: controller.signal,
           },
-          signal: controller.signal,
-        });
+        );
 
         if (!res.ok || !res.body) {
           throw new Error(`SSE 연결 실패: ${res.status}`);

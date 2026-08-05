@@ -24,17 +24,15 @@ export interface RefreshResponse {
   accessToken: string;
 }
 
-// GET /api/users/jobs 응답 (result 배열 항목) — 작업 생성 시 자동 적재된다.
-export interface JobSummary {
+// 작업을 복원할 때 필요한 최소 정보. 마이페이지 카드(FileCard)와 재시작 복구
+// 목록(ActiveJob) 양쪽에서 만들어 넘긴다.
+export interface JobRef {
   jobId: string;
   mode: JobMode; // 'a' | 'b' | 'c'
-  status: string; // PENDING | IN_PROGRESS | COMPLETED
   totalPages: number;
-  failedPages: number[];
-  originalFileName: string;
-  thumbnailUrl?: string;
-  startedAt: string; // ISO 8601 (LocalDateTime)
-  finishedAt: string | null;
+  thumbnailUrl?: string | null;
+  // 복원 후 이동할 페이지. 없으면 1페이지.
+  startPage?: number | null;
 }
 
 // 페이지 응답의 원본 입력 정보.
@@ -59,6 +57,9 @@ export interface JobPageResponse {
   startedAt: string;
   finishedAt: string | null;
   pageNo: number;
+  // 업로드 시 선택한 쪽번호 삽입 여부 — 에디터 격자를 26줄 전체로 그릴지,
+  // 본문 25줄 + 마지막 줄 쪽번호로 그릴지 판단하는 기준.
+  insertPageNumber?: boolean;
   result: StreamPageResult;
   original?: JobPageOriginal;
 }
@@ -66,9 +67,13 @@ export interface JobPageResponse {
 // 마이페이지에서 불러온 작업을 앱 내부 상태로 복원한 형태.
 // 서버는 페이지별로 결과를 내려주므로 클라이언트에서 페이지들을 합쳐 구성한다.
 export interface JobDetail {
-  jobId: string; // 요소 편집(PATCH) 저장 대상 식별용
+  jobId: string; // 페이지 일괄 저장(PUT) 대상 식별용
   mode: ConversionTab;
   totalPages: number;
+  // 복원 직후 이동할 페이지(재시작 복구의 lastEditedPage). 없으면 1페이지.
+  startPage?: number;
+  // 업로드 시 쪽번호 삽입을 선택했는지 — 결과 렌더링 격자 기준
+  insertPageNumber?: boolean;
   // 변환에 실패한 페이지 번호 — 복원 시 해당 페이지에 실패 안내를 띄운다.
   failedPages: number[];
   blocksByPage: Record<number, TranslationBlock[]>;

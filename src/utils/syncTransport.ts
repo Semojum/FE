@@ -33,12 +33,12 @@ export const createSyncTransport = (
 
   void import('@tauri-apps/api/event').then(({ listen }) => {
     if (closed) return;
-    void listen(CHANNEL, (e: { payload: unknown }) => onMessage(e.payload)).then(
-      (un) => {
-        if (closed) un();
-        else unlisten = un;
-      },
-    );
+    void listen(CHANNEL, (e: { payload: unknown }) =>
+      onMessage(e.payload),
+    ).then((un) => {
+      if (closed) un();
+      else unlisten = un;
+    });
   });
 
   return {

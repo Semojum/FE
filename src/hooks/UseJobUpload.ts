@@ -3,20 +3,25 @@ import { useState, useCallback } from 'react';
 import { JobMode, CreateJobResponse } from '../types/apiTypes';
 import { ConversionTab, TABS } from '../types';
 import { createJob } from '../api/JobService';
+import { toUserMessage } from '../api/errorMessages';
+import { fileSizeMessage } from '../utils/fileValidation';
 
 interface UseJobUploadReturn {
   uploadFile: (
     file: File,
     activeTab: ConversionTab,
     token?: string | null,
+    insertPageNumber?: boolean,
   ) => Promise<CreateJobResponse | null>;
   isUploading: boolean;
   jobId: string | null;
   error: string | null;
   resetUpload: () => void;
+  // 서버가 만들어 준 Job(점역으로 보내기 결과 등)을 스트림 대상으로 붙일 때 사용.
+  attachJob: (jobId: string) => void;
 }
 
-const mapTabToMode = (tab: ConversionTab): JobMode => {
+export const mapTabToMode = (tab: ConversionTab): JobMode => {
   if (tab === TABS.OCR) return 'a';
   if (tab === TABS.BRAILLE) return 'b';
   return 'c';
@@ -28,7 +33,20 @@ export const useJobUpload = (): UseJobUploadReturn => {
   const [error, setError] = useState<string | null>(null);
 
   const uploadFile = useCallback(
-    async (file: File, activeTab: ConversionTab, token?: string | null) => {
+    async (
+      file: File,
+      activeTab: ConversionTab,
+      token?: string | null,
+      insertPageNumber = false,
+    ) => {
+      // 명세 "업로드 용량 처리(FE 필독)": 수백 MB를 몇 분간 올린 뒤 실패하는 상황과
+      // 프록시가 먼저 끊어 비-JSON 응답이 오는 상황을 막기 위해 여기서 먼저 거른다.
+      const sizeError = fileSizeMessage(file);
+      if (sizeError) {
+        setError(sizeError);
+        return null;
+      }
+
       setIsUploading(true);
       setError(null);
       setJobId(null);
@@ -36,14 +54,13 @@ export const useJobUpload = (): UseJobUploadReturn => {
       const mode = mapTabToMode(activeTab);
 
       try {
-        const data = await createJob(file, mode, token);
+        const data = await createJob(file, mode, token, insertPageNumber);
         setJobId(data.jobId);
         return data;
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Upload failed';
-        console.error('Upload failed:', errorMessage);
-        setError(errorMessage);
+        const message = toUserMessage(err, '업로드에 실패했습니다.');
+        console.error('Upload failed:', message);
+        setError(message);
         return null;
       } finally {
         setIsUploading(false);
@@ -58,5 +75,10 @@ export const useJobUpload = (): UseJobUploadReturn => {
     setIsUploading(false);
   }, []);
 
-  return { uploadFile, isUploading, jobId, error, resetUpload };
+  const attachJob = useCallback((id: string) => {
+    setError(null);
+    setJobId(id);
+  }, []);
+
+  return { uploadFile, isUploading, jobId, error, resetUpload, attachJob };
 };

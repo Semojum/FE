@@ -67,7 +67,11 @@ describe('useAuth', () => {
 
   it('login error rejects without setting state', async () => {
     vi.mocked(apiLogin).mockRejectedValue(
-      new ApiError('아이디 또는 비밀번호가 올바르지 않습니다.', 'AUTH4001', 401),
+      new ApiError(
+        '아이디 또는 비밀번호가 올바르지 않습니다.',
+        'AUTH4001',
+        401,
+      ),
     );
 
     const { result } = renderHook(() => useAuth());

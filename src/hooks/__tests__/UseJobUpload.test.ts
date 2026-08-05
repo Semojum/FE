@@ -49,7 +49,12 @@ describe('useJobUpload', () => {
     expect(result.current.jobId).toBe('job-1');
     expect(result.current.isUploading).toBe(false);
     expect(result.current.error).toBeNull();
-    expect(createJobMock).toHaveBeenCalledWith(expect.any(File), 'a', 'tok');
+    expect(createJobMock).toHaveBeenCalledWith(
+      expect.any(File),
+      'a',
+      'tok',
+      false,
+    );
   });
 
   it.each([
@@ -66,6 +71,7 @@ describe('useJobUpload', () => {
       expect.any(File),
       expectedMode,
       'tok',
+      false,
     );
   });
 

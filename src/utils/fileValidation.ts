@@ -22,10 +22,17 @@ export const TAB_ALLOWED_FILE_LABEL: Record<ConversionTab, string> = {
   [TABS.INTEGRATED]: 'PDF',
 };
 
-export const isFileAllowedForTab = (
-  file: File,
-  tab: ConversionTab,
-): boolean => TAB_ALLOWED_FILE_TYPES[tab].includes(detectFileType(file));
+export const isFileAllowedForTab = (file: File, tab: ConversionTab): boolean =>
+  TAB_ALLOWED_FILE_TYPES[tab].includes(detectFileType(file));
 
 export const fileValidationMessage = (tab: ConversionTab): string =>
   `${tab} 모드는 ${TAB_ALLOWED_FILE_LABEL[tab]} 파일만 지원합니다.`;
+
+// 업로드 상한은 파일 1개당 100MB. 다만 BE 상한과 앞단 프록시(Cloudflare) 상한이
+// 겹쳐 경계가 애매하므로, 명세 권고대로 FE 임계값은 95MB로 잡는다.
+export const MAX_UPLOAD_BYTES = 95 * 1024 * 1024;
+
+export const fileSizeMessage = (file: File): string | null =>
+  file.size > MAX_UPLOAD_BYTES
+    ? '업로드할 수 있는 파일 크기는 100MB까지입니다.'
+    : null;

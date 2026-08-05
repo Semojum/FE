@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { apiRequest, setTokenRefresher, API_BASE_URL } from '../apiClient';
 
-const envelope = (result: unknown, overrides: Record<string, unknown> = {}) => ({
+const envelope = (
+  result: unknown,
+  overrides: Record<string, unknown> = {},
+) => ({
   isSuccess: true,
   code: 'COMMON2000',
   message: '성공입니다.',

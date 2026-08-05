@@ -42,7 +42,9 @@ const itemText = (item: { contents?: string[]; content?: string | string[] }) =>
 
 // AI가 tn_text/draft.text를 "<!점역자주>...<!/점역자주>" 래퍼로 감싸 보낸다(실서버 확인).
 // 화면 표시용 텍스트에서는 래퍼를 벗긴다.
-const stripTnWrapper = (text: string | null | undefined): string | undefined => {
+const stripTnWrapper = (
+  text: string | null | undefined,
+): string | undefined => {
   const stripped = (text ?? '').replace(/<!\/?점역자주>/g, '').trim();
   return stripped.length > 0 ? stripped : undefined;
 };
@@ -62,9 +64,7 @@ const parseDrafts = (drafts: Draft[] | string | null | undefined): Draft[] => {
 
 // 대체 텍스트 후보는 contents의 여러 줄이 아니라 drafts에서 온다(시각 요소에만 존재).
 // 라벨·점역사주 설명을 유지한 채 매핑해 피커에서 방식을 구분할 수 있게 한다.
-const itemDrafts = (item: {
-  drafts?: Draft[] | string | null;
-}): BlockDraft[] =>
+const itemDrafts = (item: { drafts?: Draft[] | string | null }): BlockDraft[] =>
   parseDrafts(item.drafts)
     .map((d) => ({
       label: d.label,
@@ -73,9 +73,7 @@ const itemDrafts = (item: {
     }))
     .filter((d) => d.content.length > 0);
 
-const itemCandidates = (item: {
-  drafts?: Draft[] | string | null;
-}): string[] =>
+const itemCandidates = (item: { drafts?: Draft[] | string | null }): string[] =>
   itemDrafts(item).map((d) => d.content);
 
 const mapBoundingBoxes = (list: BoundingBoxDto[] | undefined): BoundingBox[] =>

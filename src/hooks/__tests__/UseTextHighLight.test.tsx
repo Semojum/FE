@@ -16,17 +16,13 @@ describe('useTextHighlight', () => {
   });
 
   it('wraps <!...> matches in dim span', () => {
-    const { getByTestId } = render(
-      <Wrapper text="hello <!world> end" />,
-    );
+    const { getByTestId } = render(<Wrapper text="hello <!world> end" />);
     const dim = getByTestId('hl').querySelector('.opacity-50');
     expect(dim?.textContent).toBe('<!world>');
   });
 
   it('handles multiple matches', () => {
-    const { getByTestId } = render(
-      <Wrapper text="<!a> middle <!b>" />,
-    );
+    const { getByTestId } = render(<Wrapper text="<!a> middle <!b>" />);
     const dims = getByTestId('hl').querySelectorAll('.opacity-50');
     expect(dims).toHaveLength(2);
     expect(dims[0].textContent).toBe('<!a>');

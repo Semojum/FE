@@ -9,8 +9,12 @@ interface CandidateModalProps {
   candidates: string[];
   // drafts가 있으면 라벨(방식명)·점역사주 설명과 함께 표시한다. 없으면 candidates만.
   drafts?: BlockDraft[];
-  onSelect: (text: string) => void;
+  // idx는 drafts 배열의 인덱스(0부터). 이미 선택된 초안을 다시 누르면 -1을 넘겨
+  // AI 원본으로 되돌리는 스와프가 된다 (대체 초안 D-1).
+  onSelect: (text: string, idx: number) => void;
   currentText: string;
+  // AI 원본 — 스와프로 되돌아갈 대상. 없으면 currentText를 원본으로 본다.
+  originalText?: string;
 }
 
 const CandidateModal: React.FC<CandidateModalProps> = ({
@@ -20,6 +24,7 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
   drafts,
   onSelect,
   currentText,
+  originalText,
 }) => {
   if (!isOpen) return null;
 
@@ -70,7 +75,12 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
                   <button
                     key={idx}
                     onClick={() => {
-                      onSelect(entry.content);
+                      // 이미 채택된 초안을 다시 누르면 AI 원본으로 되돌린다(스와프).
+                      if (isSelected) {
+                        onSelect(originalText ?? entry.content, -1);
+                      } else {
+                        onSelect(entry.content, idx);
+                      }
                       onClose();
                     }}
                     className={`w-full text-left p-3 rounded-xl text-sm transition-all flex items-start gap-3 hover:bg-[#5A8FBB]/5 group ${

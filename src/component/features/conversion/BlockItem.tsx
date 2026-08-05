@@ -9,8 +9,6 @@ import {
   Eye,
   BookOpen,
   Info,
-  Loader2,
-  AlertCircle,
 } from 'lucide-react';
 import { Reorder, useDragControls } from 'framer-motion';
 import { TranslationBlock, ConversionTab, TABS } from '../../../types';
@@ -26,14 +24,12 @@ interface BlockItemProps {
   mode: ConversionTab;
   onUpdate: (id: string, text: string) => void;
   onApplyCandidate: (id: string, text: string) => void;
+  // 대체 초안 선택 — idx는 drafts 인덱스, -1이면 AI 원본으로 되돌리는 스와프.
+  onSelectDraft?: (id: string, idx: number) => void;
   onRemove: (id: string) => void;
   onAdd: (index: number) => void;
   onSelect: (id: string) => void;
   isSelected: boolean;
-  // 블록 편집을 서버에 저장. 포커스가 블록을 벗어나거나 초안을 선택할 때 호출.
-  onPersist?: (id: string, text: string) => void;
-  // 서버 저장 상태 — 'saving' 저장 중 / 'error' 저장 실패 / 'delete-error' 삭제 실패
-  saveState?: 'saving' | 'error' | 'delete-error';
 }
 
 const BlockItem: React.FC<BlockItemProps> = memo(
@@ -43,12 +39,11 @@ const BlockItem: React.FC<BlockItemProps> = memo(
     mode,
     onUpdate,
     onApplyCandidate,
+    onSelectDraft,
     onRemove,
     onAdd,
     onSelect,
     isSelected,
-    onPersist,
-    saveState,
   }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isPreviewMode, setIsPreviewMode] = useState(mode === TABS.BRAILLE);
@@ -226,7 +221,6 @@ const BlockItem: React.FC<BlockItemProps> = memo(
                   renderHighlight={renderHighlight} // ✅ 하이라이트된 Node 전달
                   onFocus={() => onSelect(block.id)}
                   onChange={(e) => onUpdate(block.id, e.target.value)}
-                  onBlur={() => onPersist?.(block.id, block.currentText)}
                   onKeyDown={handleKeyDown}
                   onKeyUp={handleKeyUp}
                   className={
@@ -241,38 +235,6 @@ const BlockItem: React.FC<BlockItemProps> = memo(
                 />
               )}
             </div>
-
-            {/* 서버 저장 상태 — 저장 중이거나 실패했을 때만 표시 */}
-            {saveState === 'saving' && (
-              <p className="mt-1 flex items-center gap-1 text-[11px] text-gray-400">
-                <Loader2 size={11} className="animate-spin" /> 저장 중...
-              </p>
-            )}
-            {saveState === 'error' && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPersist?.(block.id, block.currentText);
-                }}
-                className="mt-1 flex items-center gap-1 text-[11px] font-medium text-red-500 hover:underline"
-              >
-                <AlertCircle size={11} /> 저장 실패 — 다시 시도
-              </button>
-            )}
-            {/* 삭제가 실패해 블록이 되돌려진 상태 — 삭제를 다시 시도한다. */}
-            {saveState === 'delete-error' && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemove(block.id);
-                }}
-                className="mt-1 flex items-center gap-1 text-[11px] font-medium text-red-500 hover:underline"
-              >
-                <AlertCircle size={11} /> 삭제 실패 — 다시 시도
-              </button>
-            )}
 
             {/* 적용된 점역 규정(rule_trail) 목록 */}
             {showRules && ruleTrail.length > 0 && (
@@ -360,10 +322,10 @@ const BlockItem: React.FC<BlockItemProps> = memo(
           candidates={block.candidates}
           drafts={block.drafts}
           currentText={block.currentText}
-          onSelect={(text) => {
+          originalText={block.originalText}
+          onSelect={(text, idx) => {
             onApplyCandidate(block.id, text);
-            // 초안 선택은 blur를 거치지 않으므로 즉시 서버에 저장한다.
-            onPersist?.(block.id, text);
+            onSelectDraft?.(block.id, idx);
           }}
         />
       </Reorder.Item>
