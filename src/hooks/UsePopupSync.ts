@@ -23,7 +23,6 @@ export type SyncAction =
   | { type: 'selectDraft'; page: number; id: string; idx: number }
   | { type: 'removeBlock'; page: number; id: string }
   | { type: 'addBlock'; page: number; index: number }
-  | { type: 'reorderBlocks'; page: number; reordered: TranslationBlock[] }
   | { type: 'setSelected'; id: string | null }
   | { type: 'setPage'; page: number }
   // 현재 페이지 저장(Ctrl+S) — 토큰·jobId를 가진 메인 창이 실행한다.

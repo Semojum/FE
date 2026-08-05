@@ -5,7 +5,7 @@ import React, {
   useCallback,
   useRef,
 } from 'react';
-import { motion, AnimatePresence, Reorder } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useDropzone, Accept } from 'react-dropzone';
 import {
   FileText,
@@ -20,6 +20,8 @@ import {
   LogOut,
   History,
   ArrowRightCircle,
+  Undo2,
+  Redo2,
 } from 'lucide-react';
 
 // Hooks
@@ -41,7 +43,11 @@ import { listActiveJobs } from './api/HistoryService';
 // Components
 import FilePreviewer from './component/features/conversion/FilePreviewer';
 import Pagination from './component/features/conversion/Pagination';
-import BlockItem from './component/features/conversion/BlockItem';
+import BrailleGrid, {
+  GridCaret,
+} from './component/features/conversion/BrailleGrid';
+import ContextMenu from './component/shared/ContextMenu';
+import CandidateModal from './component/features/conversion/CandidateModal';
 import LoginScreen from './component/features/auth/LoginScreen';
 import MyPage from './component/features/mypage/MyPage';
 
@@ -73,6 +79,15 @@ import {
 import { toUserMessage, errorCode } from './api/errorMessages';
 import { saveBlob } from './utils/download';
 import { onAppClose } from './utils/appLifecycle';
+import {
+  blockTextFromLines,
+  bodyRowsPerPage,
+  buildGridLines,
+  CELLS_PER_ROW,
+  firstLineIndexOfPage,
+  ROWS_PER_PAGE,
+  totalOutputPages,
+} from './utils/brailleGrid';
 import DownloadModal from './component/features/conversion/DownloadModal';
 import SendToBrailleModal from './component/features/conversion/SendToBrailleModal';
 import { usePageEditor } from './hooks/UsePageEditor';
@@ -92,8 +107,10 @@ interface TabState {
   selectedBlockId: string | null;
   // 마이페이지 복원 작업의 페이지별 원본(없으면 null) — 페이지 전환 시 미리보기 교체용
   savedOriginalsByPage: Record<number, JobPageOriginal> | null;
-  // 이 탭 작업물의 서버 Job ID(블록 편집 저장 대상). 없으면 저장 불가.
+  // 이 탭 작업물의 서버 Job ID(페이지 일괄 저장 대상). 없으면 저장 불가.
   jobId: string | null;
+  // 업로드 시 정해진 쪽번호 삽입 여부 — 판면 격자를 26줄 전체로 그릴지 본문 25줄로 그릴지
+  insertPageNumber: boolean;
   // 페이지별 변환 상태(BLOCKED 페이지 안내용)
   pageStatuses: Record<number, PageEventStatus>;
 }
@@ -156,7 +173,6 @@ const BrailleMate: React.FC = () => {
     removeBlock,
     addBlock,
     replaceBlockId,
-    reorderBlocks,
     resetAllBlocks,
   } = useTranslationBlocks();
 
@@ -172,6 +188,19 @@ const BrailleMate: React.FC = () => {
   const [isSending, setIsSending] = useState(false);
   // 화면 하단 토스트 — 저장·이동·삭제 실패 등 짧은 안내
   const [toast, setToast] = useState<string | null>(null);
+
+  // 결과 격자 — 커서(선택된 줄·칸), 우클릭 메뉴, 현재 보이는 출력 쪽,
+  // 원본 페이지를 넘겼을 때 스크롤할 줄 번호.
+  const [caret, setCaret] = useState<GridCaret | null>(null);
+  const [gridMenu, setGridMenu] = useState<{
+    lineIndex: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [visibleOutputPage, setVisibleOutputPage] = useState(1);
+  const [scrollToLine, setScrollToLine] = useState<number | null>(null);
+  // 대체 초안 피커를 연 블록
+  const [draftBlockId, setDraftBlockId] = useState<string | null>(null);
 
   // 페이지 일괄 저장(PUT) 대상 Job ID. 라이브 업로드/마이페이지 복원/탭 복원 시 갱신된다.
   const [workingJobId, setWorkingJobId] = useState<string | null>(null);
@@ -216,6 +245,10 @@ const BrailleMate: React.FC = () => {
     [],
   );
 
+  // dispatchAction은 usePopupSync가 아래에서 만들어 주므로, 그 위에서 정의되는
+  // 격자 핸들러들이 참조할 수 있도록 ref로 미러링한다.
+  const dispatchActionRef = useRef<((action: SyncAction) => void) | null>(null);
+
   // V3 편집 모델: 페이지 안의 편집을 로컬에서 모았다가 페이지 이동·종료·Ctrl+S에
   // 한 번에 저장한다. 되돌리기도 이 훅이 페이지 단위로 들고 있다.
   const editor = usePageEditor({
@@ -238,6 +271,7 @@ const BrailleMate: React.FC = () => {
       selectedBlockId,
       savedOriginalsByPage,
       jobId: workingJobId,
+      insertPageNumber,
       pageStatuses,
     }),
     [
@@ -249,6 +283,7 @@ const BrailleMate: React.FC = () => {
       selectedBlockId,
       savedOriginalsByPage,
       workingJobId,
+      insertPageNumber,
       pageStatuses,
     ],
   );
@@ -303,6 +338,7 @@ const BrailleMate: React.FC = () => {
       setSelectedBlockId(saved.selectedBlockId);
       setSavedOriginalsByPage(saved.savedOriginalsByPage);
       setWorkingJobId(saved.jobId);
+      setInsertPageNumber(saved.insertPageNumber ?? false);
       editor.resetEditor();
       editor.registerServerBlocks(Object.values(saved.blocksByPage).flat());
       setPageStatuses(saved.pageStatuses ?? {});
@@ -436,15 +472,64 @@ const BrailleMate: React.FC = () => {
     [workingJobId, auth.token, elementType],
   );
 
-  const handleReorderBlocks = useCallback(
-    (page: number, reordered: TranslationBlock[]) => {
-      editor.pushHistory(page);
-      editingBlockRef.current = null;
-      reorderBlocks(page, reordered);
-      editor.markDirty(page);
+  // ─── 결과 격자 ────────────────────────────────────────────────────
+  // 모든 페이지의 블록 줄을 순서대로 이어 붙인다. 출력 쪽은 이 줄들을 판면 규격으로
+  // 자른 것이고, 하단 페이지네이션이 옮기는 원본 파일 페이지와는 별개다.
+  const gridLines = useMemo(() => buildGridLines(blocksByPage), [blocksByPage]);
+
+  const outputPageCount = totalOutputPages(gridLines.length, insertPageNumber);
+
+  // 대체 초안 피커 대상 블록 — 어느 원본 페이지의 블록인지 함께 찾는다.
+  const draftBlock = useMemo(() => {
+    if (!draftBlockId) return null;
+    for (const [page, blocks] of Object.entries(blocksByPage)) {
+      const block = blocks.find((b) => b.id === draftBlockId);
+      if (block) return { pageNo: Number(page), block };
+    }
+    return null;
+  }, [draftBlockId, blocksByPage]);
+
+  // 커서가 놓인 줄의 블록을 원본 대조 선택으로도 반영한다(좌측 원본이 같이 강조됨).
+  const handleCaretChange = useCallback(
+    (next: GridCaret) => {
+      setCaret(next);
+      const line = gridLines[next.lineIndex];
+      if (line && line.blockId !== selectedBlockId) {
+        dispatchActionRef.current?.({ type: 'setSelected', id: line.blockId });
+      }
     },
-    [editor, reorderBlocks],
+    [gridLines, selectedBlockId],
   );
+
+  // 격자에서 한 줄을 고치면 그 줄이 속한 블록의 본문을 다시 만들어 넘긴다.
+  const handleEditLine = useCallback(
+    (lineIndex: number, text: string) => {
+      const line = gridLines[lineIndex];
+      if (!line) return;
+      const updated = gridLines.map((l, i) =>
+        i === lineIndex ? { ...l, text } : l,
+      );
+      dispatchActionRef.current?.({
+        type: 'updateBlock',
+        page: line.pageNo,
+        id: line.blockId,
+        text: blockTextFromLines(updated, line.blockId),
+      });
+    },
+    [gridLines],
+  );
+
+  // 원본 페이지를 넘기면 결과 격자를 그 페이지의 첫 줄로 옮겨 대조를 유지한다.
+  // (결과 자체는 끊기지 않고 계속 이어져 있다.)
+  useEffect(() => {
+    if (gridLines.length === 0) return;
+    setScrollToLine(firstLineIndexOfPage(gridLines, currentPage));
+    // 같은 페이지로 다시 이동해도 스크롤이 걸리도록 다음 틱에 비운다.
+    const id = window.setTimeout(() => setScrollToLine(null), 400);
+    return () => window.clearTimeout(id);
+    // gridLines가 바뀔 때마다 스크롤하면 스트리밍 중 계속 튀므로 페이지만 본다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage]);
 
   // 메인 측에서 직접 호출되는 액션 처리기. 팝업은 BroadcastChannel을 통해 메인에 위임.
   const applyAction = useCallback(
@@ -464,9 +549,6 @@ const BrailleMate: React.FC = () => {
           break;
         case 'addBlock':
           handleAddBlock(action.page, action.index);
-          break;
-        case 'reorderBlocks':
-          handleReorderBlocks(action.page, action.reordered);
           break;
         case 'setSelected':
           setSelectedBlockId(action.id);
@@ -499,7 +581,6 @@ const BrailleMate: React.FC = () => {
       handleSelectDraft,
       handleRemoveBlock,
       handleAddBlock,
-      handleReorderBlocks,
       editor,
       setPage,
       handleReset,
@@ -648,6 +729,10 @@ const BrailleMate: React.FC = () => {
     onSnapshotReceived: handleSnapshotReceived,
   });
 
+  useEffect(() => {
+    dispatchActionRef.current = dispatchAction;
+  }, [dispatchAction]);
+
   const handleJobLoaded = useCallback(
     (job: JobDetail) => {
       handleReset();
@@ -665,6 +750,8 @@ const BrailleMate: React.FC = () => {
           (job.failedPages ?? []).map((p) => [p, 'BLOCKED' as PageEventStatus]),
         ),
       );
+      // 업로드 시 정해진 쪽번호 삽입 여부를 그대로 되살린다(판면 격자 기준이 달라진다).
+      setInsertPageNumber(job.insertPageNumber ?? false);
       // 재시작 복구·마이페이지 복원은 마지막 편집 페이지로 바로 이동한다.
       setPage(job.startPage ?? 1);
       // 입력 미리보기 복원: 점역(텍스트→점자)은 복원된 원본 텍스트를, 이미지 모드(a/c)는
@@ -973,7 +1060,7 @@ const BrailleMate: React.FC = () => {
           </div>
         </div>
         {!isPopup && (
-          <nav className="flex gap-12 border-b border-white/20 relative">
+          <nav className="flex items-end gap-12 border-b border-white/20 relative">
             {tabs.map((tab) => (
               <button
                 key={tab}
@@ -993,6 +1080,47 @@ const BrailleMate: React.FC = () => {
                 )}
               </button>
             ))}
+
+            {/* 되돌리기 · 다시 실행 · 변환 진행률 (Figma V3-03 상단) */}
+            <div className="ml-auto mb-3 flex items-center gap-3">
+              <button
+                onClick={() =>
+                  dispatchAction({ type: 'undo', page: currentPage })
+                }
+                disabled={!editor.canUndo(currentPage)}
+                title="되돌리기 (Ctrl+Z)"
+                aria-label="되돌리기"
+                className="rounded p-1 text-gray-400 transition-colors hover:text-[#407FAC] disabled:opacity-30"
+              >
+                <Undo2 size={17} />
+              </button>
+              <button
+                onClick={() =>
+                  dispatchAction({ type: 'redo', page: currentPage })
+                }
+                disabled={!editor.canRedo(currentPage)}
+                title="다시 실행 (Ctrl+Shift+Z)"
+                aria-label="다시 실행"
+                className="rounded p-1 text-gray-400 transition-colors hover:text-[#407FAC] disabled:opacity-30"
+              >
+                <Redo2 size={17} />
+              </button>
+
+              {fileState.totalPages > 0 && (
+                <div className="flex items-center gap-2 border-l border-gray-200 pl-3">
+                  <span className="text-[12px] font-semibold text-[#407FAC]">
+                    {isConversionComplete ? '변환 완료' : '변환 진행'}{' '}
+                    {settledPages} / {fileState.totalPages}
+                  </span>
+                  <div className="h-1.5 w-[90px] overflow-hidden rounded-full bg-gray-200">
+                    <div
+                      className="h-full rounded-full bg-[#407FAC] transition-[width] duration-300"
+                      style={{ width: `${conversionProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           </nav>
         )}
       </header>
@@ -1184,7 +1312,20 @@ const BrailleMate: React.FC = () => {
                   </div>
                 )}
 
-                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                {gridLines.length > 0 && (
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="rounded-md bg-[#eef3fc] px-2 py-1 text-[11px] font-semibold text-[#5b8ce6]">
+                      {ROWS_PER_PAGE}줄 × {CELLS_PER_ROW}칸
+                      {insertPageNumber && ` · 본문 ${bodyRowsPerPage(true)}줄`}
+                    </span>
+                    {/* 출력 쪽은 원본 페이지와 별개다 — 스크롤로 이어 본다. */}
+                    <span className="text-[11px] text-gray-400">
+                      {visibleOutputPage} / {outputPageCount}쪽
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex-1 overflow-hidden pr-1">
                   {uploadError ? (
                     <div className="h-full flex flex-col items-center justify-center text-red-500 space-y-2">
                       <AlertCircle size={32} />
@@ -1214,72 +1355,21 @@ const BrailleMate: React.FC = () => {
                         </div>
                       )}
                     </div>
-                  ) : currentBlocks.length > 0 ? (
-                    <div className="pb-10">
-                      <Reorder.Group
-                        axis="y"
-                        values={currentBlocks}
-                        onReorder={(newOrder) =>
-                          dispatchAction({
-                            type: 'reorderBlocks',
-                            page: currentPage,
-                            reordered: newOrder,
-                          })
-                        }
-                        className="flex flex-col gap-1"
-                      >
-                        {currentBlocks.map((block, index) => (
-                          <BlockItem
-                            key={block.id}
-                            block={block}
-                            index={index}
-                            mode={activeTab}
-                            isSelected={block.id === selectedBlockId}
-                            onSelect={(id) =>
-                              dispatchAction({ type: 'setSelected', id })
-                            }
-                            onUpdate={(id, text) =>
-                              dispatchAction({
-                                type: 'updateBlock',
-                                page: currentPage,
-                                id,
-                                text,
-                              })
-                            }
-                            onApplyCandidate={(id, text) =>
-                              dispatchAction({
-                                type: 'applyCandidate',
-                                page: currentPage,
-                                id,
-                                text,
-                              })
-                            }
-                            onSelectDraft={(id, idx) =>
-                              dispatchAction({
-                                type: 'selectDraft',
-                                page: currentPage,
-                                id,
-                                idx,
-                              })
-                            }
-                            onRemove={(id) =>
-                              dispatchAction({
-                                type: 'removeBlock',
-                                page: currentPage,
-                                id,
-                              })
-                            }
-                            onAdd={(idx) =>
-                              dispatchAction({
-                                type: 'addBlock',
-                                page: currentPage,
-                                index: idx,
-                              })
-                            }
-                          />
-                        ))}
-                      </Reorder.Group>
-                    </div>
+                  ) : gridLines.length > 0 ? (
+                    <BrailleGrid
+                      lines={gridLines}
+                      mode={activeTab}
+                      insertPageNumber={insertPageNumber}
+                      caret={caret}
+                      highlightBlockId={selectedBlockId}
+                      onCaretChange={handleCaretChange}
+                      onEditLine={handleEditLine}
+                      onContextMenu={(lineIndex, x, y) =>
+                        setGridMenu({ lineIndex, x, y })
+                      }
+                      onVisiblePageChange={setVisibleOutputPage}
+                      scrollToLine={scrollToLine}
+                    />
                   ) : pageStatuses[currentPage] === 'BLOCKED' ? (
                     // 서버가 이 페이지를 변환하지 못한 경우(page_done status=BLOCKED /
                     // job_done failed_pages). 결과가 비어 있어 빈 화면처럼 보이므로 이유를 알린다.
@@ -1320,6 +1410,75 @@ const BrailleMate: React.FC = () => {
           </motion.div>
         </AnimatePresence>
       </main>
+
+      {/* 격자 우클릭 — 블록 단위 기능 (추가 · 삭제 · 대체 초안) */}
+      {gridMenu && gridLines[gridMenu.lineIndex] && (
+        <ContextMenu
+          x={gridMenu.x}
+          y={gridMenu.y}
+          onClose={() => setGridMenu(null)}
+          items={(() => {
+            const line = gridLines[gridMenu.lineIndex];
+            const blocks = blocksByPage[line.pageNo] ?? [];
+            const index = blocks.findIndex((b) => b.id === line.blockId);
+            return [
+              {
+                label: '블록 추가',
+                onSelect: () =>
+                  dispatchAction({
+                    type: 'addBlock',
+                    page: line.pageNo,
+                    index,
+                  }),
+              },
+              {
+                label: '대체 초안',
+                disabled: !line.hasDrafts,
+                title: line.hasDrafts
+                  ? undefined
+                  : '이 블록에는 대체 초안이 없습니다',
+                onSelect: () => setDraftBlockId(line.blockId),
+              },
+              {
+                label: '블록 삭제',
+                danger: true,
+                onSelect: () =>
+                  dispatchAction({
+                    type: 'removeBlock',
+                    page: line.pageNo,
+                    id: line.blockId,
+                  }),
+              },
+            ];
+          })()}
+        />
+      )}
+
+      {/* 대체 초안 피커 — 근거(방식명·설명)와 함께 후보를 고른다 */}
+      {draftBlock && (
+        <CandidateModal
+          isOpen
+          onClose={() => setDraftBlockId(null)}
+          candidates={draftBlock.block.candidates}
+          drafts={draftBlock.block.drafts}
+          currentText={draftBlock.block.currentText}
+          originalText={draftBlock.block.originalText}
+          onSelect={(text, idx) => {
+            dispatchAction({
+              type: 'applyCandidate',
+              page: draftBlock.pageNo,
+              id: draftBlock.block.id,
+              text,
+            });
+            dispatchAction({
+              type: 'selectDraft',
+              page: draftBlock.pageNo,
+              id: draftBlock.block.id,
+              idx,
+            });
+          }}
+        />
+      )}
 
       <DownloadModal
         isOpen={isDownloadOpen}

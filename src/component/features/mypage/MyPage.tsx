@@ -41,7 +41,7 @@ import {
 import { JobMode } from '../../../types/apiTypes';
 import { JobRef, User } from '../../../types/auth';
 import { FileCardItem, FolderCardItem } from './Cards';
-import ContextMenu, { MenuItem } from './ContextMenu';
+import ContextMenu, { MenuItem } from '../../shared/ContextMenu';
 import TrashView from './TrashView';
 import {
   DeleteConfirmModal,
