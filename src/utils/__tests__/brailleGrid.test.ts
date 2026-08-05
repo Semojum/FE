@@ -3,9 +3,11 @@ import {
   blockTextFromLines,
   bodyRowsPerPage,
   buildGridLines,
-  clearCellAt,
+  deleteAt,
+  deleteBefore,
   firstLineIndexOfPage,
-  overwriteAt,
+  insertAt,
+  overflowCount,
   toCells,
   totalOutputPages,
 } from '../brailleGrid';
@@ -90,30 +92,45 @@ describe('toCells', () => {
   });
 });
 
-describe('overwriteAt — 격자 편집은 덮어쓰기다', () => {
-  it('커서 칸부터 갈아 끼우고 뒷글자를 밀지 않는다', () => {
-    expect(overwriteAt('abcde', 1, 'XY')).toBe('aXYde');
+describe('insertAt — 격자 편집은 밀어쓰기다', () => {
+  it('커서 칸에 끼워 넣고 뒤쪽을 오른쪽으로 민다', () => {
+    expect(insertAt('abcde', 1, 'XY')).toBe('aXYbcde');
   });
 
   it('줄 끝보다 뒤에 쓰면 사이를 공백으로 메운다', () => {
-    expect(overwriteAt('ab', 4, 'Z')).toBe('ab  Z');
+    expect(insertAt('ab', 4, 'Z')).toBe('ab  Z');
   });
 
-  it('줄보다 긴 입력은 뒤로 늘어난다', () => {
-    expect(overwriteAt('ab', 1, 'XYZ')).toBe('aXYZ');
+  it('맨 앞·맨 뒤에도 넣을 수 있다', () => {
+    expect(insertAt('abc', 0, 'Z')).toBe('Zabc');
+    expect(insertAt('abc', 3, 'Z')).toBe('abcZ');
   });
 });
 
-describe('clearCellAt', () => {
-  it('한 칸을 비운다', () => {
-    expect(clearCellAt('abc', 1)).toBe('a c');
+describe('deleteBefore / deleteAt — 지우면 뒤쪽이 왼쪽으로 당겨진다', () => {
+  it('Backspace는 커서 앞 글자를 지운다', () => {
+    expect(deleteBefore('abcd', 2)).toBe('acd');
   });
 
-  it('끝 칸을 비우면 오른쪽 공백은 정리한다', () => {
-    expect(clearCellAt('abc', 2)).toBe('ab');
+  it('줄 맨 앞에서 Backspace는 아무것도 하지 않는다', () => {
+    expect(deleteBefore('abcd', 0)).toBe('abcd');
+  });
+
+  it('Delete는 커서 자리 글자를 지운다', () => {
+    expect(deleteAt('abcd', 1)).toBe('acd');
   });
 
   it('범위 밖이면 그대로 둔다', () => {
-    expect(clearCellAt('abc', 9)).toBe('abc');
+    expect(deleteAt('abc', 9)).toBe('abc');
+  });
+});
+
+describe('overflowCount', () => {
+  it('밀어쓰다 32칸을 넘으면 넘친 글자 수를 알려 준다', () => {
+    expect(overflowCount('a'.repeat(35))).toBe(3);
+  });
+
+  it('넘치지 않으면 0', () => {
+    expect(overflowCount('abc')).toBe(0);
   });
 });

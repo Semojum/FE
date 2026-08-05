@@ -89,27 +89,37 @@ export const toCells = (text: string, cells = CELLS_PER_ROW): string[] => {
   return [...chars, ...Array(Math.max(0, cells - chars.length)).fill('')];
 };
 
-// 격자 편집은 "덮어쓰기"다 — 커서 칸부터 글자를 갈아 끼우고, 줄 길이는 늘어나되
-// 앞쪽 칸이 밀리지 않는다.
-export const overwriteAt = (
+// 격자 편집은 "밀어쓰기"다 — 커서 칸에 글자를 끼워 넣고 뒤쪽 글자는 오른쪽으로 밀린다.
+export const insertAt = (
   text: string,
   index: number,
   input: string,
 ): string => {
   const chars = [...text];
-  // 커서가 줄 끝보다 뒤면 사이를 공백으로 메운다.
+  // 커서가 줄 끝보다 뒤면 사이를 공백으로 메운 뒤 끼워 넣는다.
   while (chars.length < index) chars.push(' ');
-  const inputChars = [...input];
-  inputChars.forEach((ch, i) => {
-    chars[index + i] = ch;
-  });
+  chars.splice(index, 0, ...[...input]);
   return chars.join('');
 };
 
-// 한 칸을 비운다(Delete / Backspace). 뒤쪽이 비게 되면 오른쪽 공백은 정리한다.
-export const clearCellAt = (text: string, index: number): string => {
+// Backspace — 커서 앞 글자를 지우고 뒤쪽을 왼쪽으로 당긴다.
+export const deleteBefore = (text: string, index: number): string => {
+  if (index <= 0) return text;
+  const chars = [...text];
+  if (index > chars.length) return text;
+  chars.splice(index - 1, 1);
+  return chars.join('');
+};
+
+// Delete — 커서 자리 글자를 지우고 뒤쪽을 왼쪽으로 당긴다.
+export const deleteAt = (text: string, index: number): string => {
   const chars = [...text];
   if (index < 0 || index >= chars.length) return text;
-  chars[index] = ' ';
-  return chars.join('').replace(/\s+$/, '');
+  chars.splice(index, 1);
+  return chars.join('');
 };
+
+// 밀어쓰기라 한 줄이 32칸을 넘을 수 있다. 넘친 글자 수 — 0이면 넘치지 않은 것.
+// (실제 줄바꿈은 조판이 할 일이므로 FE는 값을 자르지 않고 넘쳤다는 사실만 알린다.)
+export const overflowCount = (text: string, cells = CELLS_PER_ROW): number =>
+  Math.max(0, [...text].length - cells);

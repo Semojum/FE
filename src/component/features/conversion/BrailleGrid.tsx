@@ -9,9 +9,11 @@ import { ConversionTab, TABS } from '../../../types';
 import {
   bodyRowsPerPage,
   CELLS_PER_ROW,
-  clearCellAt,
+  deleteAt,
+  deleteBefore,
   GridLine,
-  overwriteAt,
+  insertAt,
+  overflowCount,
   toCells,
   totalOutputPages,
 } from '../../../utils/brailleGrid';
@@ -20,7 +22,7 @@ import {
 //
 // 출력 쪽은 페이지네이션으로 끊지 않고 세로로 계속 이어 붙여 스크롤한다.
 // 칸을 클릭하면 그 줄이 통째로 선택되고, 커서는 클릭한 칸에 놓인다.
-// 그 상태에서 타이핑하면 그 칸부터 덮어쓴다(칸이 밀리지 않는다).
+// 그 상태에서 타이핑하면 그 칸에 글자가 끼워지고 뒤쪽 글자는 오른쪽으로 밀린다.
 
 // 점자 직접 입력 (표준 Perkins 6점: SDF JKL). 물리 키 기준이라 한/영 상태와 무관하다.
 const BRAILLE_DOT_MAP: Record<string, number> = {
@@ -175,22 +177,21 @@ const BrailleGrid: React.FC<Props> = ({
         e.preventDefault();
         moveCaret(caret.lineIndex, [...caretLine.text].length);
         return;
-      case 'Backspace': {
+      case 'Backspace':
         e.preventDefault();
-        const target = Math.max(0, caret.cell - 1);
-        applyText(clearCellAt(caretLine.text, target));
-        moveCaret(caret.lineIndex, target);
+        // 앞 글자를 지우고 뒤쪽을 왼쪽으로 당긴다.
+        applyText(deleteBefore(caretLine.text, caret.cell));
+        moveCaret(caret.lineIndex, caret.cell - 1);
         return;
-      }
       case 'Delete':
         e.preventDefault();
-        applyText(clearCellAt(caretLine.text, caret.cell));
+        applyText(deleteAt(caretLine.text, caret.cell));
         return;
       default:
         break;
     }
 
-    // 일반 문자 — 삽입이 아니라 커서 칸부터 덮어쓴다.
+    // 일반 문자 — 커서 칸에 끼워 넣고 뒤쪽을 오른쪽으로 민다.
     // 한글은 IME 조합 중이라 여기로 오지 않고 compositionend에서 처리된다.
     // 단축키(Ctrl+Z/S 등)는 상위 핸들러가 처리하도록 넘긴다.
     if (
@@ -201,7 +202,7 @@ const BrailleGrid: React.FC<Props> = ({
       [...e.key].length === 1
     ) {
       e.preventDefault();
-      applyText(overwriteAt(caretLine.text, caret.cell, e.key));
+      applyText(insertAt(caretLine.text, caret.cell, e.key));
       moveCaret(caret.lineIndex, caret.cell + 1);
     }
   };
@@ -219,11 +220,7 @@ const BrailleGrid: React.FC<Props> = ({
     pressedDots.current.clear();
 
     applyText(
-      overwriteAt(
-        caretLine.text,
-        caret.cell,
-        String.fromCharCode(0x2800 + dots),
-      ),
+      insertAt(caretLine.text, caret.cell, String.fromCharCode(0x2800 + dots)),
     );
     moveCaret(caret.lineIndex, caret.cell + 1);
   };
@@ -233,7 +230,7 @@ const BrailleGrid: React.FC<Props> = ({
   ) => {
     setIsComposing(false);
     if (!caret || !caretLine || !e.data) return;
-    applyText(overwriteAt(caretLine.text, caret.cell, e.data));
+    applyText(insertAt(caretLine.text, caret.cell, e.data));
     moveCaret(caret.lineIndex, caret.cell + [...e.data].length);
     // 숨은 input은 항상 비워 둔다 — 값은 격자가 들고 있다.
     if (inputRef.current) inputRef.current.value = '';
@@ -297,6 +294,9 @@ const BrailleGrid: React.FC<Props> = ({
                 isHighlighted &&
                 lines[lineIndex + 1]?.blockId !== line?.blockId;
               const cells = toCells(line?.text ?? '');
+              // 밀어쓰기라 32칸을 넘길 수 있다 — 줄바꿈은 조판이 할 일이므로
+              // 값은 자르지 않고 넘쳤다는 사실만 알린다.
+              const overflow = overflowCount(line?.text ?? '');
 
               return (
                 <div
@@ -340,6 +340,14 @@ const BrailleGrid: React.FC<Props> = ({
                       {ch}
                     </div>
                   ))}
+                  {overflow > 0 && (
+                    <span
+                      title={`32칸을 ${overflow}자 넘습니다 — 조판에서 줄이 나뉩니다`}
+                      className="ml-1 self-center rounded bg-[#f47726]/15 px-1 text-[9px] font-bold text-[#f47726]"
+                    >
+                      +{overflow}
+                    </span>
+                  )}
                 </div>
               );
             })}
