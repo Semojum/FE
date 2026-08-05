@@ -135,10 +135,19 @@ export const apiRequest = async <T>(
     const code = envelope.code ?? 'COMMON5000';
 
     // 액세스 토큰 만료/무효(401) → 리프레시 후 1회 재시도.
-    // 인증 엔드포인트(/api/auth/*) 자체는 재시도 대상에서 제외(무한 루프 방지).
+    // 제외 대상:
+    //  - 인증 엔드포인트(/api/auth/*) 자체 — 무한 루프 방지
+    //  - 애초에 토큰을 붙이지 않은 요청 — 재발급해도 달라질 게 없다. 인증이 필요 없다고
+    //    알려진 엔드포인트(앱 버전 체크 등)가 401을 주면, 이걸 막지 않을 경우 로그인
+    //    전에 리프레시가 돌아 "세션 만료" 상태로 오인된다(2026-08-05 실측).
     const isAuthError =
       res.status === 401 || code === 'COMMON4001' || code === 'AUTH4003';
-    if (isAuthError && !options._retried && !path.startsWith('/api/auth/')) {
+    if (
+      isAuthError &&
+      !!token &&
+      !options._retried &&
+      !path.startsWith('/api/auth/')
+    ) {
       const refreshed = await refreshAccessToken(token ?? null);
       if (refreshed) {
         return apiRequest<T>(path, {

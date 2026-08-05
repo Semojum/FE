@@ -18,14 +18,14 @@ import { decodeJwt, isExpired } from '../utils/jwt';
 //  'expired': 리프레시 토큰 만료 등 그 밖의 사유
 export type SessionEndedReason = 'evicted' | 'expired';
 
-// accessToken(JWT) payload에서 사용자 정보를 복원. 명세에 GET /me가 없으므로
-// 표시용 사용자 정보는 토큰을 디코드해서 얻는다. V3의 식별자는 loginId다.
-const userFromToken = (token: string | null): User | null => {
+// 토큰이 아직 살아 있는지만 확인한다.
+//
+// 표시용 loginId는 토큰에서 뽑지 않는다 — 운영 서버의 accessToken payload는
+// { sub, iat, exp }뿐이고 sub이 loginId가 아니라 사용자 UUID다(2026-08-05 실측).
+// GET /me도 없으므로, 화면에 보여줄 loginId는 로그인할 때 입력한 값을 그대로 들고 있는다.
+const isTokenAlive = (token: string | null): boolean => {
   const payload = decodeJwt(token);
-  if (!payload?.sub || isExpired(payload)) return null;
-  const loginId =
-    typeof payload.loginId === 'string' ? payload.loginId : payload.sub;
-  return { loginId };
+  return !!payload?.sub && !isExpired(payload);
 };
 
 export const useAuth = () => {
@@ -40,15 +40,23 @@ export const useAuth = () => {
   // apiClient의 리프레셔 콜백에서 최신 accessToken을 읽기 위한 미러.
   const tokenRef = useRef<string | null>(null);
 
+  // 로그인한 계정의 loginId. 재발급으로 토큰이 바뀌어도 세션 내내 유지된다.
+  const loginIdRef = useRef<string | null>(null);
+
   const applyToken = useCallback((accessToken: string) => {
     tokenRef.current = accessToken;
     setToken(accessToken);
-    setUser(userFromToken(accessToken));
+    setUser(
+      isTokenAlive(accessToken) && loginIdRef.current
+        ? { loginId: loginIdRef.current }
+        : null,
+    );
   }, []);
 
   const clearSession = useCallback((reason: SessionEndedReason | null) => {
     tokenRef.current = null;
     refreshTokenRef.current = null;
+    loginIdRef.current = null;
     setToken(null);
     setUser(null);
     setSessionEndedReason(reason);
@@ -60,6 +68,7 @@ export const useAuth = () => {
       try {
         const res = await apiLogin(loginId, password);
         refreshTokenRef.current = res.refreshToken;
+        loginIdRef.current = loginId;
         setSessionEndedReason(null);
         applyToken(res.accessToken);
       } finally {
@@ -81,7 +90,9 @@ export const useAuth = () => {
 
       const refreshToken = refreshTokenRef.current;
       if (!refreshToken) {
-        clearSession('expired');
+        // 로그인한 적이 없으면 "세션 종료"가 아니라 그냥 미로그인 상태다.
+        // 여기서 사유를 붙이면 앱을 처음 켰을 때 만료 안내가 뜬다.
+        clearSession(current ? 'expired' : null);
         return null;
       }
       try {

@@ -16,8 +16,14 @@ import {
   refresh as apiRefresh,
 } from '../../api/AuthService';
 
-// useAuth는 accessToken(JWT) payload를 디코드해 사용자 정보를 만든다. V3 식별자는 loginId.
-const tokenFor = (loginId: string) => encodeMockJwt({ sub: loginId, loginId });
+// 운영 서버의 accessToken payload는 { sub, iat, exp }뿐이고 sub은 사용자 UUID다.
+// 표시용 loginId는 로그인 입력값에서 온다.
+const realWorldToken = () =>
+  encodeMockJwt({
+    sub: 'cc6c7a9d-c40e-484a-b48e-fcc527b92fbd',
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  });
+const tokenFor = (_loginId?: string) => realWorldToken();
 
 beforeEach(() => {
   localStorage.clear();
@@ -45,7 +51,26 @@ describe('useAuth', () => {
 
     expect(apiLogin).toHaveBeenCalledWith('kblib01', 'pw');
     expect(result.current.isAuthenticated).toBe(true);
+    // JWT에 loginId가 없어도(sub은 UUID) 입력한 아이디를 그대로 보여준다.
     expect(result.current.user?.loginId).toBe('kblib01');
+  });
+
+  it('토큰을 재발급해도 표시용 loginId를 잃지 않는다', async () => {
+    vi.mocked(apiLogin).mockResolvedValue({
+      accessToken: realWorldToken(),
+      refreshToken: 'ref',
+    });
+    vi.mocked(apiRefresh).mockResolvedValue({ accessToken: realWorldToken() });
+
+    const { result } = renderHook(() => useAuth());
+    await act(async () => {
+      await result.current.login('org0102', 'pw');
+    });
+    await act(async () => {
+      await result.current.refreshSession(result.current.token);
+    });
+
+    expect(result.current.user?.loginId).toBe('org0102');
   });
 
   it('토큰을 localStorage에 남기지 않는다 (기관 계정 공유 대비)', async () => {

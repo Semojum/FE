@@ -1,10 +1,40 @@
 import { apiRequest } from './apiClient';
 import {
   DirectoryContents,
+  FileCard,
   FolderSummary,
   FolderTreeNode,
   ListQuery,
 } from '../types/mypage';
+
+// 목록 조회 3경로의 응답을 한 형태로 맞춘다.
+//
+// 명세는 `{ folders, files: { items, nextCursor, hasMore } }`인데, 운영 서버(2026-08-05
+// 실측)는 `{ folders, files: [...], nextCursor, hasMore }`로 files가 평평한 배열이고
+// 커서 필드가 형제로 온다. 어느 쪽이 와도 동작하도록 여기서 흡수한다 — BE가 명세대로
+// 바뀌어도 FE는 그대로 둔다.
+interface RawContents {
+  folders?: FolderSummary[];
+  files?:
+    | FileCard[]
+    | { items?: FileCard[]; nextCursor?: string | null; hasMore?: boolean };
+  nextCursor?: string | null;
+  hasMore?: boolean;
+}
+
+export const normalizeContents = (raw: RawContents): DirectoryContents => {
+  const nested = !Array.isArray(raw?.files) ? raw?.files : undefined;
+  const items = Array.isArray(raw?.files) ? raw.files : (nested?.items ?? []);
+  return {
+    folders: raw?.folders ?? [],
+    files: {
+      items,
+      // 중첩 형태면 그 안의 값을, 평평한 형태면 형제 값을 쓴다.
+      nextCursor: nested?.nextCursor ?? raw?.nextCursor ?? null,
+      hasMore: nested?.hasMore ?? raw?.hasMore ?? false,
+    },
+  };
+};
 
 // 목록 조회 공통 쿼리 직렬화. status/mode는 복수 지정이 가능해 같은 키를 반복한다.
 export const buildListQuery = (q: ListQuery = {}): string => {
@@ -24,16 +54,18 @@ export const buildListQuery = (q: ListQuery = {}): string => {
 // GET /api/folders/contents — 최상위 폴더 + 루트 파일 (마이페이지 첫 화면 S1)
 // GET /api/folders/{folderId}/contents — 폴더 내부 (S2)
 // 조회 범위는 경로가 정한다. folderId를 쿼리로 보내면 무시된다.
-export const getFolderContents = (
+export const getFolderContents = async (
   folderId: string | null,
   query: ListQuery,
   token: string,
 ): Promise<DirectoryContents> =>
-  apiRequest<DirectoryContents>(
-    folderId
-      ? `/api/folders/${folderId}/contents${buildListQuery(query)}`
-      : `/api/folders/contents${buildListQuery(query)}`,
-    { token },
+  normalizeContents(
+    await apiRequest<RawContents>(
+      folderId
+        ? `/api/folders/${folderId}/contents${buildListQuery(query)}`
+        : `/api/folders/contents${buildListQuery(query)}`,
+      { token },
+    ),
   );
 
 // GET /api/folders/tree — 폴더 트리 전체(휴지통 제외). '폴더로 이동' 모달용.
