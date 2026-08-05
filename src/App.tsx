@@ -72,6 +72,7 @@ import {
 } from './api/JobService';
 import { toUserMessage, errorCode } from './api/errorMessages';
 import { saveBlob } from './utils/download';
+import { onAppClose } from './utils/appLifecycle';
 import DownloadModal from './component/features/conversion/DownloadModal';
 import SendToBrailleModal from './component/features/conversion/SendToBrailleModal';
 import { usePageEditor } from './hooks/UsePageEditor';
@@ -825,16 +826,12 @@ const BrailleMate: React.FC = () => {
   }, [dispatchAction]);
 
   // 앱 종료 시 남은 편집을 밀어낸다 (탭별 작업물 보존 D-2: 종료 시 FE → BE로 페이지
-  // 전체 수정 내용을 전달). 브라우저 unload는 비동기 요청을 보장하지 못하므로
-  // 데스크톱에서 창을 닫을 때를 주 경로로 보고, 여기서는 최선 노력으로 처리한다.
+  // 전체 수정 내용을 전달). 데스크톱에서는 창 닫기 요청을 가로채 저장이 끝난 뒤 닫는다.
   useEffect(() => {
     if (isPopup) return;
-    const onBeforeUnload = () => {
-      // 확인 창으로 사용자를 붙잡지 않는다 — 보관은 앱이 알아서 한다.
-      if (editor.hasUnsaved()) void editor.saveAllDirty();
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+    return onAppClose(async () => {
+      if (editor.hasUnsaved()) await editor.saveAllDirty();
+    });
   }, [isPopup, editor]);
 
   // 재시작·재접속 복구 (탭별 작업물 보존 D-1·D-3·D-5).

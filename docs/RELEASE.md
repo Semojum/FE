@@ -4,13 +4,16 @@ BrailleMate 데스크톱 앱(Tauri 2)을 CI로 빌드하고 정식 배포하는 
 
 ## 빌드 대상
 
-`.github/workflows/build.yml`이 아래 3개 플랫폼을 빌드합니다.
+**배포 타깃은 Windows 데스크톱 앱 하나입니다.** `.github/workflows/build.yml`이
+`windows-latest`에서만 빌드하며, macOS·Linux 번들은 발행하지 않습니다.
 
 | 플랫폼 | 타깃 | 산출물 |
 |--------|------|--------|
-| macOS (Apple Silicon + Intel) | `universal-apple-darwin` | `.dmg`, `.app.tar.gz`(업데이터) |
-| Windows x64 | `x86_64-pc-windows-msvc` | `.msi`, `.exe`(NSIS), `*.zip`(업데이터) |
-| Linux x64 | `x86_64-unknown-linux-gnu` | `.deb`, `.AppImage`, `.rpm` |
+| Windows x64 | `x86_64-pc-windows-msvc` | `.exe`(NSIS), `.msi`, `*.nsis.zip`(업데이터) |
+
+> 다른 OS에서 개발하는 것은 자유지만(`bun run tauri:dev`), 릴리스 산출물은 Windows만 냅니다.
+> `tauri.conf.json`의 `bundle.targets`도 `["nsis", "msi"]`로 고정되어 있어, 다른 OS에서
+> `tauri build`를 돌리면 번들 단계에서 만들 것이 없다고 나옵니다(개발용 실행은 정상).
 
 ## 트리거 방법
 
@@ -31,7 +34,7 @@ BrailleMate 데스크톱 앱(Tauri 2)을 CI로 빌드하고 정식 배포하는 
   완료되면 GitHub의 Releases에 **초안(draft)** 릴리스가 생깁니다. 내용 확인 후 **Publish** 하면 사용자에게 노출되고, 기존 사용자 앱이 다음 실행 시 새 버전을 감지합니다.
 
   > 태그(`v0.1.0`)와 `tauri.conf.json`의 `version`(`0.1.0`)을 반드시 일치시키세요. 불일치 시 릴리스는 만들어져도 자동 업데이트 버전 비교가 어긋납니다.
-- **테스트 빌드**: GitHub Actions → "Build Desktop App" → Run workflow(`workflow_dispatch`) → 각 OS 산출물이 artifact로 업로드됩니다.
+- **테스트 빌드**: GitHub Actions → "Build Desktop App" → Run workflow(`workflow_dispatch`) → Windows 산출물이 artifact로 업로드됩니다.
 
 ---
 
@@ -56,32 +59,7 @@ Get-Content $HOME\.tauri\braillemate-updater.key -Raw
 
 > 🔐 개인키와 비밀번호를 분실하면 더 이상 업데이트를 서명할 수 없어 기존 사용자에게 자동 업데이트를 내보낼 수 없습니다. 안전하게 백업하세요. 새 키로 교체하면 `tauri.conf.json`의 `plugins.updater.pubkey`도 함께 갱신해야 합니다.
 
-### 2. macOS 코드 서명 + 공증 (스캐폴딩 — 현재 미설정)
-
-기본 상태에서는 **미서명 빌드**가 생성됩니다(Gatekeeper 경고 발생, 내부 테스트용). 정식 서명/공증을 켜려면 **두 가지**가 필요합니다.
-
-1. `build.yml`의 두 빌드 스텝에서 `APPLE_*` env **6줄의 주석을 해제**합니다.
-2. 아래 Secrets를 등록합니다.
-
-> ⚠️ 인증서가 없는 상태에서 env 주석만 풀면, 빈 값이 들어가 tauri가 빈 인증서를 import 하려다 codesign 단계에서 **빌드가 실패**합니다. 반드시 Secrets와 함께 활성화하세요.
-
-전제: **Apple Developer Program**($99/년) 가입 + **Developer ID Application** 인증서 발급.
-
-| Secret | 설명 |
-|--------|------|
-| `APPLE_CERTIFICATE` | Developer ID 인증서(.p12)를 base64로 인코딩한 문자열 |
-| `APPLE_CERTIFICATE_PASSWORD` | .p12 비밀번호 |
-| `APPLE_SIGNING_IDENTITY` | 예: `Developer ID Application: Your Name (TEAMID)` |
-| `APPLE_ID` | 공증용 Apple ID 이메일 |
-| `APPLE_PASSWORD` | Apple ID의 **앱 암호**(app-specific password) |
-| `APPLE_TEAM_ID` | Apple Developer 팀 ID |
-
-`.p12` → base64 (macOS):
-```bash
-base64 -i certificate.p12 -o certificate-base64.txt
-```
-
-### 3. Windows 코드 서명 (스캐폴딩 — 현재 미설정)
+### 2. Windows 코드 서명 (스캐폴딩 — 현재 미설정)
 
 현재 워크플로는 Windows를 **미서명**으로 빌드합니다(SmartScreen 경고 발생). 정식 서명하려면 OV/EV 코드사이닝 인증서가 필요하며, 다음 중 하나를 적용하세요.
 
@@ -94,11 +72,10 @@ base64 -i certificate.p12 -o certificate-base64.txt
 
 ## 코드 서명이 없을 때
 
-서명/공증을 설정하지 않아도 빌드 자체는 성공하며 설치 파일이 생성됩니다. 단:
-- **macOS**: "확인되지 않은 개발자" 경고 → 사용자가 우클릭 > 열기로 우회해야 함
-- **Windows**: SmartScreen "Windows의 PC 보호" 경고 → "추가 정보 > 실행"으로 우회해야 함
-
-정식 외부 배포에는 위 1·2·3을 모두 설정하는 것을 권장합니다. (업데이터 서명 1번은 자동 업데이트를 쓰는 한 필수입니다.)
+서명을 설정하지 않아도 빌드 자체는 성공하며 설치 파일이 생성됩니다. 단, 설치할 때
+SmartScreen "Windows의 PC 보호" 경고가 떠서 사용자가 "추가 정보 > 실행"으로 우회해야 합니다.
+IT 지원 인력이 없는 기관에 배포하는 제품이므로, 정식 배포 전에는 코드 서명을 붙이는 것을
+권장합니다. (업데이터 서명 1번은 자동 업데이트를 쓰는 한 필수입니다.)
 
 ---
 

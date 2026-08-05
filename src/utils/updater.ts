@@ -1,6 +1,6 @@
 // 데스크톱(Tauri) 자동 업데이트 유틸.
-//  - 웹/테스트 환경에서는 아무 동작도 하지 않는다(no-op).
-//  - 플러그인은 Tauri 런타임에서만 동적 import 한다(웹 번들에 포함되지 않게).
+//  - 브라우저/테스트 환경에서는 아무 동작도 하지 않는다(no-op).
+//  - 플러그인은 Tauri 런타임에서만 동적 import 한다(브라우저 번들에 포함되지 않게).
 //  - 기본 동작: 새 버전이 있으면 조용히 내려받아 설치하고, 강제 재시작 없이
 //    사용자의 다음 실행 시 새 버전이 적용된다(사용 중 방해 없음).
 //    즉시 재시작이 필요하면 checkForUpdates({ relaunch: true }).
@@ -34,7 +34,7 @@ export interface CheckForUpdatesOptions {
 }
 
 // 업데이트를 확인한다.
-//  - 반환: 적용 가능한 새 버전 문자열, 없으면 null(웹 환경도 null).
+//  - 반환: 적용 가능한 새 버전 문자열, 없으면 null(브라우저에서도 null).
 export const checkForUpdates = async (
   opts: CheckForUpdatesOptions = {},
 ): Promise<string | null> => {

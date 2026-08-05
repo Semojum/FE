@@ -1,6 +1,6 @@
 // 결과 전용 보조 창(반으로 나누기) 생성/종료.
-//  - 웹: window.open (Tauri 웹뷰에선 동작하지 않음)
-//  - 데스크톱(Tauri): WebviewWindow 네이티브 창
+//  - 데스크톱(Tauri): WebviewWindow 네이티브 창 — 실제 배포 경로
+//  - 브라우저(개발 중 UI 확인용): window.open 폴백
 // 호출부가 환경을 신경 쓰지 않도록 동일한 핸들 인터페이스를 반환한다.
 
 const isTauri = (): boolean =>
@@ -21,7 +21,7 @@ export const openOutputWindow =
   async (): Promise<OutputWindowHandle | null> => {
     const url = outputUrl();
 
-    // ── 웹: window.open ────────────────────────────────────────────────
+    // ── 브라우저 폴백: window.open ─────────────────────────────────────
     if (!isTauri()) {
       const popup = window.open(url, 'braillemate-output', WEB_FEATURES);
       if (!popup) return null; // 팝업 차단

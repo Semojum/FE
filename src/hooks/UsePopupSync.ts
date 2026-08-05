@@ -151,7 +151,7 @@ export const usePopupSync = ({
     };
   }, [isPopup, setPanelMode]);
 
-  // 팝업 unload 시 메인에 알림(웹 fallback). 데스크톱은 onClosed로도 감지.
+  // 팝업 unload 시 메인에 알림(브라우저 폴백). 데스크톱은 onClosed로도 감지한다.
   useEffect(() => {
     if (!isPopup) return;
     const handler = () => {

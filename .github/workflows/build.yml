@@ -1,5 +1,8 @@
 name: Build Desktop App
 
+# 배포 타깃은 Windows 데스크톱 앱 하나다. macOS·Linux 번들은 만들지 않는다.
+# (개발은 다른 OS에서 해도 되지만 릴리스 산출물은 Windows만 발행한다.)
+
 on:
   workflow_dispatch:
   push:
@@ -8,24 +11,11 @@ on:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # macOS: 하나의 universal 바이너리로 Apple Silicon + Intel 모두 지원
-          - os: macos-latest
-            target: universal-apple-darwin
-            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
-          # Windows x64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            rust_targets: x86_64-pc-windows-msvc
-          # Linux x64 (deb / AppImage / rpm) — 22.04로 빌드해 더 넓은 glibc 호환성 확보
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            rust_targets: x86_64-unknown-linux-gnu
+    name: Windows x64
+    runs-on: windows-latest
 
-    runs-on: ${{ matrix.os }}
+    env:
+      TARGET: x86_64-pc-windows-msvc
 
     steps:
       - uses: actions/checkout@v4
@@ -34,29 +24,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.rust_targets }}
+          targets: x86_64-pc-windows-msvc
 
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-
-      # Linux 빌드에 필요한 시스템 의존성 (webkit2gtk 등)
-      - name: Install Linux system dependencies
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libgtk-3-dev \
-            libssl-dev \
-            libxdo-dev \
-            patchelf \
-            build-essential \
-            file \
-            wget \
-            curl
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
@@ -70,21 +42,12 @@ jobs:
           # 자동 업데이트 서명 (필수) — 없으면 빌드 실패
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS 코드 서명 + 공증을 켜려면 아래 6줄의 주석을 풀고 동일 이름의 Secrets를 등록하세요.
-          # ⚠️ 인증서가 없을 땐 주석을 풀지 마세요 — 빈 값이 들어가면 tauri가 빈 인증서를
-          #    import 하려다 codesign 단계에서 실패합니다(미설정=미서명 빌드가 정상 동작).
-          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # APPLE_ID: ${{ secrets.APPLE_ID }}
-          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: BrailleMate ${{ github.ref_name }}
           releaseDraft: true
           includeUpdaterJson: true
-          args: --target ${{ matrix.target }}
+          args: --target ${{ env.TARGET }}
 
       # 수동 트리거: 빌드만 수행하고 산출물을 artifact로 업로드
       - name: Build only (manual trigger)
@@ -94,29 +57,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS 코드 서명 + 공증을 켜려면 아래 6줄의 주석을 풀고 동일 이름의 Secrets를 등록하세요.
-          # ⚠️ 인증서가 없을 땐 주석을 풀지 마세요(빈 값이면 codesign 단계에서 실패).
-          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # APPLE_ID: ${{ secrets.APPLE_ID }}
-          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          args: --target ${{ matrix.target }}
+          args: --target ${{ env.TARGET }}
 
       - name: Upload artifacts (manual trigger)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
-          name: BrailleMate-${{ matrix.os }}
+          name: BrailleMate-windows
           path: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app.tar.gz*
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi*
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.nsis.zip*
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage*
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm
+            src-tauri/target/${{ env.TARGET }}/release/bundle/**/*.msi*
+            src-tauri/target/${{ env.TARGET }}/release/bundle/**/*.exe
+            src-tauri/target/${{ env.TARGET }}/release/bundle/**/*.nsis.zip*
           if-no-files-found: warn

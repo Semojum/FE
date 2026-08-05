@@ -27,3 +27,6 @@ src-tauri/gen/
 *.sln
 *.sw?
 .gstack/
+
+# 패키지 매니저는 bun 하나로 통일한다 (CI도 bun.lock 기준)
+package-lock.json
