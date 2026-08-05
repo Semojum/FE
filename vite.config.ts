@@ -53,12 +53,6 @@ export default defineConfig({
           });
         },
       },
-      // 소셜 로그인(OAuth) 리다이렉트 경로
-      '/oauth2': {
-        target: 'https://api.semojum.app',
-        changeOrigin: true,
-        secure: true,
-      },
     },
   },
   build: {

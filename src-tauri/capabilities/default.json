@@ -16,8 +16,6 @@
         { "url": "https://storage.googleapis.com/*" }
       ]
     },
-    "oauth:allow-start",
-    "oauth:allow-cancel",
     "updater:default",
     "process:default"
   ]

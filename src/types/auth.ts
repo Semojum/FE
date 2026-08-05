@@ -7,16 +7,10 @@ import {
 } from './index';
 import { JobMode, StreamPageResult } from './apiTypes';
 
+// V3: 계정은 운영자가 발급한다. 사용자가 만들 수 있는 정보(이메일·이름)가 없고
+// 화면에 노출하는 식별자는 loginId 하나뿐이다.
 export interface User {
-  id: string;
-  email: string;
-  name: string;
-}
-
-// POST /api/auth/signup 응답 (result) — 토큰을 발급하지 않는다.
-export interface SignupResponse {
-  email: string;
-  name: string;
+  loginId: string;
 }
 
 // POST /api/auth/login 응답 (result)
@@ -28,17 +22,6 @@ export interface LoginResponse {
 // POST /api/auth/refresh 응답 (result) — accessToken만 재발급
 export interface RefreshResponse {
   accessToken: string;
-}
-
-export type OAuthProvider = 'kakao' | 'google';
-
-// POST /api/auth/{kakao|google} 요청 본문.
-// 클라이언트가 OAuth2(+PKCE) 플로우로 받은 code를 BE에 넘겨 토큰으로 교환한다.
-// kakao는 PKCE를 쓰지 않으므로 codeVerifier는 빈 문자열로 보낸다.
-export interface OAuthExchangeRequest {
-  code: string;
-  codeVerifier: string;
-  redirectUri: string;
 }
 
 // GET /api/users/jobs 응답 (result 배열 항목) — 작업 생성 시 자동 적재된다.

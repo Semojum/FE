@@ -143,9 +143,9 @@ const MyPageModal: React.FC<Props> = ({
               </h3>
             </div>
             <div className="flex items-center gap-3 pb-2">
-              {user?.name && (
+              {user?.loginId && (
                 <span className="hidden text-sm text-gray-500 sm:inline">
-                  {user.name}
+                  {user.loginId}
                 </span>
               )}
             </div>

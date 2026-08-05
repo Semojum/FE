@@ -33,24 +33,6 @@ describe('AuthService', () => {
     fetchSpy.mockRestore();
   });
 
-  it('signup POSTs {email,name,password} to /api/auth/signup and returns result', async () => {
-    fetchSpy.mockResolvedValue(
-      makeJsonResponse(200, envelope({ email: 'a@b.com', name: 'Alice' })),
-    );
-    const res = await authService.signup('a@b.com', 'pw', 'Alice');
-    expect(res).toEqual({ email: 'a@b.com', name: 'Alice' });
-
-    const call = fetchSpy.mock.calls[0];
-    expect(call[0]).toBe(`${API_BASE_URL}/api/auth/signup`);
-    expect(initOf(call).method).toBe('POST');
-    expect(bodyJson(call)).toEqual({
-      email: 'a@b.com',
-      name: 'Alice',
-      password: 'pw',
-    });
-    expect(headersOf(call)['Content-Type']).toBe('application/json');
-  });
-
   it('login returns {accessToken, refreshToken}', async () => {
     fetchSpy.mockResolvedValue(
       makeJsonResponse(
@@ -58,12 +40,12 @@ describe('AuthService', () => {
         envelope({ accessToken: 'acc', refreshToken: 'ref' }),
       ),
     );
-    const res = await authService.login('a@b.com', 'pw');
+    const res = await authService.login('kblib01', 'pw');
     expect(res).toEqual({ accessToken: 'acc', refreshToken: 'ref' });
 
     const call = fetchSpy.mock.calls[0];
     expect(call[0]).toBe(`${API_BASE_URL}/api/auth/login`);
-    expect(bodyJson(call)).toEqual({ email: 'a@b.com', password: 'pw' });
+    expect(bodyJson(call)).toEqual({ loginId: 'kblib01', password: 'pw' });
   });
 
   it('login failure (401 AUTH4001) throws ApiError', async () => {
@@ -73,53 +55,38 @@ describe('AuthService', () => {
         envelope(null, {
           isSuccess: false,
           code: 'AUTH4001',
-          message: '이메일 또는 비밀번호가 올바르지 않습니다.',
+          message: '아이디 또는 비밀번호가 올바르지 않습니다.',
         }),
       ),
     );
-    await expect(authService.login('a@b.com', 'wrong')).rejects.toMatchObject({
+    await expect(authService.login('kblib01', 'wrong')).rejects.toMatchObject({
       code: 'AUTH4001',
       status: 401,
     });
   });
 
-  it('logout sends Bearer + {refreshToken} and resolves null', async () => {
+  it('logout sends only {refreshToken} — Authorization 헤더 없음', async () => {
     fetchSpy.mockResolvedValue(makeJsonResponse(200, envelope(null)));
-    const res = await authService.logout('acc', 'ref');
+    const res = await authService.logout('ref');
     expect(res).toBeNull();
 
     const call = fetchSpy.mock.calls[0];
     expect(call[0]).toBe(`${API_BASE_URL}/api/auth/logout`);
-    expect(headersOf(call).Authorization).toBe('Bearer acc');
+    expect(headersOf(call).Authorization).toBeUndefined();
     expect(bodyJson(call)).toEqual({ refreshToken: 'ref' });
   });
 
-  it('refresh sends Bearer and returns new accessToken', async () => {
+  it('refresh sends only {refreshToken} and returns new accessToken', async () => {
     fetchSpy.mockResolvedValue(
       makeJsonResponse(200, envelope({ accessToken: 'new-acc' })),
     );
-    const res = await authService.refresh('acc', 'ref');
+    const res = await authService.refresh('ref');
     expect(res.accessToken).toBe('new-acc');
 
     const call = fetchSpy.mock.calls[0];
     expect(call[0]).toBe(`${API_BASE_URL}/api/auth/refresh`);
-    expect(headersOf(call).Authorization).toBe('Bearer acc');
+    expect(headersOf(call).Authorization).toBeUndefined();
     expect(bodyJson(call)).toEqual({ refreshToken: 'ref' });
   });
 
-  it('exchangeOAuthCode POSTs to /api/auth/{provider}', async () => {
-    fetchSpy.mockResolvedValue(
-      makeJsonResponse(
-        200,
-        envelope({ accessToken: 'acc', refreshToken: 'ref' }),
-      ),
-    );
-    const res = await authService.exchangeOAuthCode('kakao', {
-      code: 'c',
-      codeVerifier: '',
-      redirectUri: 'http://127.0.0.1:4279',
-    });
-    expect(res.accessToken).toBe('acc');
-    expect(fetchSpy.mock.calls[0][0]).toBe(`${API_BASE_URL}/api/auth/kakao`);
-  });
 });

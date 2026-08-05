@@ -37,13 +37,12 @@ import {
 } from './hooks/UsePopupSync';
 import { usePageStreamHandler } from './hooks/UsePageStreamHandler';
 import { useSavedJobs } from './hooks/UseSavedJobs';
-import { useOAuth } from './hooks/UseOAuth';
 
 // Components
 import FilePreviewer from './component/features/conversion/FilePreviewer';
 import Pagination from './component/features/conversion/Pagination';
 import BlockItem from './component/features/conversion/BlockItem';
-import AuthModal from './component/features/auth/AuthModal';
+import LoginScreen from './component/features/auth/LoginScreen';
 import MyPageModal from './component/features/mypage/MyPageModal';
 
 // Types
@@ -185,14 +184,6 @@ const BrailleMate: React.FC = () => {
   // 이미 업로드한 File을 기억해 같은 파일이 (탭 복원 등으로) 다시 마운트돼도
   // 재업로드되지 않게 한다. (이전에는 jobId로 가드했지만, 탭 복원 시 jobId가 비므로 ref로 대체)
   const lastUploadedFileRef = useRef<File | null>(null);
-
-  // 데스크톱 소셜 로그인(loopback): 시스템 브라우저로 로그인 → 127.0.0.1 redirect 수신 →
-  // BE(/api/auth/{provider})와 code 교환. 성공 시 loginWithTokens로 세션 반영.
-  const {
-    startLogin: startOAuthLogin,
-    isAuthorizing,
-    error: oauthError,
-  } = useOAuth(auth.loginWithTokens);
 
   const currentPage = fileState.currentPage;
   const currentBlocks = getBlocks(currentPage);
@@ -898,29 +889,13 @@ const BrailleMate: React.FC = () => {
   const tabs = TAB_VALUES;
 
   // 인증 게이트 — 결과 전용 팝업이 아닌 메인 창에서는 로그인해야 앱을 쓸 수 있다.
-  // 마운트 시 저장된 refreshToken으로 자동 로그인을 시도하고(auth.isInitializing),
-  // 끝나면 로그인 여부에 따라 앱 또는 로그인 화면을 보여준다. (웹/데스크톱 공통)
-  if (!isPopup && auth.isInitializing) {
-    return (
-      <div className="min-h-screen bg-[#F0F4F8] flex flex-col items-center justify-center gap-4 text-gray-500">
-        <Loader2 className="animate-spin text-[#407FAC]" size={36} />
-        <p className="text-sm font-medium">로그인 정보를 확인하는 중...</p>
-      </div>
-    );
-  }
-
+  // V3는 자동 로그인이 없으므로 부트스트랩 대기 없이 바로 로그인 화면을 띄운다.
   if (!isPopup && !auth.isAuthenticated) {
-    // AuthModal이 Figma 로그인/회원가입 디자인을 전체화면으로 렌더한다.
     return (
-      <AuthModal
-        isOpen
-        dismissible={false}
-        onClose={() => {}}
+      <LoginScreen
         onLogin={auth.login}
-        onSignup={auth.signup}
-        onOAuthLogin={startOAuthLogin}
-        isAuthorizing={isAuthorizing}
-        externalError={oauthError}
+        sessionEndedReason={auth.sessionEndedReason}
+        onAcknowledgeSessionEnded={auth.acknowledgeSessionEnded}
       />
     );
   }
@@ -947,7 +922,7 @@ const BrailleMate: React.FC = () => {
                 </button>
                 <span className="hidden md:flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600">
                   <UserIcon size={14} />
-                  {auth.user?.name}
+                  {auth.user?.loginId}
                 </span>
                 <button
                   onClick={() => auth.logout()}
