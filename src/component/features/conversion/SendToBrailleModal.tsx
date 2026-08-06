@@ -3,8 +3,9 @@ import { Loader2 } from 'lucide-react';
 import Modal, { ModalButton } from '../../shared/Modal';
 
 // Figma V3-04 점역으로 보내기 — 덮어쓰기 확인.
-// 서버가 409 JOB4011(기존 연결 문서 존재)을 주면 이 확인을 거쳐 overwrite=true로 다시 보낸다.
-// 덮어쓰면 기존 모드 b 문서는 '(이전본)' 이름으로 마이페이지에 자동 보관된다.
+// 점역 탭에 이미 작업물이 있을 때 띄운다(기능정의서 §3). 확인하면 그 탭의 작업물을
+// 새 점역 결과로 교체한다. 기존 문서는 만들어진 시점부터 마이페이지에 남아 있으므로
+// 따로 보관하는 절차가 없다.
 
 interface Props {
   isOpen: boolean;
@@ -21,7 +22,7 @@ const SendToBrailleModal: React.FC<Props> = ({
 }) => (
   <Modal
     isOpen={isOpen}
-    title="이미 점역으로 보낸 문서가 있습니다"
+    title="점역 탭에 작업 중인 문서가 있습니다"
     onClose={onCancel}
     busy={busy}
     footer={
@@ -37,8 +38,8 @@ const SendToBrailleModal: React.FC<Props> = ({
     }
   >
     <p className="text-[13px] leading-relaxed text-gray-500">
-      이 작업에서 만든 점역 문서를 새로 만듭니다. 기존 문서는 이름 뒤에
-      &lsquo;(이전본)&rsquo;이 붙어 마이페이지에 보관됩니다.
+      점역 탭의 작업물을 이번 OCR 결과로 교체합니다. 기존 문서는 마이페이지에 그대로
+      남아 있어 언제든 다시 열 수 있습니다.
     </p>
   </Modal>
 );

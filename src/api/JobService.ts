@@ -47,33 +47,32 @@ export const getJobStatus = (
 // ─── 편집 저장 (V3: 페이지 단위 일괄 저장) ─────────────────────────────
 
 // 배열이 그 페이지의 최종 상태 전체다. 배열 순서 = 최종 reading_order이고,
-// 배열에 없는 기존 요소는 서버가 삭제 처리한다. elementId가 null이면 신규 블록.
+// 배열에 없는 기존 요소는 서버가 삭제 처리한다. id가 null이면 신규 블록.
+// 키 이름은 반드시 `id`다 — `elementId`로 보내면 서버가 전부 신규로 보고 id를 새로 발급한다.
 export interface PageElementInput {
-  elementId: string | null;
+  id: string | null;
   contents: string[];
-  type?: string;
 }
 
-export interface SavePageResult {
-  savedCount: number;
-  // 요청 배열과 같은 순서로 확정된 element id — 배열 위치로 신규 블록의 정식 id를 매핑한다.
-  elementIds: string[];
-  editLogged: { edited: number; added: number; deleted: number };
+// 저장 응답은 id 매핑용 최소 정보만 담는다(요소 상세는 페이지 조회 API 담당).
+export interface SavedElement {
+  id: string;
+  contents: string[];
 }
 
 // PUT /api/jobs/{jobId}/pages/{pageNo}/elements
 // V2의 요소 PATCH/POST/DELETE/order 4종을 이 하나가 대체한다.
+// 편집 대상(text_list / braille_text_list)은 서버가 mode로 판정하므로 body에 elementType이 없다.
 export const savePageElements = (
   jobId: string,
   pageNo: number,
-  elementType: ElementType,
   elements: PageElementInput[],
   token?: string | null,
-): Promise<SavePageResult> =>
-  apiRequest<SavePageResult>(`/api/jobs/${jobId}/pages/${pageNo}/elements`, {
+): Promise<SavedElement[]> =>
+  apiRequest<SavedElement[]>(`/api/jobs/${jobId}/pages/${pageNo}/elements`, {
     method: 'PUT',
     token,
-    body: { elementType, elements },
+    body: { elements },
   });
 
 // PATCH /api/jobs/{jobId}/pages/{pageNo}/elements/{elementId}/draft
@@ -156,22 +155,5 @@ export const downloadJobResult = (
     body: fileName ? { fileName } : {},
   });
 
-export interface SendToBrailleResult {
-  newJobId: string;
-  // 덮어쓰기로 보관된 기존 Job (없으면 null)
-  archivedJobId: string | null;
-  totalPages: number;
-}
-
-// POST /api/jobs/{jobId}/send-to-braille — 모드 a 교정 결과를 병합해 모드 b Job 생성.
-// 기존 연결 문서가 있으면 overwrite 없이 호출 시 409 JOB4011 → 확인 모달 후 재호출.
-export const sendToBraille = (
-  jobId: string,
-  overwrite: boolean,
-  token: string,
-): Promise<SendToBrailleResult> =>
-  apiRequest(`/api/jobs/${jobId}/send-to-braille`, {
-    method: 'POST',
-    token,
-    body: { overwrite },
-  });
+// 점역으로 보내기(`POST /api/jobs/{jobId}/send-to-braille`)는 BE에서 만들지 않기로 했다.
+// FE가 교정된 전체 페이지를 합쳐 모드 b Job으로 재업로드한다 — `utils/mergePages` 참고.

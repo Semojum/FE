@@ -70,6 +70,8 @@ export interface JobDetail {
   jobId: string; // 페이지 일괄 저장(PUT) 대상 식별용
   mode: ConversionTab;
   totalPages: number;
+  // 업로드했던 원본 파일명. 점역으로 보내기가 합친 텍스트의 이름으로 물려받는다.
+  originalFileName?: string;
   // 복원 직후 이동할 페이지(재시작 복구의 lastEditedPage). 없으면 1페이지.
   startPage?: number;
   // 업로드 시 쪽번호 삽입을 선택했는지 — 결과 렌더링 격자 기준

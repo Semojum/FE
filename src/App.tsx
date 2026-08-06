@@ -70,14 +70,10 @@ import {
   TAB_ALLOWED_FILE_LABEL,
 } from './utils/fileValidation';
 import { httpFetch } from './api/httpFetch';
-import {
-  downloadJobResult,
-  ElementType,
-  selectDraft,
-  sendToBraille,
-} from './api/JobService';
-import { toUserMessage, errorCode } from './api/errorMessages';
+import { downloadJobResult, ElementType, selectDraft } from './api/JobService';
+import { toUserMessage } from './api/errorMessages';
 import { saveBlob } from './utils/download';
+import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
 import { onAppClose } from './utils/appLifecycle';
 import {
   blockTextFromLines,
@@ -113,6 +109,9 @@ interface TabState {
   insertPageNumber: boolean;
   // 페이지별 변환 상태(BLOCKED 페이지 안내용)
   pageStatuses: Record<number, PageEventStatus>;
+  // 마이페이지에서 복원한 작업의 원본 파일명(라이브 업로드는 fileState.file.name).
+  // 점역으로 보내기가 합친 텍스트에 이 이름을 물려준다.
+  originalFileName: string | null;
 }
 
 const BrailleMate: React.FC = () => {
@@ -210,6 +209,8 @@ const BrailleMate: React.FC = () => {
   >({});
   // 비동기 콜백에서 참조할 최신 블록 목록(state 미러)
   const blocksRef = useRef<Record<number, TranslationBlock[]>>({});
+  // 마이페이지에서 복원한 작업의 원본 파일명(라이브 업로드는 fileState.file이 들고 있다).
+  const [originalFileName, setOriginalFileName] = useState<string | null>(null);
 
   // 탭별 작업물 보관소. 탭을 떠날 때 현재 상태를 저장하고, 돌아오면 복원한다.
   const [tabSnapshots, setTabSnapshots] = useState<
@@ -254,7 +255,6 @@ const BrailleMate: React.FC = () => {
   const editor = usePageEditor({
     jobId: workingJobId,
     token: auth.token,
-    elementType,
     readBlocks,
     setBlocksForPage,
     replaceBlockId,
@@ -273,6 +273,7 @@ const BrailleMate: React.FC = () => {
       jobId: workingJobId,
       insertPageNumber,
       pageStatuses,
+      originalFileName,
     }),
     [
       fileState,
@@ -285,6 +286,7 @@ const BrailleMate: React.FC = () => {
       workingJobId,
       insertPageNumber,
       pageStatuses,
+      originalFileName,
     ],
   );
 
@@ -301,6 +303,7 @@ const BrailleMate: React.FC = () => {
     setWorkingJobId(null);
     editor.resetEditor();
     setPageStatuses({});
+    setOriginalFileName(null);
   }, [resetFile, resetAllBlocks, resetUpload, editor]);
 
   const handleReset = useCallback(() => {
@@ -342,6 +345,7 @@ const BrailleMate: React.FC = () => {
       editor.resetEditor();
       editor.registerServerBlocks(Object.values(saved.blocksByPage).flat());
       setPageStatuses(saved.pageStatuses ?? {});
+      setOriginalFileName(saved.originalFileName ?? null);
       // 복원된 파일은 이미 변환됐으므로 재업로드 트리거를 막는다.
       lastUploadedFileRef.current = saved.fileState.file;
     } else {
@@ -352,50 +356,63 @@ const BrailleMate: React.FC = () => {
     setActiveTab(tab);
   };
 
-  // OCR 결과를 점역 변환으로 넘긴다. V3에서는 FE가 텍스트를 합쳐 재업로드하지 않고
-  // 서버가 교정 결과를 페이지 순서대로 병합해 모드 b Job을 만든다.
+  // OCR 결과를 점역 변환으로 넘긴다. 전용 API(`POST .../send-to-braille`)는 만들지
+  // 않기로 했으므로, 교정된 전체 페이지를 FE가 하나의 텍스트로 합쳐 모드 b Job으로
+  // 재업로드한다(V2와 같은 방식). 사용자에게는 저장·재업로드 수작업이 보이지 않는다.
   const runSendToBraille = useCallback(
     async (overwrite: boolean) => {
-      if (!workingJobId || !auth.token) return;
+      if (!auth.token) return;
+
+      // 점역 탭에 이미 작업물이 있으면 먼저 덮어쓸지 확인받는다(기능정의서 §3).
+      // 기존 문서는 만들어진 시점부터 마이페이지에 남아 있으므로 따로 보관할 것이 없다.
+      if (!overwrite && tabSnapshots[TABS.BRAILLE]) {
+        setIsOverwriteOpen(true);
+        return;
+      }
+
       setIsSending(true);
       try {
-        // 아직 저장되지 않은 교정이 있으면 먼저 밀어낸다(서버가 최종본을 병합해야 한다).
+        // 남은 교정을 먼저 서버에 밀어낸다 — 화면 블록이 곧 병합 대상이라 실패해도
+        // 합쳐지는 내용은 같지만, 원본 OCR 작업의 최종본을 잃지 않게 한다.
         await editor.saveAllDirty();
-        const res = await sendToBraille(workingJobId, overwrite, auth.token);
-        setIsOverwriteOpen(false);
 
-        // 현재 OCR 탭 작업물을 보관하고 점역 탭으로 이동해 새 Job의 변환을 지켜본다.
+        const merged = mergePagesToText(blocksByPage);
+        if (!merged) {
+          setToast('점역으로 보낼 내용이 없습니다.');
+          return;
+        }
+        const file = new File(
+          [merged],
+          brailleSourceFileName(fileState.file?.name ?? originalFileName),
+          { type: 'text/plain' },
+        );
+
+        setIsOverwriteOpen(false);
+        // 현재 OCR 탭 작업물을 보관하고 점역 탭으로 이동한다. 새 파일을 넣으면
+        // 업로드 effect가 모드 b로 올리고, 그 Job의 변환을 스트림으로 지켜본다.
         setTabSnapshots((prev) => ({ ...prev, [activeTab]: captureState() }));
         clearWorkspace();
         setTabSnapshots((prev) => ({ ...prev, [TABS.BRAILLE]: undefined }));
         setActiveTab(TABS.BRAILLE);
         lastUploadedFileRef.current = null;
-        setWorkingJobId(res.newJobId);
-        setTotalPages(res.totalPages);
-        attachJob(res.newJobId);
-        if (res.archivedJobId) {
-          setToast('기존 점역 문서는 마이페이지에 보관했습니다.');
-        }
+        await handleFileDrop([file], TABS.BRAILLE);
       } catch (err) {
-        if (errorCode(err) === 'JOB4011') {
-          // 이 작업에서 이미 만든 점역 문서가 있다 — 덮어쓸지 확인받는다.
-          setIsOverwriteOpen(true);
-        } else {
-          setToast(toUserMessage(err, '점역으로 보내지 못했습니다.'));
-        }
+        setToast(toUserMessage(err, '점역으로 보내지 못했습니다.'));
       } finally {
         setIsSending(false);
       }
     },
     [
-      workingJobId,
       auth.token,
       editor,
       activeTab,
+      blocksByPage,
+      fileState.file,
+      originalFileName,
+      tabSnapshots,
       captureState,
       clearWorkspace,
-      setTotalPages,
-      attachJob,
+      handleFileDrop,
     ],
   );
 
@@ -752,6 +769,8 @@ const BrailleMate: React.FC = () => {
       );
       // 업로드 시 정해진 쪽번호 삽입 여부를 그대로 되살린다(판면 격자 기준이 달라진다).
       setInsertPageNumber(job.insertPageNumber ?? false);
+      // 원본 File은 없으므로 이름만 기억해 둔다(점역으로 보내기가 물려받는다).
+      setOriginalFileName(job.originalFileName ?? null);
       // 재시작 복구·마이페이지 복원은 마지막 편집 페이지로 바로 이동한다.
       setPage(job.startPage ?? 1);
       // 입력 미리보기 복원: 점역(텍스트→점자)은 복원된 원본 텍스트를, 이미지 모드(a/c)는

@@ -61,6 +61,7 @@ export const useSavedJobs = ({
       let imgResolution: ImageResolution = { width: 0, height: 0 };
       let failedPages: number[] = [];
       let insertPageNumber = false;
+      let originalFileName = '';
 
       try {
         for (let page = 1; page <= job.totalPages; page += 1) {
@@ -83,9 +84,10 @@ export const useSavedJobs = ({
               : originalTextsFromOriginal(pageData.original, page);
           if (pageData.original) originalByPage[page] = pageData.original;
           if (mapped.imgResolution) imgResolution = mapped.imgResolution;
-          // failedPages·insertPageNumber는 페이지마다 같은 값이 내려온다.
+          // failedPages·insertPageNumber·originalFileName은 페이지마다 같은 값이 내려온다.
           failedPages = pageData.failedPages ?? failedPages;
           insertPageNumber = pageData.insertPageNumber ?? insertPageNumber;
+          originalFileName = pageData.originalFileName || originalFileName;
         }
 
         onJobLoaded({
@@ -94,6 +96,7 @@ export const useSavedJobs = ({
           totalPages: job.totalPages,
           failedPages,
           insertPageNumber,
+          originalFileName: originalFileName || undefined,
           startPage: job.startPage ?? 1,
           thumbnailUrl: job.thumbnailUrl ?? undefined,
           blocksByPage,

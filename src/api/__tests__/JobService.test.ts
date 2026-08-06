@@ -6,7 +6,6 @@ import {
   renameJob,
   savePageElements,
   selectDraft,
-  sendToBraille,
   toggleJobFavorite,
   trashJobs,
 } from '../JobService';
@@ -161,58 +160,55 @@ describe('JobService.savePageElements (V3 페이지 일괄 저장)', () => {
     fetchSpy.mockResolvedValue(
       makeJsonResponse(
         200,
-        envelope({
-          savedCount: 2,
-          elementIds: ['el-1', 'el-new-8f2a'],
-          editLogged: { edited: 1, added: 1, deleted: 0 },
-        }),
+        envelope([
+          { id: 'el-1', contents: ['⠟'] },
+          { id: 'el-new-8f2a', contents: ['새 블록'] },
+        ]),
       ),
     );
 
     const res = await savePageElements(
       'j1',
       2,
-      'BRAILLE',
       [
-        { elementId: 'el-1', contents: ['⠟'] },
-        { elementId: null, contents: ['새 블록'] },
+        { id: 'el-1', contents: ['⠟'] },
+        { id: null, contents: ['새 블록'] },
       ],
       'tok',
     );
 
     // 신규 블록의 정식 id는 요청 배열과 같은 순서로 돌아온다.
-    expect(res.elementIds).toEqual(['el-1', 'el-new-8f2a']);
+    expect(res.map((e) => e.id)).toEqual(['el-1', 'el-new-8f2a']);
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe(`${API_BASE_URL}/api/jobs/j1/pages/2/elements`);
     expect((init as RequestInit).method).toBe('PUT');
     const headers = (init as RequestInit).headers as Record<string, string>;
     expect(headers.Authorization).toBe('Bearer tok');
+    // 키는 elementId가 아니라 id다 — elementId로 보내면 서버가 전부 신규로 취급한다.
+    // elementType은 명세에서 제거됐다(편집 대상은 서버가 mode로 판정).
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
-      elementType: 'BRAILLE',
       elements: [
-        { elementId: 'el-1', contents: ['⠟'] },
-        { elementId: null, contents: ['새 블록'] },
+        { id: 'el-1', contents: ['⠟'] },
+        { id: null, contents: ['새 블록'] },
       ],
     });
   });
 
-  it('throws ApiError on JOB4005 (잘못된 elementType)', async () => {
+  it('throws ApiError on JOB4004 (모르는 요소 id)', async () => {
     fetchSpy.mockResolvedValue(
       makeJsonResponse(
-        400,
+        404,
         envelope(null, {
           isSuccess: false,
-          code: 'JOB4005',
-          message: 'elementType은 TEXT 또는 BRAILLE만 허용됩니다.',
+          code: 'JOB4004',
+          message: '존재하지 않는 요소입니다.',
         }),
       ),
     );
 
     await expect(
-      savePageElements('j1', 1, 'BRAILLE', [
-        { elementId: 'el-1', contents: ['x'] },
-      ]),
-    ).rejects.toMatchObject({ code: 'JOB4005', status: 400 });
+      savePageElements('j1', 1, [{ id: 'el-gone', contents: ['x'] }]),
+    ).rejects.toMatchObject({ code: 'JOB4004', status: 404 });
   });
 });
 
@@ -362,50 +358,4 @@ describe('JobService 목록 조작 (이동 · 삭제 · 이름 · 즐겨찾기)'
   });
 });
 
-describe('JobService.sendToBraille', () => {
-  let fetchSpy: ReturnType<typeof vi.spyOn>;
-
-  beforeEach(() => {
-    fetchSpy = vi.spyOn(globalThis, 'fetch');
-  });
-
-  afterEach(() => {
-    fetchSpy.mockRestore();
-  });
-
-  it('POSTs overwrite=false first', async () => {
-    fetchSpy.mockResolvedValue(
-      makeJsonResponse(
-        200,
-        envelope({ newJobId: 'job_new', archivedJobId: null, totalPages: 8 }),
-      ),
-    );
-
-    const res = await sendToBraille('job_a', false, 'tok');
-
-    expect(res.newJobId).toBe('job_new');
-    const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe(`${API_BASE_URL}/api/jobs/job_a/send-to-braille`);
-    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
-      overwrite: false,
-    });
-  });
-
-  it('throws JOB4011 when a linked document already exists', async () => {
-    fetchSpy.mockResolvedValue(
-      makeJsonResponse(
-        409,
-        envelope(null, {
-          isSuccess: false,
-          code: 'JOB4011',
-          message: '기존 연결 문서가 있습니다.',
-        }),
-      ),
-    );
-
-    await expect(sendToBraille('job_a', false, 'tok')).rejects.toMatchObject({
-      code: 'JOB4011',
-      status: 409,
-    });
-  });
-});
+// 점역으로 보내기는 전용 API 없이 FE가 병합해 재업로드한다 — utils/__tests__/mergePages.test.ts 참고.

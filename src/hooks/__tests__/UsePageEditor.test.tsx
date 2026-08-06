@@ -30,7 +30,6 @@ const setup = (initial: Record<number, TranslationBlock[]> = {}) => {
     usePageEditor({
       jobId: 'job_1',
       token: 'tok',
-      elementType: 'BRAILLE',
       readBlocks,
       setBlocksForPage,
       replaceBlockId,
@@ -118,15 +117,14 @@ describe('usePageEditor — 페이지 일괄 저장', () => {
     expect(savePageElements).not.toHaveBeenCalled();
   });
 
-  it('서버가 아는 id는 그대로, 신규 블록은 elementId=null로 보낸다', async () => {
+  it('서버가 아는 id는 그대로, 신규 블록은 id=null로 보낸다', async () => {
     const { hook, store } = setup({
       1: [block('el-1', 'a'), block('local-uuid', 'b')],
     });
-    vi.mocked(savePageElements).mockResolvedValue({
-      savedCount: 2,
-      elementIds: ['el-1', 'el-new'],
-      editLogged: { edited: 1, added: 1, deleted: 0 },
-    });
+    vi.mocked(savePageElements).mockResolvedValue([
+      { id: 'el-1', contents: ['a'] },
+      { id: 'el-new', contents: ['b'] },
+    ]);
 
     act(() => {
       // SSE로 받은 블록만 서버가 아는 요소로 등록한다.
@@ -141,10 +139,9 @@ describe('usePageEditor — 페이지 일괄 저장', () => {
     expect(savePageElements).toHaveBeenCalledWith(
       'job_1',
       1,
-      'BRAILLE',
       [
-        { elementId: 'el-1', contents: ['a'] },
-        { elementId: null, contents: ['b'] },
+        { id: 'el-1', contents: ['a'] },
+        { id: null, contents: ['b'] },
       ],
       'tok',
     );
@@ -154,11 +151,9 @@ describe('usePageEditor — 페이지 일괄 저장', () => {
 
   it('여러 줄 텍스트는 contents 배열로 나눠 보낸다', async () => {
     const { hook } = setup({ 1: [block('el-1', '첫 줄\n둘째 줄')] });
-    vi.mocked(savePageElements).mockResolvedValue({
-      savedCount: 1,
-      elementIds: ['el-1'],
-      editLogged: { edited: 1, added: 0, deleted: 0 },
-    });
+    vi.mocked(savePageElements).mockResolvedValue([
+      { id: 'el-1', contents: ['첫 줄', '둘째 줄'] },
+    ]);
 
     act(() => {
       hook.result.current.registerServerBlocks([block('el-1', 'x')]);
@@ -168,8 +163,8 @@ describe('usePageEditor — 페이지 일괄 저장', () => {
       await hook.result.current.savePage(1);
     });
 
-    expect(vi.mocked(savePageElements).mock.calls[0][3]).toEqual([
-      { elementId: 'el-1', contents: ['첫 줄', '둘째 줄'] },
+    expect(vi.mocked(savePageElements).mock.calls[0][2]).toEqual([
+      { id: 'el-1', contents: ['첫 줄', '둘째 줄'] },
     ]);
   });
 
@@ -192,11 +187,9 @@ describe('usePageEditor — 페이지 일괄 저장', () => {
       1: [block('el-1', 'a')],
       2: [block('el-2', 'b')],
     });
-    vi.mocked(savePageElements).mockResolvedValue({
-      savedCount: 1,
-      elementIds: ['el-1'],
-      editLogged: { edited: 1, added: 0, deleted: 0 },
-    });
+    vi.mocked(savePageElements).mockResolvedValue([
+      { id: 'el-1', contents: ['a'] },
+    ]);
 
     act(() => {
       hook.result.current.markDirty(1);

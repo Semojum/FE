@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TranslationBlock } from '../types';
-import { ElementType, savePageElements } from '../api/JobService';
+import { savePageElements } from '../api/JobService';
 import { toUserMessage } from '../api/errorMessages';
 
 // V3 편집 모델 (기능정의서 "블록 단위 결과 편집" + API "수정 페이지 일괄 저장")
@@ -23,7 +23,6 @@ interface PageHistory {
 interface UsePageEditorOptions {
   jobId: string | null;
   token: string | null;
-  elementType: ElementType;
   // 최신 블록을 읽기 위한 접근자 (state가 아닌 ref 기반이어야 저장 시점 값이 정확하다)
   readBlocks: (page: number) => TranslationBlock[];
   setBlocksForPage: (page: number, blocks: TranslationBlock[]) => void;
@@ -33,13 +32,12 @@ interface UsePageEditorOptions {
 export const usePageEditor = ({
   jobId,
   token,
-  elementType,
   readBlocks,
   setBlocksForPage,
   replaceBlockId,
 }: UsePageEditorOptions) => {
   // 서버가 알고 있는 요소 id 집합. 여기 없는 id는 FE가 만든 신규 블록이라
-  // 저장 시 elementId를 null로 보내고, 응답에서 정식 id를 받아 교체한다.
+  // 저장 시 id를 null로 보내고, 응답에서 정식 id를 받아 교체한다.
   const serverIdsRef = useRef<Set<string>>(new Set());
   const historyRef = useRef<Record<number, PageHistory>>({});
   const dirtyRef = useRef<Set<number>>(new Set());
@@ -52,10 +50,10 @@ export const usePageEditor = ({
   const [historyVersion, setHistoryVersion] = useState(0);
 
   // 콜백 안에서 최신 옵션을 읽기 위한 미러
-  const ctxRef = useRef({ jobId, token, elementType });
+  const ctxRef = useRef({ jobId, token });
   useEffect(() => {
-    ctxRef.current = { jobId, token, elementType };
-  }, [jobId, token, elementType]);
+    ctxRef.current = { jobId, token };
+  }, [jobId, token]);
 
   const setPageState = useCallback(
     (page: number, state: PageSaveState | null) => {
@@ -156,7 +154,7 @@ export const usePageEditor = ({
   // 한 페이지의 최종 상태를 서버에 반영한다. 변경이 없으면 아무것도 하지 않는다.
   const savePage = useCallback(
     async (page: number, force = false): Promise<boolean> => {
-      const { jobId: id, token: tk, elementType: type } = ctxRef.current;
+      const { jobId: id, token: tk } = ctxRef.current;
       if (!id || !tk) return false;
       if (!force && !dirtyRef.current.has(page)) return true;
 
@@ -167,14 +165,14 @@ export const usePageEditor = ({
       setPageState(page, 'saving');
 
       const elements = blocks.map((b) => ({
-        elementId: serverIdsRef.current.has(b.id) ? b.id : null,
+        id: serverIdsRef.current.has(b.id) ? b.id : null,
         contents: b.currentText.split('\n'),
       }));
 
       try {
-        const res = await savePageElements(id, page, type, elements, tk);
-        // 응답 elementIds는 요청 배열과 같은 순서 — 위치로 신규 블록의 정식 id를 매핑한다.
-        res.elementIds.forEach((serverId, i) => {
+        const saved = await savePageElements(id, page, elements, tk);
+        // 응답은 요청 배열과 같은 순서의 최종 요소 배열 — 위치로 신규 블록의 정식 id를 매핑한다.
+        saved.forEach(({ id: serverId }, i) => {
           const local = blocks[i];
           if (!local) return;
           if (local.id !== serverId) replaceBlockId(page, local.id, serverId);

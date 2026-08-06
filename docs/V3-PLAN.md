@@ -36,7 +36,7 @@ V2(현행 코드)를 **V3.0 (1차 PoC)** 범위로 끌어올린다. 세 가지 �
 | 진행 표시 | 페이지별 | + 전체 진행률 프로그레스바 | 보강 |
 | 재시작 복구 | 없음 | `GET /api/users/jobs/active` → 최신 작업의 `lastEditedPage`로 바로 복구 | 신규 |
 | 다운로드 | 클라이언트 Blob | `POST /api/jobs/{jobId}/download` (파일명 지정 모달, 수정 시 서버 재조판) | 교체 |
-| 점역으로 보내기 | FE 병합 후 재업로드 | `POST /api/jobs/{jobId}/send-to-braille` (+ JOB4011 덮어쓰기 확인) | 교체 |
+| 점역으로 보내기 | FE 병합 후 재업로드 | 그대로 유지 — 전용 API는 BE에서 만들지 않기로 확정(2026-08-06). 덮어쓰기 확인은 점역 탭 작업물 유무로 FE가 판정 | 유지 |
 | 대체 초안 | 로컬 스와프 | `PATCH .../elements/{elementId}/draft` (`selectedIdx`, -1=원본 복귀) | 교체 |
 | 자동 업데이트 | tauri-plugin-updater | + `GET /api/app/version` 강제 업데이트 잠금, 좌하단 토스트, 릴리스 노트 새 창 | 보강 |
 | 에러 코드 | V2 코드 집합 | V3 신규 15종(COMMON4004/4005, AUTH4004, ORG*, JOB4007~4011, FOLDER4001~4004) | 보강 |
@@ -115,18 +115,17 @@ V2(현행 코드)를 **V3.0 (1차 PoC)** 범위로 끌어올린다. 세 가지 �
 
 ---
 
-## 5. 진행 상태 (2026-08-05)
+## 5. 진행 상태 (2026-08-06)
 
-M0~M6 전부 구현 완료. **BE가 명세대로 전부 구현되었다는 전제**로 작성했으므로,
-아직 "시작 전"으로 표시된 5개 엔드포인트는 실제 배포 후 검증이 필요하다.
+M0~M6 전부 구현 완료. BE 미배포 엔드포인트는 5개 → **4개**로 줄었다.
 
-| 엔드포인트 | FE 호출 위치 | 배포 전 동작 |
+| 엔드포인트 | FE 호출 위치 | 상태 |
 |---|---|---|
-| `PUT .../pages/{no}/elements` | `UsePageEditor.savePage` | 저장 실패 토스트 + dirty 유지(편집 내용은 안 잃음) |
-| `PATCH .../elements/{id}/draft` | `App.handleSelectDraft` | 콘솔 경고만, 화면 반영은 로컬로 유지 |
-| `POST .../download` | `DownloadModal` · 마이페이지 카드 메뉴 | 모달에 에러 문구 |
-| `POST .../send-to-braille` | 결과 패널 "점역으로 보내기" | 토스트로 실패 안내 |
-| `GET /api/app/version` | `UseAppVersion` | 조용히 무시(강제 업데이트 미적용) |
+| `PUT .../pages/{no}/elements` | `UsePageEditor.savePage` | ✅ **2026-08-06 배포·검증 완료** (계약 변경 3건 반영) |
+| `PATCH .../elements/{id}/draft` | `App.handleSelectDraft` | 미배포(진행 중) — 콘솔 경고만, 화면 반영은 로컬로 유지 |
+| `POST .../download` | `DownloadModal` · 마이페이지 카드 메뉴 | 미배포(시작 전) — 모달에 에러 문구 |
+| ~~`POST .../send-to-braille`~~ | 결과 패널 "점역으로 보내기" | **API 폐기(2026-08-06)** — FE가 전체 페이지를 합쳐 모드 b로 재업로드한다(`utils/mergePages`) |
+| `GET /api/app/version` | `UseAppVersion` | 미배포(시작 전) — 조용히 무시(강제 업데이트 미적용) |
 
 ### 배포 타깃
 
@@ -142,12 +141,17 @@ M0~M6 전부 구현 완료. **BE가 명세대로 전부 구현되었다는 전�
   [`docs/API-VERIFICATION-2026-08-05.md`](API-VERIFICATION-2026-08-05.md).
   계약 불일치 3건을 찾아 고쳤고(목록 응답 형태·loginId 표시·로그인 전 세션 오염),
   미배포 5개 엔드포인트를 확인했다.
+- **미배포 5종 재확인** (2026-08-06) — 결과는
+  [`docs/API-VERIFICATION-2026-08-06.md`](API-VERIFICATION-2026-08-06.md).
+  `PUT .../elements`가 배포되면서 계약이 바뀌어 FE 3곳을 고쳤다(요청 키 `elementId`→`id`,
+  응답이 배열, body에서 `elementType` 제거). 실제 job을 만들어 저장·재조회까지 확인했다.
 
 ## 6. 남은 확인 항목
 
 | # | 내용 | 근거 |
 |---|---|---|
-| Q1 | 미배포 5개 엔드포인트의 BE 배포 일정 — 특히 `PUT .../elements`가 없어 **편집 저장이 동작하지 않는다**. 지연되면 V2 요소 API로 임시 폴백을 넣을지 결정 필요 | 실측 405/404 |
+| Q1 | ~~`PUT .../elements` 미배포로 편집 저장 불가~~ → **해결**(2026-08-06 배포·FE 계약 반영). 남은 미배포 4종(draft·download·send-to-braille·app/version)의 BE 일정 | 실측 404 |
+| Q1-1 | ~~`send-to-braille` 명세 부재~~ → **API를 만들지 않기로 확정**(2026-08-06). FE 병합 재업로드로 교체 완료. 남은 확인: 합친 텍스트라 점역 결과의 페이지 나눔이 원본 쪽 경계와 달라진다 — 허용 범위인지 | 사용자 결정 |
 | Q2 | 중복 로그인으로 밀려난 세션의 FE 감지 시점 — 현재는 refresh 시 AUTH4003으로만 감지(별도 푸시 없음) | 로그인 D-6 미결 |
 | Q3 | 파일 1,000개 상한 경고 UI의 트리거 — 목록 응답에 잔여 수 필드가 없어 미구현 | 마이페이지 D-2 |
 | Q4 | V3.1 관리자 페이지(계정 발급·사용량·운영)는 이번 범위 밖 | 기능정의서 개발단계 V3.1 |
