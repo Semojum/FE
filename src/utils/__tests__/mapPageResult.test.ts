@@ -29,6 +29,47 @@ describe('mapPageResult', () => {
     expect(blocks[0].candidates).toEqual([]);
   });
 
+  // 실서버는 contents의 각 줄을 개행으로 끝맺어 보낸다("…⠠⠎\n"). 이걸 그대로 두면
+  // buildGridLines가 split('\n')할 때 블록마다 빈 줄이 하나씩 생겨 격자가 한 줄 걸러 빈다.
+  it('실서버: 줄 끝 개행을 벗겨 격자에 빈 줄이 생기지 않게 한다', () => {
+    const result: StreamPageResult = {
+      text_list: [{ id: '1', contents: ['원본 한 줄\n'] }],
+      braille_text_list: [
+        {
+          id: '1',
+          type: 'text',
+          is_blocked: false,
+          contents: ['  ⠨⠎⠢⠱⠁⠀⠘⠡⠚⠧\n'],
+          drafts: [],
+        },
+      ],
+    };
+
+    const { blocks } = mapPageResult(TABS.BRAILLE, result);
+
+    expect(blocks[0].currentText).toBe('  ⠨⠎⠢⠱⠁⠀⠘⠡⠚⠧');
+    expect(blocks[0].currentText.split('\n')).toHaveLength(1);
+    expect(blocks[0].originalText).toBe('원본 한 줄');
+  });
+
+  it('실서버: 줄 안쪽 개행은 줄 구분으로 살려 둔다', () => {
+    const result: StreamPageResult = {
+      braille_text_list: [
+        {
+          id: '1',
+          type: 'text',
+          is_blocked: false,
+          contents: ['⠟⠈⠿\n⠍⠐⠕⠺\n'],
+          drafts: [],
+        },
+      ],
+    };
+
+    const { blocks } = mapPageResult(TABS.BRAILLE, result);
+
+    expect(blocks[0].currentText).toBe('⠟⠈⠿\n⠍⠐⠕⠺');
+  });
+
   it('점역(b): 시각 요소의 drafts가 대체 텍스트 후보가 된다', () => {
     const result: StreamPageResult = {
       braille_text_list: [
