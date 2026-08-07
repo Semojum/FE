@@ -14,6 +14,11 @@ jobs:
     name: Windows x64
     runs-on: windows-latest
 
+    # 레포 기본 토큰 권한이 read라 릴리스 생성이 403으로 막힌다(2026-08-07 v3.0.0 태그에서 확인).
+    # 레포 설정을 통째로 열지 않고 이 워크플로에만 쓰기 권한을 준다.
+    permissions:
+      contents: write
+
     env:
       TARGET: x86_64-pc-windows-msvc
 
