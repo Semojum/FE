@@ -22,6 +22,7 @@ import {
   ArrowRightCircle,
   Undo2,
   Redo2,
+  Lock,
 } from 'lucide-react';
 
 // Hooks
@@ -1242,8 +1243,14 @@ const BrailleMate: React.FC = () => {
                                 setInsertPageNumber(e.target.checked)
                               }
                             />
-                            점자 판면 마지막 줄에 쪽번호 넣기
+                            페이지행 넣기 (쪽번호·꼬리말)
                           </label>
+                          {/* 지침 1장 2절 2-1에 따라 페이지행은 홀수 면에만 들어간다.
+                              "판면 마지막 줄"이라고만 쓰면 매 면마다 들어갈 것처럼 읽힌다. */}
+                          <p className="mt-1 text-left text-[11px] leading-snug text-gray-400">
+                            홀수 면 마지막 줄에 원본 쪽번호·꼬리말·점자 면 번호가
+                            들어갑니다. 업로드 후에는 바꿀 수 없습니다.
+                          </p>
 
                           <label className="mt-2 block border-t border-gray-100 pt-2 text-left text-gray-500">
                             꼬리말 (선택)
@@ -1379,10 +1386,31 @@ const BrailleMate: React.FC = () => {
 
                 {gridRows.length > 0 && (
                   <div className="mb-2 flex items-center justify-between">
-                    <span className="rounded-md bg-[#eef3fc] px-2 py-1 text-[11px] font-semibold text-[#5b8ce6]">
-                      {ROWS_PER_PAGE}줄 × {CELLS_PER_ROW}칸
-                      {insertPageNumber && ' · 마지막 줄 페이지행'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-md bg-[#eef3fc] px-2 py-1 text-[11px] font-semibold text-[#5b8ce6]">
+                        {ROWS_PER_PAGE}줄 × {CELLS_PER_ROW}칸
+                      </span>
+                      {/* 이 작업의 페이지행 설정. 값을 바꾸면 판면이 통째로 다시 짜이는데,
+                          BE가 저장된 값으로만 다운로드를 만들어(PATCH·다운로드 body 모두 무시,
+                          2026-08-07 실서버 확인) 여기서 바꾸면 화면과 파일이 어긋난다.
+                          바꾸는 API가 생기면 disabled만 풀면 된다. */}
+                      {activeTab !== TABS.OCR && (
+                        <label
+                          title="업로드할 때 정해집니다. 바꾸려면 파일을 다시 올려 주세요."
+                          className="flex cursor-not-allowed items-center gap-1.5 rounded-md border border-gray-200 px-2 py-1 text-[11px] text-gray-400"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={insertPageNumber}
+                            disabled
+                            readOnly
+                            className="cursor-not-allowed"
+                          />
+                          페이지행(쪽번호·꼬리말)
+                          <Lock size={10} />
+                        </label>
+                      )}
+                    </div>
                     {/* 출력 쪽은 원본 페이지와 별개다 — 스크롤로 이어 본다. */}
                     <span className="text-[11px] text-gray-400">
                       {visibleOutputPage} / {outputPageCount}쪽
