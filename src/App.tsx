@@ -247,6 +247,10 @@ const BrailleMate: React.FC = () => {
     currentPageRef.current = fileState.currentPage;
   }, [fileState.currentPage]);
 
+  // 격자를 눌러서 페이지가 바뀐 경우 표시 — 그때는 격자를 되돌려 스크롤하지 않는다
+  // (사용자가 방금 누른 자리에 그대로 있어야 한다).
+  const skipGridScrollRef = useRef(false);
+
   const readBlocks = useCallback(
     (page: number) => blocksRef.current[page] ?? [],
     [],
@@ -525,8 +529,16 @@ const BrailleMate: React.FC = () => {
     (next: GridCaret) => {
       setCaret(next);
       const source = gridRows[next.rowIndex]?.source;
-      if (source && source.blockId !== selectedBlockId) {
+      if (!source) return;
+      if (source.blockId !== selectedBlockId) {
         dispatchActionRef.current?.({ type: 'setSelected', id: source.blockId });
+      }
+      // 결과는 원본 페이지 경계와 무관하게 이어지므로, 한 판면에 여러 원본 페이지의 줄이
+      // 섞여 있다. 다른 페이지의 줄을 짚으면 왼쪽 원본도 그 페이지로 옮겨 대조를 맞춘다.
+      // (setPage 액션이 떠나는 페이지의 편집 저장과 팝업 동기화까지 처리한다)
+      if (source.pageNo !== currentPageRef.current) {
+        skipGridScrollRef.current = true;
+        dispatchActionRef.current?.({ type: 'setPage', page: source.pageNo });
       }
     },
     [gridRows, selectedBlockId],
@@ -557,6 +569,11 @@ const BrailleMate: React.FC = () => {
   // (결과 자체는 끊기지 않고 계속 이어져 있다.)
   useEffect(() => {
     if (gridRows.length === 0) return;
+    // 격자를 눌러서 넘어온 경우는 이미 그 줄을 보고 있다 — 되돌려 스크롤하지 않는다.
+    if (skipGridScrollRef.current) {
+      skipGridScrollRef.current = false;
+      return;
+    }
     setScrollToRow(firstRowIndexOfPage(gridRows, currentPage));
     // 같은 페이지로 다시 이동해도 스크롤이 걸리도록 다음 틱에 비운다.
     const id = window.setTimeout(() => setScrollToRow(null), 400);
