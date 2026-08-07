@@ -18,7 +18,11 @@ jobs:
       TARGET: x86_64-pc-windows-msvc
 
     steps:
+      # 점자 조판 라이브러리(vendor/braille-assist)를 서브모듈로 받는다. 없으면
+      # vite alias가 가리키는 소스가 비어 프런트 빌드가 실패한다.
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: oven-sh/setup-bun@v2
 

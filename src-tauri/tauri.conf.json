@@ -1,6 +1,6 @@
 {
   "productName": "BrailleMate",
-  "version": "0.0.0",
+  "version": "3.0.0",
   "identifier": "com.braillemate.app",
   "build": {
     "beforeDevCommand": "bun run dev",
