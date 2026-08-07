@@ -107,6 +107,7 @@ const flattenLogicalLines = (
 const toJob = (
   lines: LogicalLine[],
   insertPageNumber: boolean,
+  footerBraille: string,
   render: (line: LogicalLine, idx: number) => string,
 ): Job => {
   const pages: Job['pages'] = [];
@@ -120,7 +121,7 @@ const toJob = (
   });
   return {
     options: { include_page_number: insertPageNumber },
-    footer_braille: '',
+    footer_braille: footerBraille,
     start_braille_page: 1,
     pages,
   };
@@ -134,19 +135,25 @@ const toJob = (
  * 행 배치가 정확히 같고, 표식 쪽을 읽으면 어느 행이 본문이고 어느 행이 라이브러리가
  * 만든 줄(변경선·페이지행)인지, 본문이라면 어느 블록 몇 번째 칸부터인지 알 수 있다.
  * 조판 규칙을 FE가 한 줄도 다시 구현하지 않기 위한 방법이다.
+ *
+ * footerBraille — **이미 점역된** 꼬리말. braille-assist는 점역을 하지 않고 배치만 한다
+ * (묵자→점자는 AI 서버 담당). 페이지 조회 응답에 이 값이 아직 없어 지금은 빈 문자열이
+ * 들어가고, 그래서 화면 페이지행의 꼬리말 자리만 비어 보인다(다운로드 파일은 정상).
+ * BE가 응답에 점역된 꼬리말을 실어 주면 여기로 넘기기만 하면 된다.
  */
 export const buildLayout = (
   blocksByPage: Record<number, TranslationBlock[]>,
   insertPageNumber: boolean,
+  footerBraille = '',
 ): LayoutPage[] => {
   const logical = flattenLogicalLines(blocksByPage);
   if (logical.length === 0) return [];
 
   const real = buildPagesFromJob(
-    toJob(logical, insertPageNumber, (l) => l.text),
+    toJob(logical, insertPageNumber, footerBraille, (l) => l.text),
   );
   const marked = buildPagesFromJob(
-    toJob(logical, insertPageNumber, (l, idx) =>
+    toJob(logical, insertPageNumber, footerBraille, (l, idx) =>
       markerFor(idx).repeat([...l.text].length),
     ),
   );
