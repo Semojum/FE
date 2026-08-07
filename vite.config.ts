@@ -12,8 +12,19 @@ const appVersion = (
   ) as { version?: string }
 ).version ?? '0.0.0';
 
+// 점자 조판 규칙은 Semojum/braille-assist가 단일 출처다(python·ts·java 동일 출력).
+// npm 미배포 + ts/가 하위 디렉터리라 bun add로 못 받으므로 submodule 소스를 직접 가리킨다.
+// 버전은 vendor/braille-assist 서브모듈 커밋으로 고정된다. vitest.config.ts도 이걸 쓴다.
+export const alias = {
+  '@semojum/braille-assist': new URL(
+    './vendor/braille-assist/ts/src/index.ts',
+    import.meta.url,
+  ).pathname,
+};
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: { alias },
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
   },

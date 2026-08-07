@@ -77,14 +77,13 @@ import { saveBlob } from './utils/download';
 import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
 import { onAppClose } from './utils/appLifecycle';
 import {
-  blockTextFromLines,
-  bodyRowsPerPage,
-  buildGridLines,
+  blockTextWithRowEdit,
+  buildLayout,
   CELLS_PER_ROW,
-  firstLineIndexOfPage,
+  firstRowIndexOfPage,
+  flattenRows,
   ROWS_PER_PAGE,
-  totalOutputPages,
-} from './utils/brailleGrid';
+} from './utils/brailleLayout';
 import DownloadModal from './component/features/conversion/DownloadModal';
 import SendToBrailleModal from './component/features/conversion/SendToBrailleModal';
 import { usePageEditor } from './hooks/UsePageEditor';
@@ -198,12 +197,12 @@ const BrailleMate: React.FC = () => {
   // 원본 페이지를 넘겼을 때 스크롤할 줄 번호.
   const [caret, setCaret] = useState<GridCaret | null>(null);
   const [gridMenu, setGridMenu] = useState<{
-    lineIndex: number;
+    rowIndex: number;
     x: number;
     y: number;
   } | null>(null);
   const [visibleOutputPage, setVisibleOutputPage] = useState(1);
-  const [scrollToLine, setScrollToLine] = useState<number | null>(null);
+  const [scrollToRow, setScrollToRow] = useState<number | null>(null);
   // 대체 초안 피커를 연 블록
   const [draftBlockId, setDraftBlockId] = useState<string | null>(null);
 
@@ -499,11 +498,16 @@ const BrailleMate: React.FC = () => {
   );
 
   // ─── 결과 격자 ────────────────────────────────────────────────────
-  // 모든 페이지의 블록 줄을 순서대로 이어 붙인다. 출력 쪽은 이 줄들을 판면 규격으로
-  // 자른 것이고, 하단 페이지네이션이 옮기는 원본 파일 페이지와는 별개다.
-  const gridLines = useMemo(() => buildGridLines(blocksByPage), [blocksByPage]);
+  // 판면 배치는 braille-assist가 만든다 — 32칸 줄바꿈·원본 쪽 변경선·26줄 면 나눔·
+  // 페이지행까지 다운로드 .brf와 같은 자리에서 나뉜다. 하단 페이지네이션이 옮기는
+  // 원본 파일 페이지와 여기의 "출력 쪽"(점자 면)은 별개다.
+  const layout = useMemo(
+    () => buildLayout(blocksByPage, insertPageNumber),
+    [blocksByPage, insertPageNumber],
+  );
+  const gridRows = useMemo(() => flattenRows(layout), [layout]);
 
-  const outputPageCount = totalOutputPages(gridLines.length, insertPageNumber);
+  const outputPageCount = Math.max(1, layout.length);
 
   // 대체 초안 피커 대상 블록 — 어느 원본 페이지의 블록인지 함께 찾는다.
   const draftBlock = useMemo(() => {
@@ -519,41 +523,44 @@ const BrailleMate: React.FC = () => {
   const handleCaretChange = useCallback(
     (next: GridCaret) => {
       setCaret(next);
-      const line = gridLines[next.lineIndex];
-      if (line && line.blockId !== selectedBlockId) {
-        dispatchActionRef.current?.({ type: 'setSelected', id: line.blockId });
+      const source = gridRows[next.rowIndex]?.source;
+      if (source && source.blockId !== selectedBlockId) {
+        dispatchActionRef.current?.({ type: 'setSelected', id: source.blockId });
       }
     },
-    [gridLines, selectedBlockId],
+    [gridRows, selectedBlockId],
   );
 
-  // 격자에서 한 줄을 고치면 그 줄이 속한 블록의 본문을 다시 만들어 넘긴다.
-  const handleEditLine = useCallback(
-    (lineIndex: number, text: string) => {
-      const line = gridLines[lineIndex];
-      if (!line) return;
-      const updated = gridLines.map((l, i) =>
-        i === lineIndex ? { ...l, text } : l,
+  // 격자에서 한 행을 고치면 그 행이 속한 블록의 본문을 다시 만들어 넘긴다.
+  // 접힌 행이면 논리 줄의 그 구간만 갈아 끼우므로, 길어진 만큼 다음 행으로 다시 접힌다.
+  const handleEditRow = useCallback(
+    (rowIndex: number, text: string) => {
+      const row = gridRows[rowIndex];
+      const source = row?.source;
+      if (!source) return;
+      const block = blocksByPage[source.pageNo]?.find(
+        (b) => b.id === source.blockId,
       );
+      if (!block) return;
       dispatchActionRef.current?.({
         type: 'updateBlock',
-        page: line.pageNo,
-        id: line.blockId,
-        text: blockTextFromLines(updated, line.blockId),
+        page: source.pageNo,
+        id: source.blockId,
+        text: blockTextWithRowEdit(block.currentText, source, row.text, text),
       });
     },
-    [gridLines],
+    [gridRows, blocksByPage],
   );
 
   // 원본 페이지를 넘기면 결과 격자를 그 페이지의 첫 줄로 옮겨 대조를 유지한다.
   // (결과 자체는 끊기지 않고 계속 이어져 있다.)
   useEffect(() => {
-    if (gridLines.length === 0) return;
-    setScrollToLine(firstLineIndexOfPage(gridLines, currentPage));
+    if (gridRows.length === 0) return;
+    setScrollToRow(firstRowIndexOfPage(gridRows, currentPage));
     // 같은 페이지로 다시 이동해도 스크롤이 걸리도록 다음 틱에 비운다.
-    const id = window.setTimeout(() => setScrollToLine(null), 400);
+    const id = window.setTimeout(() => setScrollToRow(null), 400);
     return () => window.clearTimeout(id);
-    // gridLines가 바뀔 때마다 스크롤하면 스트리밍 중 계속 튀므로 페이지만 본다.
+    // gridRows가 바뀔 때마다 스크롤하면 스트리밍 중 계속 튀므로 페이지만 본다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage]);
 
@@ -1370,11 +1377,11 @@ const BrailleMate: React.FC = () => {
                   </div>
                 )}
 
-                {gridLines.length > 0 && (
+                {gridRows.length > 0 && (
                   <div className="mb-2 flex items-center justify-between">
                     <span className="rounded-md bg-[#eef3fc] px-2 py-1 text-[11px] font-semibold text-[#5b8ce6]">
                       {ROWS_PER_PAGE}줄 × {CELLS_PER_ROW}칸
-                      {insertPageNumber && ` · 본문 ${bodyRowsPerPage(true)}줄`}
+                      {insertPageNumber && ' · 마지막 줄 페이지행'}
                     </span>
                     {/* 출력 쪽은 원본 페이지와 별개다 — 스크롤로 이어 본다. */}
                     <span className="text-[11px] text-gray-400">
@@ -1413,20 +1420,19 @@ const BrailleMate: React.FC = () => {
                         </div>
                       )}
                     </div>
-                  ) : gridLines.length > 0 ? (
+                  ) : gridRows.length > 0 ? (
                     <BrailleGrid
-                      lines={gridLines}
+                      pages={layout}
                       mode={activeTab}
-                      insertPageNumber={insertPageNumber}
                       caret={caret}
                       highlightBlockId={selectedBlockId}
                       onCaretChange={handleCaretChange}
-                      onEditLine={handleEditLine}
-                      onContextMenu={(lineIndex, x, y) =>
-                        setGridMenu({ lineIndex, x, y })
+                      onEditRow={handleEditRow}
+                      onContextMenu={(rowIndex, x, y) =>
+                        setGridMenu({ rowIndex, x, y })
                       }
                       onVisiblePageChange={setVisibleOutputPage}
-                      scrollToLine={scrollToLine}
+                      scrollToRow={scrollToRow}
                     />
                   ) : pageStatuses[currentPage] === 'BLOCKED' ? (
                     // 서버가 이 페이지를 변환하지 못한 경우(page_done status=BLOCKED /
@@ -1470,13 +1476,13 @@ const BrailleMate: React.FC = () => {
       </main>
 
       {/* 격자 우클릭 — 블록 단위 기능 (추가 · 삭제 · 대체 초안) */}
-      {gridMenu && gridLines[gridMenu.lineIndex] && (
+      {gridMenu && gridRows[gridMenu.rowIndex]?.source && (
         <ContextMenu
           x={gridMenu.x}
           y={gridMenu.y}
           onClose={() => setGridMenu(null)}
           items={(() => {
-            const line = gridLines[gridMenu.lineIndex];
+            const line = gridRows[gridMenu.rowIndex].source!;
             const blocks = blocksByPage[line.pageNo] ?? [];
             const index = blocks.findIndex((b) => b.id === line.blockId);
             return [

@@ -18,7 +18,13 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    /* 점자 조판 공용 라이브러리 — vendor/braille-assist 서브모듈 소스를 그대로 쓴다.
+       (vite.config.ts의 resolve.alias와 짝을 맞춘다) */
+    "paths": {
+      "@semojum/braille-assist": ["./vendor/braille-assist/ts/src/index.ts"]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "vendor/braille-assist/ts/src"]
 }

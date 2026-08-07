@@ -6,23 +6,23 @@ import React, {
   useState,
 } from 'react';
 import { ConversionTab, TABS } from '../../../types';
+import { deleteAt, deleteBefore, insertAt, toCells } from '../../../utils/brailleGrid';
 import {
-  bodyRowsPerPage,
   CELLS_PER_ROW,
-  deleteAt,
-  deleteBefore,
-  GridLine,
-  insertAt,
-  overflowCount,
-  toCells,
-  totalOutputPages,
-} from '../../../utils/brailleGrid';
+  flattenRows,
+  LayoutPage,
+  LayoutRow,
+} from '../../../utils/brailleLayout';
 
 // Figma V3-03 에디터 — 26줄 × 32칸 점자 판면 격자.
+//
+// 판면 배치는 braille-assist가 만든다(32칸 줄바꿈 · 원본 쪽 변경선 · 면 나눔 · 페이지행).
+// 이 컴포넌트는 그 결과를 그리고 본문 행에만 커서를 놓는다 — 조판 규칙은 여기 없다.
 //
 // 출력 쪽은 페이지네이션으로 끊지 않고 세로로 계속 이어 붙여 스크롤한다.
 // 칸을 클릭하면 그 줄이 통째로 선택되고, 커서는 클릭한 칸에 놓인다.
 // 그 상태에서 타이핑하면 그 칸에 글자가 끼워지고 뒤쪽 글자는 오른쪽으로 밀린다.
+// 한 줄이 32칸을 넘으면 다음 행으로 접힌다 — 다운로드 파일과 같은 자리에서 나뉜다.
 
 // 점자 직접 입력 (표준 Perkins 6점: SDF JKL). 물리 키 기준이라 한/영 상태와 무관하다.
 const BRAILLE_DOT_MAP: Record<string, number> = {
@@ -35,37 +35,35 @@ const BRAILLE_DOT_MAP: Record<string, number> = {
 };
 
 export interface GridCaret {
-  lineIndex: number;
+  rowIndex: number;
   cell: number;
 }
 
 interface Props {
-  lines: GridLine[];
+  pages: LayoutPage[];
   mode: ConversionTab;
-  insertPageNumber: boolean;
   caret: GridCaret | null;
   // 원본 블록을 선택하면 그 블록의 줄들이 한 덩어리로 강조된다(원본 대조).
   highlightBlockId: string | null;
   onCaretChange: (caret: GridCaret) => void;
-  onEditLine: (lineIndex: number, text: string) => void;
-  onContextMenu: (lineIndex: number, x: number, y: number) => void;
+  onEditRow: (rowIndex: number, text: string) => void;
+  onContextMenu: (rowIndex: number, x: number, y: number) => void;
   // 화면에 보이는 출력 쪽이 바뀔 때 (상단 "12 / 40쪽" 표시용)
   onVisiblePageChange?: (page: number) => void;
   // 원본 페이지를 넘겼을 때 그 지점으로 스크롤하기 위한 요청 신호
-  scrollToLine?: number | null;
+  scrollToRow?: number | null;
 }
 
 const BrailleGrid: React.FC<Props> = ({
-  lines,
+  pages,
   mode,
-  insertPageNumber,
   caret,
   highlightBlockId,
   onCaretChange,
-  onEditLine,
+  onEditRow,
   onContextMenu,
   onVisiblePageChange,
-  scrollToLine,
+  scrollToRow,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -74,26 +72,30 @@ const BrailleGrid: React.FC<Props> = ({
   const pressedDots = useRef<Set<string>>(new Set());
   const [isComposing, setIsComposing] = useState(false);
 
-  const bodyRows = bodyRowsPerPage(insertPageNumber);
-  const pageCount = totalOutputPages(lines.length, insertPageNumber);
   const isBraille = mode !== TABS.OCR;
+  const rows = useMemo(() => flattenRows(pages), [pages]);
+  // 각 면의 첫 행이 전체에서 몇 번째인지 — 행 번호와 커서는 전체 기준으로 센다.
+  const pageStarts = useMemo(() => {
+    let acc = 0;
+    return pages.map((p) => {
+      const start = acc;
+      acc += p.rows.length;
+      return start;
+    });
+  }, [pages]);
 
-  // 출력 쪽별로 줄을 나눈다.
-  const pages = useMemo(
-    () =>
-      Array.from({ length: pageCount }, (_, p) => ({
-        pageNo: p + 1,
-        rows: Array.from({ length: bodyRows }, (_, r) => {
-          const lineIndex = p * bodyRows + r;
-          return lineIndex < lines.length
-            ? { lineIndex, line: lines[lineIndex] }
-            : { lineIndex, line: null };
-        }),
-      })),
-    [lines, pageCount, bodyRows],
+  const caretRow = caret ? rows[caret.rowIndex] : null;
+
+  // 커서는 본문 행에만 놓인다 — 변경선·페이지행·여백은 건너뛴다.
+  const nearestBody = useCallback(
+    (from: number, dir: 1 | -1): number => {
+      for (let i = from; i >= 0 && i < rows.length; i += dir) {
+        if (rows[i].kind === 'body') return i;
+      }
+      return -1;
+    },
+    [rows],
   );
-
-  const caretLine = caret ? lines[caret.lineIndex] : null;
 
   // 선택한 줄로 포커스를 옮긴다 — 실제 입력은 숨은 input이 받는다(한글 IME 대응).
   useEffect(() => {
@@ -102,41 +104,64 @@ const BrailleGrid: React.FC<Props> = ({
 
   // 원본 페이지를 넘기면 결과 격자도 그 지점으로 옮겨 대조를 유지한다.
   useEffect(() => {
-    if (scrollToLine == null) return;
-    rowRefs.current[scrollToLine]?.scrollIntoView({
+    if (scrollToRow == null) return;
+    rowRefs.current[scrollToRow]?.scrollIntoView({
       behavior: 'smooth',
       block: 'center',
     });
-  }, [scrollToLine]);
+  }, [scrollToRow]);
 
   // 스크롤 위치로 현재 보고 있는 출력 쪽을 계산한다.
   const handleScroll = useCallback(() => {
-    if (!onVisiblePageChange) return;
+    if (!onVisiblePageChange || pages.length === 0) return;
     const el = scrollRef.current;
     if (!el) return;
-    const pageHeight = el.scrollHeight / pageCount;
+    const pageHeight = el.scrollHeight / pages.length;
     const page = Math.min(
-      pageCount,
+      pages.length,
       Math.max(1, Math.floor(el.scrollTop / pageHeight) + 1),
     );
     onVisiblePageChange(page);
-  }, [onVisiblePageChange, pageCount]);
+  }, [onVisiblePageChange, pages.length]);
 
-  const moveCaret = (lineIndex: number, cell: number) => {
-    const clampedLine = Math.max(0, Math.min(lines.length - 1, lineIndex));
+  // 칸이 줄 밖으로 나가면 이웃한 본문 행으로 넘어간다(32칸에서 접히므로 자연스럽게 이어진다).
+  const moveCaret = (rowIndex: number, cell: number) => {
+    if (rowIndex < 0 || rowIndex >= rows.length) return;
+    let target = rowIndex;
+    let targetCell = cell;
+
+    if (cell < 0) {
+      // 줄 앞을 넘어가면 앞 본문 행의 끝으로. 더 앞이 없으면 첫 칸에 머문다.
+      const prev = nearestBody(rowIndex - 1, -1);
+      if (prev === -1) targetCell = 0;
+      else {
+        target = prev;
+        targetCell = Math.max(0, [...rows[prev].text].length - 1);
+      }
+    } else if (cell >= CELLS_PER_ROW) {
+      // 32칸을 넘어가면 다음 본문 행 첫 칸으로 — 접힌 글자를 따라간다.
+      const next = nearestBody(rowIndex + 1, 1);
+      if (next === -1) targetCell = CELLS_PER_ROW - 1;
+      else {
+        target = next;
+        targetCell = 0;
+      }
+    }
+
+    if (rows[target]?.kind !== 'body') return;
     onCaretChange({
-      lineIndex: clampedLine,
-      cell: Math.max(0, Math.min(CELLS_PER_ROW - 1, cell)),
+      rowIndex: target,
+      cell: Math.min(CELLS_PER_ROW - 1, Math.max(0, targetCell)),
     });
   };
 
   const applyText = (text: string) => {
     if (!caret) return;
-    onEditLine(caret.lineIndex, text);
+    onEditRow(caret.rowIndex, text);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!caret || !caretLine) return;
+    if (!caret || !caretRow) return;
 
     // 점자 모드: SDF JKL 조합은 기본 문자 입력을 막고 점형으로 만든다.
     if (isBraille && BRAILLE_DOT_MAP[e.code]) {
@@ -148,44 +173,45 @@ const BrailleGrid: React.FC<Props> = ({
     switch (e.key) {
       case 'ArrowLeft':
         e.preventDefault();
-        moveCaret(caret.lineIndex, caret.cell - 1);
+        moveCaret(caret.rowIndex, caret.cell - 1);
         return;
       case 'ArrowRight':
         e.preventDefault();
-        moveCaret(caret.lineIndex, caret.cell + 1);
+        moveCaret(caret.rowIndex, caret.cell + 1);
         return;
       case 'ArrowUp':
         e.preventDefault();
-        moveCaret(caret.lineIndex - 1, caret.cell);
+        moveCaret(nearestBody(caret.rowIndex - 1, -1), caret.cell);
         return;
       case 'ArrowDown':
       case 'Enter':
         e.preventDefault();
-        moveCaret(caret.lineIndex + 1, e.key === 'Enter' ? 0 : caret.cell);
+        moveCaret(
+          nearestBody(caret.rowIndex + 1, 1),
+          e.key === 'Enter' ? 0 : caret.cell,
+        );
         return;
       case 'Tab':
         e.preventDefault();
-        // 줄 끝에서 Tab을 누르면 다음 줄 첫 칸으로 넘어간다.
-        if (caret.cell >= CELLS_PER_ROW - 1) moveCaret(caret.lineIndex + 1, 0);
-        else moveCaret(caret.lineIndex, caret.cell + 1);
+        moveCaret(caret.rowIndex, caret.cell + 1);
         return;
       case 'Home':
         e.preventDefault();
-        moveCaret(caret.lineIndex, 0);
+        moveCaret(caret.rowIndex, 0);
         return;
       case 'End':
         e.preventDefault();
-        moveCaret(caret.lineIndex, [...caretLine.text].length);
+        moveCaret(caret.rowIndex, [...caretRow.text].length);
         return;
       case 'Backspace':
         e.preventDefault();
         // 앞 글자를 지우고 뒤쪽을 왼쪽으로 당긴다.
-        applyText(deleteBefore(caretLine.text, caret.cell));
-        moveCaret(caret.lineIndex, caret.cell - 1);
+        applyText(deleteBefore(caretRow.text, caret.cell));
+        moveCaret(caret.rowIndex, caret.cell - 1);
         return;
       case 'Delete':
         e.preventDefault();
-        applyText(deleteAt(caretLine.text, caret.cell));
+        applyText(deleteAt(caretRow.text, caret.cell));
         return;
       default:
         break;
@@ -202,13 +228,13 @@ const BrailleGrid: React.FC<Props> = ({
       [...e.key].length === 1
     ) {
       e.preventDefault();
-      applyText(insertAt(caretLine.text, caret.cell, e.key));
-      moveCaret(caret.lineIndex, caret.cell + 1);
+      applyText(insertAt(caretRow.text, caret.cell, e.key));
+      moveCaret(caret.rowIndex, caret.cell + 1);
     }
   };
 
   const handleKeyUp = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!isBraille || !BRAILLE_DOT_MAP[e.code] || !caret || !caretLine) return;
+    if (!isBraille || !BRAILLE_DOT_MAP[e.code] || !caret || !caretRow) return;
     e.preventDefault();
     if (pressedDots.current.size === 0) return;
 
@@ -220,23 +246,27 @@ const BrailleGrid: React.FC<Props> = ({
     pressedDots.current.clear();
 
     applyText(
-      insertAt(caretLine.text, caret.cell, String.fromCharCode(0x2800 + dots)),
+      insertAt(caretRow.text, caret.cell, String.fromCharCode(0x2800 + dots)),
     );
-    moveCaret(caret.lineIndex, caret.cell + 1);
+    moveCaret(caret.rowIndex, caret.cell + 1);
   };
 
   const handleCompositionEnd = (
     e: React.CompositionEvent<HTMLInputElement>,
   ) => {
     setIsComposing(false);
-    if (!caret || !caretLine || !e.data) return;
-    applyText(insertAt(caretLine.text, caret.cell, e.data));
-    moveCaret(caret.lineIndex, caret.cell + [...e.data].length);
+    if (!caret || !caretRow || !e.data) return;
+    applyText(insertAt(caretRow.text, caret.cell, e.data));
+    moveCaret(caret.rowIndex, caret.cell + [...e.data].length);
     // 숨은 input은 항상 비워 둔다 — 값은 격자가 들고 있다.
     if (inputRef.current) inputRef.current.value = '';
   };
 
-  const cellCls = (selected: boolean, isCaret: boolean, blocked?: boolean) =>
+  const cellCls = (
+    row: LayoutRow,
+    selected: boolean,
+    isCaret: boolean,
+  ): string =>
     [
       'flex h-[19px] w-[19px] shrink-0 items-center justify-center border-r border-b text-[13px] leading-none',
       'border-[#e4ebf5]',
@@ -244,9 +274,12 @@ const BrailleGrid: React.FC<Props> = ({
         ? 'bg-[#5b8ce6] text-white'
         : selected
           ? 'bg-[#5b8ce6]/10'
-          : blocked
-            ? 'bg-amber-50'
-            : 'bg-white',
+          : row.kind === 'fixed'
+            ? // 변경선·페이지행은 조판이 만든 줄이라 고칠 수 없다 — 눌러서 구분되게 한다.
+              'bg-[#f2f5fa] text-gray-400'
+            : row.source?.isBlocked
+              ? 'bg-amber-50'
+              : 'bg-white',
     ].join(' ');
 
   return (
@@ -268,8 +301,8 @@ const BrailleGrid: React.FC<Props> = ({
         className="pointer-events-none fixed h-0 w-0 opacity-0"
       />
 
-      {pages.map((page) => (
-        <div key={page.pageNo} className="mb-5 px-3 pt-2">
+      {pages.map((page, pageIdx) => (
+        <div key={page.braillePage} className="mb-5 px-3 pt-2">
           {/* 칸 눈금 */}
           <div className="mb-0.5 flex pl-[26px] text-[9px] text-gray-400">
             {Array.from({ length: CELLS_PER_ROW }, (_, i) => (
@@ -280,29 +313,26 @@ const BrailleGrid: React.FC<Props> = ({
           </div>
 
           <div className="border-l border-t border-[#e4ebf5]">
-            {page.rows.map(({ lineIndex, line }, rowInPage) => {
-              const isSelected = caret?.lineIndex === lineIndex && !!line;
+            {page.rows.map((row, rowInPage) => {
+              const rowIndex = pageStarts[pageIdx] + rowInPage;
+              const editable = row.kind === 'body';
+              const isSelected = caret?.rowIndex === rowIndex && editable;
               const isHighlighted =
-                !!line &&
-                !!highlightBlockId &&
-                line.blockId === highlightBlockId;
+                !!highlightBlockId && row.source?.blockId === highlightBlockId;
               // 한 블록이 여러 줄이면 줄마다 테두리를 그리지 않고 한 덩어리로 감싼다.
               const isBlockTop =
                 isHighlighted &&
-                lines[lineIndex - 1]?.blockId !== line?.blockId;
+                rows[rowIndex - 1]?.source?.blockId !== row.source?.blockId;
               const isBlockBottom =
                 isHighlighted &&
-                lines[lineIndex + 1]?.blockId !== line?.blockId;
-              const cells = toCells(line?.text ?? '');
-              // 밀어쓰기라 32칸을 넘길 수 있다 — 줄바꿈은 조판이 할 일이므로
-              // 값은 자르지 않고 넘쳤다는 사실만 알린다.
-              const overflow = overflowCount(line?.text ?? '');
+                rows[rowIndex + 1]?.source?.blockId !== row.source?.blockId;
+              const cells = toCells(row.text);
 
               return (
                 <div
-                  key={lineIndex}
+                  key={rowIndex}
                   ref={(el) => {
-                    rowRefs.current[lineIndex] = el;
+                    rowRefs.current[rowIndex] = el;
                   }}
                   className={[
                     'flex',
@@ -323,54 +353,26 @@ const BrailleGrid: React.FC<Props> = ({
                       tabIndex={-1}
                       onMouseDown={(e) => {
                         e.preventDefault();
-                        if (line) moveCaret(lineIndex, cellIdx);
+                        if (editable) moveCaret(rowIndex, cellIdx);
                       }}
                       onContextMenu={(e) => {
                         e.preventDefault();
-                        if (!line) return;
-                        moveCaret(lineIndex, cellIdx);
-                        onContextMenu(lineIndex, e.clientX, e.clientY);
+                        if (!editable) return;
+                        moveCaret(rowIndex, cellIdx);
+                        onContextMenu(rowIndex, e.clientX, e.clientY);
                       }}
                       className={cellCls(
+                        row,
                         isSelected,
                         isSelected && caret?.cell === cellIdx,
-                        line?.isBlocked,
                       )}
                     >
                       {ch}
                     </div>
                   ))}
-                  {overflow > 0 && (
-                    <span
-                      title={`32칸을 ${overflow}자 넘습니다 — 조판에서 줄이 나뉩니다`}
-                      className="ml-1 self-center rounded bg-[#f47726]/15 px-1 text-[9px] font-bold text-[#f47726]"
-                    >
-                      +{overflow}
-                    </span>
-                  )}
                 </div>
               );
             })}
-
-            {/* 쪽번호 줄 — 본문에서 한 줄을 빼서 마지막 줄에 쪽번호를 넣는다. */}
-            {insertPageNumber && (
-              <div className="flex">
-                <span className="h-[19px] w-[26px] shrink-0" />
-                {Array.from({ length: CELLS_PER_ROW }, (_, i) => {
-                  const label = String(page.pageNo);
-                  // 오른쪽 끝에 붙인다.
-                  const start = CELLS_PER_ROW - label.length;
-                  return (
-                    <div
-                      key={i}
-                      className="flex h-[19px] w-[19px] shrink-0 items-center justify-center border-r border-b border-[#e4ebf5] bg-[#f6f9fe] text-[12px] leading-none text-gray-500"
-                    >
-                      {i >= start ? label[i - start] : ''}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
         </div>
       ))}
