@@ -10,7 +10,8 @@ interface Props {
   isOpen: boolean;
   mode: ConversionTab;
   onClose: () => void;
-  // 서버가 파일을 만들어 내려줄 때까지 기다린다(수정본이 있으면 AI 조판 재처리).
+  // 서버가 파일을 만들어 내려줄 때까지 기다린다. 조판은 로컬 연산이라 재처리 분기가 없고,
+  // 항상 DB의 현재 편집본으로 즉시 만들어진다 — 대신 호출 전에 저장을 밀어내야 한다.
   onDownload: (fileName: string) => Promise<void>;
 }
 
@@ -95,15 +96,19 @@ const DownloadModal: React.FC<Props> = ({
       </div>
 
       <p className="mt-3 text-[12px] leading-relaxed text-gray-500">
-        수정한 내용이 있어 다운로드 전에 조판 처리를 진행합니다.
-        <br />
-        수정하지 않은 경우 바로 다운로드됩니다.
+        지금까지 수정한 내용을 저장한 뒤 파일을 만듭니다.
+        {mode !== TABS.OCR && (
+          <>
+            <br />
+            쪽번호·꼬리말은 업로드할 때 정한 값으로 조판됩니다.
+          </>
+        )}
       </p>
 
       {busy && (
         <p className="mt-3 flex items-center gap-2 rounded-[10px] bg-[#eef3fc] px-3 py-2 text-[12px] font-medium text-[#5b8ce6]">
           <Loader2 size={14} className="animate-spin" />
-          조판 처리 중... 잠시만 기다려 주세요
+          파일을 만드는 중... 잠시만 기다려 주세요
         </p>
       )}
       {error && (

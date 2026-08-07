@@ -36,3 +36,12 @@ export const fileSizeMessage = (file: File): string | null =>
   file.size > MAX_UPLOAD_BYTES
     ? '업로드할 수 있는 파일 크기는 100MB까지입니다.'
     : null;
+
+// 꼬리말(묵자)은 Job 생성 multipart의 선택 항목. 200자를 넘기면 서버가 COMMON4000을
+// 주는데, 그 문구("잘못된 요청입니다")로는 원인을 알 수 없어 FE에서 먼저 거른다.
+export const FOOTER_TEXT_MAX_LENGTH = 200;
+
+export const footerTextMessage = (footerText: string): string | null =>
+  footerText.trim().length > FOOTER_TEXT_MAX_LENGTH
+    ? `꼬리말은 ${FOOTER_TEXT_MAX_LENGTH}자까지 입력할 수 있습니다.`
+    : null;

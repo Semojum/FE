@@ -19,16 +19,21 @@ export type ElementType = 'TEXT' | 'BRAILLE';
 
 // POST /api/jobs (multipart) — Authorization 필요.
 // insertPageNumber: 점자 판면 마지막 줄에 쪽번호를 넣을지. 업로드 시점에 확정된다(2026-08-04).
+// footerText: 페이지행에 넣을 꼬리말(묵자, ≤200자). 역시 업로드 시점에 확정된다(2026-08-07).
 export const createJob = async (
   file: File,
   mode: JobMode,
   token?: string | null,
   insertPageNumber = false,
+  footerText?: string | null,
 ): Promise<CreateJobResponse> => {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('mode', mode);
   formData.append('insertPageNumber', String(insertPageNumber));
+  // 선택 항목이라 빈 값은 보내지 않는다 — 미전송 시 서버가 footer_text를 null로 기록한다.
+  const footer = footerText?.trim();
+  if (footer) formData.append('footerText', footer);
 
   return apiRequest<CreateJobResponse>('/api/jobs', {
     method: 'POST',
@@ -142,8 +147,11 @@ export const toggleJobFavorite = (
 // ─── 산출물 ──────────────────────────────────────────────────────────
 
 // POST /api/jobs/{jobId}/download — 전체 페이지를 reading_order대로 병합한 파일.
-// 모드 b/c → .brf, 모드 a → .txt. 수정 이력이 있으면 서버가 AI 조판을 재처리한다(수 초).
+// 모드 b/c → .brf(braille-assist 조판), 모드 a → .txt(BE 병합).
+// 조판이 로컬 연산이라 "수정 시 재처리" 분기가 없다 — 항상 DB의 현재 편집본으로 즉시 생성된다.
+// 그래서 FE는 호출 전에 페이지 일괄 저장(PUT)을 먼저 끝내야 한다(미저장 편집분은 빠진다).
 // 응답은 바이너리 스트림 + Content-Disposition(RFC 5987 한글 파일명).
+// 에러: 404 JOB4001 / 409 JOB4010(변환 중) / 400 JOB4012(변환 결과 없음).
 export const downloadJobResult = (
   jobId: string,
   fileName: string | undefined,

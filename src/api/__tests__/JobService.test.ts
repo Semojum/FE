@@ -74,6 +74,31 @@ describe('JobService.createJob', () => {
     expect(body.get('mode')).toBe('a');
     expect(body.get('insertPageNumber')).toBe('false');
     expect((body.get('file') as File).name).toBe('test.txt');
+    // 선택 항목이므로 빈 값일 때는 필드 자체를 보내지 않는다.
+    expect(body.get('footerText')).toBeNull();
+  });
+
+  it('createJob sends trimmed footerText only when it has content', async () => {
+    fetchSpy.mockResolvedValue(
+      makeJsonResponse(
+        200,
+        envelope({
+          jobId: 'j2',
+          mode: 'b',
+          totalPages: 3,
+          status: 'PENDING',
+          insertPageNumber: true,
+          footerText: '수학 익힘책 1',
+        }),
+      ),
+    );
+
+    const file = new File(['hi'], 'book.hwp');
+    await createJob(file, 'b', 'tok-123', true, '  수학 익힘책 1  ');
+
+    const body = (fetchSpy.mock.calls[0][1] as RequestInit).body as FormData;
+    expect(body.get('insertPageNumber')).toBe('true');
+    expect(body.get('footerText')).toBe('수학 익힘책 1');
   });
 
   it('throws ApiError on isSuccess=false envelope', async () => {

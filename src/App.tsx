@@ -67,6 +67,7 @@ import { JobDetail, JobPageOriginal } from './types/auth';
 import { JobDoneData, PageEventStatus } from './types/apiTypes';
 import {
   fileValidationMessage,
+  FOOTER_TEXT_MAX_LENGTH,
   TAB_ALLOWED_FILE_LABEL,
 } from './utils/fileValidation';
 import { httpFetch } from './api/httpFetch';
@@ -107,6 +108,8 @@ interface TabState {
   jobId: string | null;
   // 업로드 시 정해진 쪽번호 삽입 여부 — 판면 격자를 26줄 전체로 그릴지 본문 25줄로 그릴지
   insertPageNumber: boolean;
+  // 업로드 시 정해진 꼬리말(묵자). 다운로드(.brf) 조판에서만 쓰이고 화면에는 그리지 않는다.
+  footerText: string;
   // 페이지별 변환 상태(BLOCKED 페이지 안내용)
   pageStatuses: Record<number, PageEventStatus>;
   // 마이페이지에서 복원한 작업의 원본 파일명(라이브 업로드는 fileState.file.name).
@@ -182,6 +185,9 @@ const BrailleMate: React.FC = () => {
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   // 업로드 시 확정하는 쪽번호 삽입 여부(2026-08-04 확정 — 에디터 토글이 아니라 업로드 옵션).
   const [insertPageNumber, setInsertPageNumber] = useState(false);
+  // 페이지행 가운데에 들어갈 꼬리말(묵자). 쪽번호와 마찬가지로 업로드 시점에 확정된다
+  // (2026-08-07 명세 추가). 점역은 다운로드 시점에 서버가 한다.
+  const [footerText, setFooterText] = useState('');
   // 점역으로 보내기 — 기존 연결 문서가 있어 덮어쓰기 확인이 필요한 상태(JOB4011)
   const [isOverwriteOpen, setIsOverwriteOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -272,6 +278,7 @@ const BrailleMate: React.FC = () => {
       savedOriginalsByPage,
       jobId: workingJobId,
       insertPageNumber,
+      footerText,
       pageStatuses,
       originalFileName,
     }),
@@ -285,6 +292,7 @@ const BrailleMate: React.FC = () => {
       savedOriginalsByPage,
       workingJobId,
       insertPageNumber,
+      footerText,
       pageStatuses,
       originalFileName,
     ],
@@ -342,6 +350,7 @@ const BrailleMate: React.FC = () => {
       setSavedOriginalsByPage(saved.savedOriginalsByPage);
       setWorkingJobId(saved.jobId);
       setInsertPageNumber(saved.insertPageNumber ?? false);
+      setFooterText(saved.footerText ?? '');
       editor.resetEditor();
       editor.registerServerBlocks(Object.values(saved.blocksByPage).flat());
       setPageStatuses(saved.pageStatuses ?? {});
@@ -610,7 +619,13 @@ const BrailleMate: React.FC = () => {
     // 이미 업로드한 그 File이면(탭 복원 등으로 다시 마운트된 경우 포함) 재업로드하지 않는다.
     if (fileState.file === lastUploadedFileRef.current) return;
     lastUploadedFileRef.current = fileState.file;
-    uploadFile(fileState.file, activeTab, auth.token, insertPageNumber);
+    uploadFile(
+      fileState.file,
+      activeTab,
+      auth.token,
+      insertPageNumber,
+      footerText,
+    );
   }, [
     isPopup,
     fileState.file,
@@ -619,6 +634,7 @@ const BrailleMate: React.FC = () => {
     isUploading,
     auth.token,
     insertPageNumber,
+    footerText,
   ]);
 
   // 라이브 업로드로 생성된 Job을 블록 편집 저장 대상으로 등록
@@ -769,6 +785,9 @@ const BrailleMate: React.FC = () => {
       );
       // 업로드 시 정해진 쪽번호 삽입 여부를 그대로 되살린다(판면 격자 기준이 달라진다).
       setInsertPageNumber(job.insertPageNumber ?? false);
+      // 꼬리말은 페이지 조회 응답에 없다(다운로드 때 서버가 저장값을 쓴다). 복원한 작업의
+      // 값을 다음 업로드에 흘리지 않도록 비운다.
+      setFooterText('');
       // 원본 File은 없으므로 이름만 기억해 둔다(점역으로 보내기가 물려받는다).
       setOriginalFileName(job.originalFileName ?? null);
       // 재시작 복구·마이페이지 복원은 마지막 편집 페이지로 바로 이동한다.
@@ -978,7 +997,7 @@ const BrailleMate: React.FC = () => {
   }, [isPopup, auth.token, setTotalPages, setPage, attachJob]);
 
   // 다운로드 — 전체 페이지를 reading_order대로 병합한 파일을 서버가 만들어 준다.
-  // 수정 이력이 있으면 서버가 AI 조판을 재처리하므로 수 초 걸릴 수 있다.
+  // 항상 DB의 현재 편집본으로 만들어지므로, 미저장 편집분이 빠지지 않게 저장을 먼저 밀어낸다.
   const handleDownloadFile = useCallback(
     async (fileName: string) => {
       if (!workingJobId || !auth.token) {
@@ -1201,21 +1220,41 @@ const BrailleMate: React.FC = () => {
                         </p>
                       )}
 
-                      {/* 쪽번호 삽입은 업로드 시점에 정한다(에디터 토글 방식은 폐기). */}
+                      {/* 쪽번호·꼬리말은 업로드 시점에 정한다(에디터 토글 방식은 폐기).
+                          둘 다 페이지행에 들어가는 값이라 .brf를 만드는 모드에서만 묻는다. */}
                       {activeTab !== TABS.OCR && (
-                        <label
+                        <div
                           onClick={(e) => e.stopPropagation()}
-                          className="mt-4 flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600"
+                          className="mt-4 w-full max-w-[320px] rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600"
                         >
-                          <input
-                            type="checkbox"
-                            checked={insertPageNumber}
-                            onChange={(e) =>
-                              setInsertPageNumber(e.target.checked)
-                            }
-                          />
-                          점자 판면 마지막 줄에 쪽번호 넣기
-                        </label>
+                          <label className="flex cursor-pointer items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={insertPageNumber}
+                              onChange={(e) =>
+                                setInsertPageNumber(e.target.checked)
+                              }
+                            />
+                            점자 판면 마지막 줄에 쪽번호 넣기
+                          </label>
+
+                          <label className="mt-2 block border-t border-gray-100 pt-2 text-left text-gray-500">
+                            꼬리말 (선택)
+                            <input
+                              type="text"
+                              value={footerText}
+                              maxLength={FOOTER_TEXT_MAX_LENGTH}
+                              onChange={(e) => setFooterText(e.target.value)}
+                              placeholder="예: 수학 익힘책 1"
+                              className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700 outline-none focus:border-[#407FAC]"
+                            />
+                          </label>
+                          <p className="mt-1 text-left text-[11px] leading-snug text-gray-400">
+                            묵자로 입력하면 다운로드 파일의 페이지행 가운데에
+                            점역되어 들어갑니다. ({footerText.length}/
+                            {FOOTER_TEXT_MAX_LENGTH})
+                          </p>
+                        </div>
                       )}
                       {fileState.error && (
                         <p className="flex items-center gap-1 text-sm text-red-500 mt-3">

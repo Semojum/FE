@@ -54,6 +54,7 @@ describe('useJobUpload', () => {
       'a',
       'tok',
       false,
+      '',
     );
   });
 
@@ -72,7 +73,45 @@ describe('useJobUpload', () => {
       expectedMode,
       'tok',
       false,
+      '',
     );
+  });
+
+  it('passes footerText through to createJob', async () => {
+    createJobMock.mockResolvedValue(jobResult({ mode: 'b' }));
+    const { result } = renderHook(() => useJobUpload());
+    await act(async () => {
+      await result.current.uploadFile(
+        fakeFile(),
+        '점역 변환',
+        'tok',
+        true,
+        '수학 익힘책 1',
+      );
+    });
+    expect(createJobMock).toHaveBeenCalledWith(
+      expect.any(File),
+      'b',
+      'tok',
+      true,
+      '수학 익힘책 1',
+    );
+  });
+
+  it('rejects a footerText over 200 chars without calling the API', async () => {
+    const { result } = renderHook(() => useJobUpload());
+    await act(async () => {
+      const res = await result.current.uploadFile(
+        fakeFile(),
+        '점역 변환',
+        'tok',
+        false,
+        'ㄱ'.repeat(201),
+      );
+      expect(res).toBeNull();
+    });
+    expect(createJobMock).not.toHaveBeenCalled();
+    expect(result.current.error).toContain('200자');
   });
 
   it('uploadFile error: stores error message and returns null', async () => {

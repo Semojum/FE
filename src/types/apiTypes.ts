@@ -14,6 +14,9 @@ export interface CreateJobResponse {
   status: string; // PENDING ...
   // 업로드 시 선택한 쪽번호 삽입 여부를 서버가 기록해 되돌려준다.
   insertPageNumber?: boolean;
+  // 업로드 시 입력한 꼬리말(묵자). 미입력이면 null. 다운로드(.brf) 때 점역되어
+  // 페이지행 가운데에 들어간다 — 화면 격자에는 그리지 않는다.
+  footerText?: string | null;
 }
 
 export interface ApiError {
