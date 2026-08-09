@@ -16,10 +16,14 @@ interface UseJobUploadReturn {
   ) => Promise<CreateJobResponse | null>;
   isUploading: boolean;
   jobId: string | null;
+  // 이 Job이 어느 모드로 만들어졌는지. SSE 결과를 해석할 때 "지금 보고 있는 탭"이
+  // 아니라 이 값을 써야 한다 — 탭을 옮긴 직후 도착한 프레임이 엉뚱한 모드로
+  // 매핑돼 그 페이지 결과가 통째로 비던 문제가 있었다.
+  jobTab: ConversionTab | null;
   error: string | null;
   resetUpload: () => void;
   // 서버가 만들어 준 Job(점역으로 보내기 결과 등)을 스트림 대상으로 붙일 때 사용.
-  attachJob: (jobId: string) => void;
+  attachJob: (jobId: string, tab: ConversionTab) => void;
 }
 
 export const mapTabToMode = (tab: ConversionTab): JobMode => {
@@ -31,6 +35,7 @@ export const mapTabToMode = (tab: ConversionTab): JobMode => {
 export const useJobUpload = (): UseJobUploadReturn => {
   const [isUploading, setIsUploading] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [jobTab, setJobTab] = useState<ConversionTab | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const uploadFile = useCallback(
@@ -71,6 +76,7 @@ export const useJobUpload = (): UseJobUploadReturn => {
           footerText,
         );
         setJobId(data.jobId);
+        setJobTab(activeTab);
         return data;
       } catch (err) {
         const message = toUserMessage(err, '업로드에 실패했습니다.');
@@ -86,14 +92,24 @@ export const useJobUpload = (): UseJobUploadReturn => {
 
   const resetUpload = useCallback(() => {
     setJobId(null);
+    setJobTab(null);
     setError(null);
     setIsUploading(false);
   }, []);
 
-  const attachJob = useCallback((id: string) => {
+  const attachJob = useCallback((id: string, tab: ConversionTab) => {
     setError(null);
     setJobId(id);
+    setJobTab(tab);
   }, []);
 
-  return { uploadFile, isUploading, jobId, error, resetUpload, attachJob };
+  return {
+    uploadFile,
+    isUploading,
+    jobId,
+    jobTab,
+    error,
+    resetUpload,
+    attachJob,
+  };
 };

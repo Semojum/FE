@@ -1,6 +1,6 @@
 // 모드(탭)별 허용 파일 검증.
-// 명세: a(OCR 변환)=PDF, b(점역 변환)=TXT/HWP, c(통합 변환)=PDF
-import { ConversionTab, FileType, TABS } from '../types';
+// 명세: a(초안 생성)=PDF, b(텍스트 점자 번역)=TXT/HWP, c(이미지 점자 번역)=PDF
+import { ConversionTab, FileType, TAB_LABEL, TABS } from '../types';
 
 export const detectFileType = (file: File): FileType => {
   if (file.type.includes('pdf')) return 'pdf';
@@ -26,7 +26,7 @@ export const isFileAllowedForTab = (file: File, tab: ConversionTab): boolean =>
   TAB_ALLOWED_FILE_TYPES[tab].includes(detectFileType(file));
 
 export const fileValidationMessage = (tab: ConversionTab): string =>
-  `${tab} 모드는 ${TAB_ALLOWED_FILE_LABEL[tab]} 파일만 지원합니다.`;
+  `${TAB_LABEL[tab]} 모드는 ${TAB_ALLOWED_FILE_LABEL[tab]} 파일만 지원합니다.`;
 
 // 업로드 상한은 파일 1개당 100MB. 다만 BE 상한과 앞단 프록시(Cloudflare) 상한이
 // 겹쳐 경계가 애매하므로, 명세 권고대로 FE 임계값은 95MB로 잡는다.

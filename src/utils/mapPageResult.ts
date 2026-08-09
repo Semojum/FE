@@ -74,11 +74,19 @@ const parseDrafts = (drafts: Draft[] | string | null | undefined): Draft[] => {
 // 라벨·점역사주 설명을 유지한 채 매핑해 피커에서 방식을 구분할 수 있게 한다.
 const itemDrafts = (item: { drafts?: Draft[] | string | null }): BlockDraft[] =>
   parseDrafts(item.drafts)
-    .map((d) => ({
-      label: d.label,
-      text: stripTnWrapper(d.text),
-      content: toArray(d.contents).join('\n'),
-    }))
+    .map((d) => {
+      // 본문과 마찬가지로 구버전 content(문자열)도 받는다.
+      const contents = itemContents(
+        d as { contents?: string[]; content?: string },
+      ).join('\n');
+      const text = stripTnWrapper(d.text);
+      if (contents) return { label: d.label, text, content: contents };
+      // 실서버는 contents를 빈 배열로 두고 초안 본문을 text에 담아 보낸다
+      // (2026-08-09 mode a 실측: {label:"짧은 제목", text:"그림: …", contents:[]}).
+      // 그때는 text가 곧 본문이므로 설명 자리를 비운다 — 예전에는 contents만 읽어
+      // 초안이 전부 걸러졌고, 그래서 대체 초안 메뉴가 늘 비활성이었다.
+      return { label: d.label, text: undefined, content: text ?? '' };
+    })
     .filter((d) => d.content.length > 0);
 
 const itemCandidates = (item: { drafts?: Draft[] | string | null }): string[] =>

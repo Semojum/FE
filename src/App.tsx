@@ -39,7 +39,7 @@ import {
 } from './hooks/UsePopupSync';
 import { usePageStreamHandler } from './hooks/UsePageStreamHandler';
 import { modeToTab, useSavedJobs } from './hooks/UseSavedJobs';
-import { listActiveJobs } from './api/HistoryService';
+import { getJobPage, listActiveJobs } from './api/HistoryService';
 
 // Components
 import FilePreviewer from './component/features/conversion/FilePreviewer';
@@ -62,6 +62,7 @@ import {
   OriginalTextBlock,
   TranslationBlock,
   TABS,
+  TAB_LABEL,
   TAB_VALUES,
 } from './types';
 import { JobDetail, JobPageOriginal } from './types/auth';
@@ -142,6 +143,7 @@ const BrailleMate: React.FC = () => {
     uploadFile,
     isUploading,
     jobId,
+    jobTab,
     error: uploadError,
     resetUpload,
     attachJob,
@@ -167,7 +169,6 @@ const BrailleMate: React.FC = () => {
 
   const {
     blocksByPage,
-    getBlocks,
     setBlocksForPage,
     setAllBlocks,
     updateBlock,
@@ -175,6 +176,7 @@ const BrailleMate: React.FC = () => {
     removeBlock,
     addBlock,
     replaceBlockId,
+    reorderBlocks,
     resetAllBlocks,
   } = useTranslationBlocks();
 
@@ -217,6 +219,11 @@ const BrailleMate: React.FC = () => {
   const blocksRef = useRef<Record<number, TranslationBlock[]>>({});
   // 마이페이지에서 복원한 작업의 원본 파일명(라이브 업로드는 fileState.file이 들고 있다).
   const [originalFileName, setOriginalFileName] = useState<string | null>(null);
+  // 복원 작업의 원본(PDF/이미지) 로드 실패 안내와 "다시 시도" 신호.
+  const [originalLoadError, setOriginalLoadError] = useState<string | null>(
+    null,
+  );
+  const [originalReloadToken, setOriginalReloadToken] = useState(0);
 
   // 탭별 작업물 보관소. 탭을 떠날 때 현재 상태를 저장하고, 돌아오면 복원한다.
   const [tabSnapshots, setTabSnapshots] = useState<
@@ -227,7 +234,6 @@ const BrailleMate: React.FC = () => {
   const lastUploadedFileRef = useRef<File | null>(null);
 
   const currentPage = fileState.currentPage;
-  const currentBlocks = getBlocks(currentPage);
   const currentBBoxData = bboxDataByPage[currentPage] || [];
   const currentOriginalTexts = originalTextsByPage[currentPage] || [];
   // 입력 미리보기 존재 여부 — 업로드한 파일뿐 아니라 마이페이지에서 복원한
@@ -316,6 +322,7 @@ const BrailleMate: React.FC = () => {
     editor.resetEditor();
     setPageStatuses({});
     setOriginalFileName(null);
+    setOriginalLoadError(null);
   }, [resetFile, resetAllBlocks, resetUpload, editor]);
 
   const handleReset = useCallback(() => {
@@ -324,6 +331,20 @@ const BrailleMate: React.FC = () => {
     // 현재 탭의 보관된 작업물도 비운다(사용자가 명시적으로 지움).
     setTabSnapshots((prev) => ({ ...prev, [activeTab]: undefined }));
   }, [clearWorkspace, activeTab]);
+
+  // 원본 패널의 X(작업 비우기) — 변환이 진행 중이면 먼저 확인을 받는다.
+  // 예전에는 아무 확인 없이 바로 화면을 비워, 사용자에게는 "취소를 누르니 모달도
+  // 없이 변환이 끝났다"로 보였다 (QA 2026-08-09).
+  // (isStreaming은 아래에서 만들어지므로 호출 시점에 읽는 일반 함수로 둔다)
+  const handleResetRequest = () => {
+    if (isUploading || isStreaming) {
+      const ok = window.confirm(
+        '변환이 아직 진행 중입니다.\n지금 비우면 진행 중인 변환 결과를 더 이상 받지 않습니다. 비울까요?',
+      );
+      if (!ok) return;
+    }
+    handleReset();
+  };
 
   const handleTabChange = (tab: ConversionTab) => {
     if (tab === activeTab) return;
@@ -465,6 +486,24 @@ const BrailleMate: React.FC = () => {
     [editor, removeBlock],
   );
 
+  // 블록 순서 변경 — 저장 시 배열 순서가 그대로 reading_order가 되므로
+  // 화면 배열만 바꾸고 페이지 저장에 맡긴다.
+  const handleMoveBlock = useCallback(
+    (page: number, id: string, delta: -1 | 1) => {
+      const blocks = readBlocks(page);
+      const from = blocks.findIndex((b) => b.id === id);
+      const to = from + delta;
+      if (from === -1 || to < 0 || to >= blocks.length) return;
+      const next = [...blocks];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      editor.pushHistory(page);
+      reorderBlocks(page, next);
+      editor.markDirty(page);
+    },
+    [readBlocks, editor, reorderBlocks],
+  );
+
   // 블록 내 편집 — 타이핑마다 히스토리를 쌓으면 Ctrl+Z가 한 글자씩 되돌아가므로,
   // 그 블록을 처음 건드릴 때만 스냅샷을 남긴다.
   const editingBlockRef = useRef<string | null>(null);
@@ -601,6 +640,9 @@ const BrailleMate: React.FC = () => {
         case 'addBlock':
           handleAddBlock(action.page, action.index);
           break;
+        case 'moveBlock':
+          handleMoveBlock(action.page, action.id, action.delta);
+          break;
         case 'setSelected':
           setSelectedBlockId(action.id);
           break;
@@ -632,6 +674,7 @@ const BrailleMate: React.FC = () => {
       handleSelectDraft,
       handleRemoveBlock,
       handleAddBlock,
+      handleMoveBlock,
       editor,
       setPage,
       handleReset,
@@ -668,7 +711,8 @@ const BrailleMate: React.FC = () => {
   }, [jobId]);
 
   const handlePageMapped = usePageStreamHandler({
-    activeTab,
+    // 결과 해석은 이 Job이 만들어진 모드 기준이다 (탭을 옮겨도 흔들리지 않게).
+    activeTab: jobTab ?? activeTab,
     currentPage: fileState.currentPage,
     totalPages: fileState.totalPages,
     setTotalPages,
@@ -860,25 +904,45 @@ const BrailleMate: React.FC = () => {
 
   // 마이페이지 복원 작업에서 페이지를 바꾸면 왼쪽 원본 미리보기를 해당 페이지 원본으로 교체.
   // 이미지 모드(a/c)만 해당(원본 url 존재). 점역(b)은 url이 null이라 건너뛴다.
-  // PDF는 원격 GCS URL이라 webview fetch가 CORS로 막히므로, 네이티브 httpFetch로
-  // 바이트를 받아 blob URL로 렌더한다(이미지는 <img>로 바로 표시 가능).
+  //
+  // 원본 URL은 서명된 링크라 15분이면 만료된다(BE 2026-08-09). 작업을 열 때 받아 둔
+  // 값을 계속 쓰면 한참 뒤 페이지를 넘겼을 때 403이 나므로, 페이지에 들어갈 때마다
+  // 페이지 조회로 새 URL을 받는다. PDF는 그 URL의 바이트를 받아 blob으로 렌더한다.
   useEffect(() => {
     if (!savedOriginalsByPage) return;
-    const orig = savedOriginalsByPage[currentPage];
-    if (!orig?.url) return;
-
-    if (orig.type === 'image') {
-      setRestoredPreview({
-        fileType: 'image',
-        previewUrl: orig.url,
-        isRestoredPages: true,
-      });
-      return;
-    }
+    const cached = savedOriginalsByPage[currentPage];
+    if (!cached?.url) return;
 
     let cancelled = false;
+    setOriginalLoadError(null);
+
     (async () => {
       try {
+        // 만료됐을 수 있는 캐시 URL 대신 지금 발급된 URL을 쓴다.
+        let orig = cached;
+        if (workingJobId && auth.token) {
+          try {
+            const fresh = await getJobPage(
+              auth.token,
+              workingJobId,
+              currentPage,
+            );
+            if (fresh.original?.url) orig = fresh.original;
+          } catch {
+            // 재조회가 안 되면 가지고 있던 URL로 그대로 시도한다.
+          }
+        }
+        if (cancelled) return;
+
+        if (orig.type === 'image') {
+          setRestoredPreview({
+            fileType: 'image',
+            previewUrl: orig.url,
+            isRestoredPages: true,
+          });
+          return;
+        }
+
         const res = await httpFetch(orig.url as string, { method: 'GET' });
         if (!res.ok) throw new Error(`원본 PDF 로드 실패: ${res.status}`);
         const buf = await res.arrayBuffer();
@@ -897,14 +961,24 @@ const BrailleMate: React.FC = () => {
           isRestoredPages: true,
         });
       } catch (e) {
-        if (!cancelled) console.error(e);
+        if (cancelled) return;
+        // 실패를 삼키면 미리보기가 이유 없는 빈 화면이 된다 — 화면에 알린다.
+        console.error(e);
+        setOriginalLoadError('원본을 불러오지 못했습니다.');
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [savedOriginalsByPage, currentPage, setRestoredPreview]);
+  }, [
+    savedOriginalsByPage,
+    currentPage,
+    setRestoredPreview,
+    workingJobId,
+    auth.token,
+    originalReloadToken,
+  ]);
 
   const { handleSelectJob } = useSavedJobs({
     token: auth.token,
@@ -1006,7 +1080,7 @@ const BrailleMate: React.FC = () => {
         setTotalPages(latest.totalPages);
         setPage(latest.lastEditedPage ?? 1);
         // 아직 변환 중이므로 SSE를 다시 붙여 남은 페이지를 따라잡는다.
-        attachJob(latest.jobId);
+        attachJob(latest.jobId, modeToTab(latest.mode));
         setToast(
           `진행 중이던 "${latest.originalFileName}" 작업을 이어서 불러왔습니다.`,
         );
@@ -1134,7 +1208,7 @@ const BrailleMate: React.FC = () => {
                     : 'text-[#929292] hover:text-[#407FAC]'
                 }`}
               >
-                {tab}
+                {TAB_LABEL[tab]}
                 {activeTab === tab && (
                   <motion.div
                     layoutId="activeTab"
@@ -1209,7 +1283,9 @@ const BrailleMate: React.FC = () => {
                   <h2 className="text-xl font-bold text-gray-800">원본 파일</h2>
                   {hasInputPreview && (
                     <button
-                      onClick={handleReset}
+                      title="이 작업 비우기"
+                      aria-label="이 작업 비우기"
+                      onClick={handleResetRequest}
                       className="p-2 hover:bg-red-50 text-red-400 rounded-full transition-colors"
                     >
                       <X size={20} />
@@ -1293,6 +1369,26 @@ const BrailleMate: React.FC = () => {
                           {fileState.error}
                         </p>
                       )}
+                    </div>
+                  ) : originalLoadError ? (
+                    // 원본 로드 실패를 숨기면 이유 없는 빈 패널이 된다.
+                    <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center text-gray-500">
+                      <AlertCircle size={32} className="text-red-400" />
+                      <p className="font-medium">{originalLoadError}</p>
+                      <p className="text-sm text-gray-400">
+                        원본 보기 링크가 만료됐거나 네트워크가 끊겼을 수
+                        있습니다.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOriginalLoadError(null);
+                          setOriginalReloadToken((v) => v + 1);
+                        }}
+                        className="mt-1 rounded-lg border border-[#407FAC] px-3 py-1.5 text-sm font-medium text-[#407FAC] transition-colors hover:bg-[#407FAC]/10"
+                      >
+                        다시 시도
+                      </button>
                     </div>
                   ) : (
                     <FilePreviewer
@@ -1387,19 +1483,8 @@ const BrailleMate: React.FC = () => {
                   )}
                 </div>
 
-                {isStreaming && currentBlocks.length > 0 && (
-                  <div className="mb-3 flex items-center gap-2">
-                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-gray-100">
-                      <div
-                        className="h-full rounded-full bg-[#407FAC] transition-[width] duration-300"
-                        style={{ width: `${conversionProgress}%` }}
-                      />
-                    </div>
-                    <span className="shrink-0 text-[11px] text-gray-400">
-                      {settledPages}/{fileState.totalPages}
-                    </span>
-                  </div>
-                )}
+                {/* 변환 진행률은 상단 탭 줄에서 한 번만 보여준다.
+                    (여기에도 같은 막대가 있어 중복으로 보였다 — QA 2026-08-09) */}
 
                 {gridRows.length > 0 && (
                   <div className="mb-2 flex items-center justify-between">
@@ -1446,7 +1531,11 @@ const BrailleMate: React.FC = () => {
                       <Loader2 className="w-10 h-10 text-[#407FAC] animate-spin" />
                       <p className="font-medium text-gray-500">전송 중...</p>
                     </div>
-                  ) : isStreaming && currentBlocks.length === 0 ? (
+                  ) : isStreaming && gridRows.length === 0 ? (
+                    // 결과 격자는 원본 페이지 경계와 무관하게 이어지므로, 한 페이지라도
+                    // 도착하면 그것을 보여준다. 예전에는 "현재 페이지 블록이 비었는가"로
+                    // 판단해서, 이미 끝난 페이지를 보고 있어도 아직 안 온 페이지로 넘기면
+                    // 결과가 통째로 사라지고 '분석 중'이 떴다 (QA 2026-08-09).
                     <div className="h-full flex flex-col items-center justify-center space-y-4 px-10">
                       <Loader2 className="w-10 h-10 text-[#407FAC] animate-spin" />
                       <p className="font-medium text-gray-500">분석 중...</p>
@@ -1538,6 +1627,33 @@ const BrailleMate: React.FC = () => {
                     type: 'addBlock',
                     page: line.pageNo,
                     index,
+                  }),
+              },
+              {
+                label: '위로 이동',
+                disabled: index <= 0,
+                title: index <= 0 ? '이 페이지의 첫 블록입니다' : undefined,
+                onSelect: () =>
+                  dispatchAction({
+                    type: 'moveBlock',
+                    page: line.pageNo,
+                    id: line.blockId,
+                    delta: -1,
+                  }),
+              },
+              {
+                label: '아래로 이동',
+                disabled: index === -1 || index >= blocks.length - 1,
+                title:
+                  index >= blocks.length - 1
+                    ? '이 페이지의 마지막 블록입니다'
+                    : undefined,
+                onSelect: () =>
+                  dispatchAction({
+                    type: 'moveBlock',
+                    page: line.pageNo,
+                    id: line.blockId,
+                    delta: 1,
                   }),
               },
               {

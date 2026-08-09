@@ -93,6 +93,62 @@ describe('mapPageResult', () => {
     expect(blocks[0].candidates).toEqual(['⠨⠕\n⠈⠁', '⠠⠍']);
   });
 
+  it('draft가 contents 대신 content(문자열)로 와도 후보로 살린다', () => {
+    // 본문(contents/content)과 같은 구버전 호환. 예전에는 contents만 읽어서
+    // 이런 응답이면 후보가 전부 걸러지고 대체 초안 메뉴가 늘 비활성이었다.
+    const result = {
+      braille_text_list: [
+        {
+          id: 't1',
+          type: 'table',
+          is_blocked: false,
+          contents: ['⠨⠕'],
+          drafts: [{ label: '격자형', content: '⠨⠕' }],
+        },
+      ],
+    } as unknown as StreamPageResult;
+
+    const { blocks } = mapPageResult(TABS.BRAILLE, result);
+
+    expect(blocks[0].drafts).toEqual([
+      { label: '격자형', text: undefined, content: '⠨⠕' },
+    ]);
+    expect(blocks[0].candidates).toEqual(['⠨⠕']);
+  });
+
+  it('실서버: contents가 비고 text에 초안 본문이 오면 그것을 후보로 쓴다', () => {
+    // 2026-08-09 mode a 실측 응답 형태. 예전에는 contents만 읽어 4개 초안이
+    // 전부 걸러졌고, 그래서 대체 초안 메뉴가 항상 비활성이었다.
+    const result = {
+      text_list: [
+        {
+          id: 'img1',
+          type: 'image',
+          order: 1,
+          is_blocked: false,
+          contents: ['<!점역자주>그림: 건국대학교 상징 문장<!/점역자주>'],
+          selected_idx: 2,
+          drafts: [
+            { label: '생략', text: '그림 생략', contents: [] },
+            { label: '짧은 제목', text: '그림: 건국대학교 상징 문장', contents: [] },
+          ],
+        },
+      ],
+    } as unknown as StreamPageResult;
+
+    const { blocks } = mapPageResult(TABS.OCR, result);
+
+    expect(blocks[0].drafts).toEqual([
+      { label: '생략', text: undefined, content: '그림 생략' },
+      {
+        label: '짧은 제목',
+        text: undefined,
+        content: '그림: 건국대학교 상징 문장',
+      },
+    ]);
+    expect(blocks[0].candidates).toHaveLength(2);
+  });
+
   it('drafts/list가 배열이 아닌 값({})으로 와도 throw하지 않는다', () => {
     // 서버가 빈 컬렉션을 [] 대신 {}로 직렬화하는 경우를 모사.
     const result = {

@@ -98,8 +98,10 @@ const BrailleGrid: React.FC<Props> = ({
   );
 
   // 선택한 줄로 포커스를 옮긴다 — 실제 입력은 숨은 input이 받는다(한글 IME 대응).
+  // preventScroll: 이 input은 화면 밖(fixed·0px)에 있어 그냥 focus하면 브라우저가
+  // 격자를 그 자리로 스크롤한다. 그 스크롤이 방금 연 우클릭 메뉴를 즉시 닫았다.
   useEffect(() => {
-    if (caret) inputRef.current?.focus();
+    if (caret) inputRef.current?.focus({ preventScroll: true });
   }, [caret]);
 
   // 원본 페이지를 넘기면 결과 격자도 그 지점으로 옮겨 대조를 유지한다.
@@ -228,6 +230,10 @@ const BrailleGrid: React.FC<Props> = ({
       [...e.key].length === 1
     ) {
       e.preventDefault();
+      // 점자 모드에서 받는 문자는 6점 키 조합(위에서 처리)과 빈 칸뿐이다.
+      // 나머지 문자키는 삼킨다 — 퍼킨스 타법에서 S·D·F·J·K·L 옆의 A·G·H 등을
+      // 잘못 눌렀을 때 그 영문자가 그대로 판면에 찍히던 문제를 막는다.
+      if (isBraille && e.key !== ' ') return;
       applyText(insertAt(caretRow.text, caret.cell, e.key));
       moveCaret(caret.rowIndex, caret.cell + 1);
     }
@@ -255,11 +261,14 @@ const BrailleGrid: React.FC<Props> = ({
     e: React.CompositionEvent<HTMLInputElement>,
   ) => {
     setIsComposing(false);
-    if (!caret || !caretRow || !e.data) return;
-    applyText(insertAt(caretRow.text, caret.cell, e.data));
-    moveCaret(caret.rowIndex, caret.cell + [...e.data].length);
     // 숨은 input은 항상 비워 둔다 — 값은 격자가 들고 있다.
     if (inputRef.current) inputRef.current.value = '';
+    if (!caret || !caretRow || !e.data) return;
+    // 점자 모드에서는 IME 조합 결과(한글)를 넣지 않는다. keydown의 preventDefault로는
+    // IME를 막을 수 없어, 한/영 상태가 한글일 때 점형과 한글이 같이 들어가던 문제.
+    if (isBraille) return;
+    applyText(insertAt(caretRow.text, caret.cell, e.data));
+    moveCaret(caret.rowIndex, caret.cell + [...e.data].length);
   };
 
   const cellCls = (
@@ -286,7 +295,7 @@ const BrailleGrid: React.FC<Props> = ({
     <div
       ref={scrollRef}
       onScroll={handleScroll}
-      className="custom-scrollbar h-full overflow-y-auto bg-[#fafcff]"
+      className="custom-scrollbar h-full overflow-auto bg-[#fafcff]"
     >
       {/* 실제 키 입력을 받는 숨은 input — 한글 IME 조합을 위해 진짜 입력 요소가 필요하다. */}
       <input
@@ -302,9 +311,12 @@ const BrailleGrid: React.FC<Props> = ({
       />
 
       {pages.map((page, pageIdx) => (
-        <div key={page.braillePage} className="mb-5 px-3 pt-2">
+        // w-max: 면의 폭은 패널이 아니라 32칸 내용이 정한다. 예전에는 행이 패널 폭에
+        // 맞춰지고 칸은 그 밖으로 넘쳐서, 블록 강조 테두리가 32칸까지 가지 못하고
+        // 31칸 언저리에서 잘렸다. 패널이 좁으면 가로로 스크롤한다.
+        <div key={page.braillePage} className="mb-5 w-max px-3 pt-2">
           {/* 칸 눈금 */}
-          <div className="mb-0.5 flex pl-[26px] text-[9px] text-gray-400">
+          <div className="mb-0.5 flex w-max pl-[26px] text-[9px] text-gray-400">
             {Array.from({ length: CELLS_PER_ROW }, (_, i) => (
               <span key={i} className="w-[19px] shrink-0 text-center">
                 {i === 0 || (i + 1) % 8 === 0 ? i + 1 : ''}
@@ -312,7 +324,7 @@ const BrailleGrid: React.FC<Props> = ({
             ))}
           </div>
 
-          <div className="border-l border-t border-[#e4ebf5]">
+          <div className="w-max border-l border-t border-[#e4ebf5]">
             {page.rows.map((row, rowInPage) => {
               const rowIndex = pageStarts[pageIdx] + rowInPage;
               const editable = row.kind === 'body';
@@ -343,7 +355,21 @@ const BrailleGrid: React.FC<Props> = ({
                     isBlockBottom ? 'border-b-2 border-b-[#f47726]' : '',
                   ].join(' ')}
                 >
-                  <span className="flex h-[19px] w-[26px] shrink-0 items-center justify-end pr-1.5 text-[9px] text-gray-400">
+                  {/* 대체 초안이 있는 블록은 줄번호 옆에 점을 찍는다 — 진입점이
+                      우클릭 메뉴뿐이라 초안이 있는지 알 방법이 없었다. */}
+                  <span
+                    title={
+                      row.source?.hasDrafts
+                        ? '대체 초안이 있는 블록 — 우클릭해서 고를 수 있습니다'
+                        : undefined
+                    }
+                    className="flex h-[19px] w-[26px] shrink-0 items-center justify-end gap-0.5 pr-1.5 text-[9px] text-gray-400"
+                  >
+                    {row.source?.hasDrafts && (
+                      <span aria-label="대체 초안 있음" className="text-[#f47726]">
+                        •
+                      </span>
+                    )}
                     {rowInPage + 1}
                   </span>
                   {cells.map((ch, cellIdx) => (

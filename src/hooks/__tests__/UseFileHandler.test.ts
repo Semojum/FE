@@ -7,6 +7,7 @@ vi.mock('../../component/shared/HwpParser', () => ({
 }));
 
 import { useFileHandler } from '../UseFileHandler';
+import { TABS } from '../../types';
 
 beforeEach(() => {
   // happy-dom may not implement createObjectURL — provide a stub
@@ -90,7 +91,7 @@ describe('useFileHandler', () => {
     const file = new File(['%PDF'], 'doc.pdf', { type: 'application/pdf' });
 
     await act(async () => {
-      await result.current.handleFileDrop([file], '점역 변환');
+      await result.current.handleFileDrop([file], TABS.BRAILLE);
     });
 
     expect(result.current.fileState.file).toBeNull();
@@ -102,7 +103,7 @@ describe('useFileHandler', () => {
     const file = new File(['%PDF'], 'doc.pdf', { type: 'application/pdf' });
 
     await act(async () => {
-      await result.current.handleFileDrop([file], 'OCR 변환');
+      await result.current.handleFileDrop([file], TABS.OCR);
     });
 
     expect(result.current.fileState.fileType).toBe('pdf');
