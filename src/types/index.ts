@@ -2,15 +2,25 @@ import type { RuleTrail } from './apiTypes';
 
 export type { RuleTrail };
 
+// 탭 식별자는 서버 mode(a/b/c)와 같은 값을 쓴다. 예전에는 화면에 보이는 이름
+// ('OCR 변환' 등)이 곧 식별자여서 탭 스냅샷 키·모드 분기가 전부 그 문자열에 묶여
+// 있었고, 그래서 이름을 못 바꿨다. 라벨은 TAB_LABEL로 분리한다.
 export const TABS = {
-  OCR: 'OCR 변환',
-  BRAILLE: '점역 변환',
-  INTEGRATED: '통합 변환',
+  OCR: 'a',
+  BRAILLE: 'b',
+  INTEGRATED: 'c',
 } as const;
 
 export const TAB_VALUES = [TABS.OCR, TABS.BRAILLE, TABS.INTEGRATED] as const;
 
 export type ConversionTab = (typeof TAB_VALUES)[number];
+
+// 화면에 보이는 모드 이름. 마이페이지 카드 배지(Cards.tsx MODE_META)와 같은 문구다.
+export const TAB_LABEL: Record<ConversionTab, string> = {
+  [TABS.OCR]: '초안 생성',
+  [TABS.BRAILLE]: '텍스트 점자 번역',
+  [TABS.INTEGRATED]: '이미지 점자 번역',
+};
 
 export type FileType = 'image' | 'pdf' | 'text' | 'hwp'; // 확장
 

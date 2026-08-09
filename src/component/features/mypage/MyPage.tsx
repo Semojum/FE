@@ -256,6 +256,9 @@ const MyPage: React.FC<Props> = ({
   const showRecentRow =
     view === 'browse' && !folderId && !search.trim() && files.length > 0;
   const showLocation = view === 'recent' || !!search.trim();
+  // '최근 작업 전체'(S9)는 작업만 나열한다. 전역 조회 응답에는 폴더도 실려 오므로
+  // 화면에서 걸러 준다 (QA 2026-08-09).
+  const visibleFolders = view === 'recent' ? [] : folders;
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-[#f8f9fa]">
@@ -568,7 +571,7 @@ const MyPage: React.FC<Props> = ({
                   <Loader2 className="animate-spin" size={30} />
                   <p className="text-sm">불러오는 중...</p>
                 </div>
-              ) : folders.length === 0 && files.length === 0 ? (
+              ) : visibleFolders.length === 0 && files.length === 0 ? (
                 <p className="py-24 text-center text-sm text-gray-400">
                   {search.trim()
                     ? '검색 결과가 없습니다'
@@ -618,9 +621,9 @@ const MyPage: React.FC<Props> = ({
                   )}
 
                   {/* 폴더가 항상 파일보다 앞에 온다 */}
-                  {folders.length > 0 && (
+                  {visibleFolders.length > 0 && (
                     <div className="mb-5 flex flex-wrap gap-3">
-                      {folders.map((f) => (
+                      {visibleFolders.map((f) => (
                         <FolderCardItem
                           key={f.folderId}
                           folder={f}

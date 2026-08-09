@@ -57,11 +57,12 @@ describe('TAB_ALLOWED_FILE_TYPES', () => {
 
 describe('fileValidationMessage', () => {
   it('탭 라벨과 허용 형식을 포함', () => {
+    // 식별자(a/b/c)가 아니라 사람이 읽는 모드 이름이 들어가야 한다.
     expect(fileValidationMessage(TABS.OCR)).toBe(
-      'OCR 변환 모드는 PDF 파일만 지원합니다.',
+      '초안 생성 모드는 PDF 파일만 지원합니다.',
     );
     expect(fileValidationMessage(TABS.BRAILLE)).toBe(
-      '점역 변환 모드는 TXT, HWP 파일만 지원합니다.',
+      '텍스트 점자 번역 모드는 TXT, HWP 파일만 지원합니다.',
     );
   });
 });

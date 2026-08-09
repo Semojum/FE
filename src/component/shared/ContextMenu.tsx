@@ -32,14 +32,24 @@ export const ContextMenu: React.FC<Props> = ({ x, y, items, onClose }) => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    // 스크롤하면 메뉴 위치가 어긋나므로 닫는다.
+    // 스크롤하면 메뉴 위치가 어긋나므로 닫는다. 다만 메뉴를 여는 동작 자체가
+    // 스크롤을 부르는 경우(격자 우클릭이 커서를 옮기며 스크롤)에는 뜨자마자 닫혀
+    // 버리므로, 열린 직후 잠깐은 스크롤을 무시한다.
+    let armed = false;
+    const arm = window.setTimeout(() => {
+      armed = true;
+    }, 400);
+    const onScroll = () => {
+      if (armed) onClose();
+    };
     window.addEventListener('mousedown', onDown);
     window.addEventListener('keydown', onKey);
-    window.addEventListener('scroll', onClose, true);
+    window.addEventListener('scroll', onScroll, true);
     return () => {
+      window.clearTimeout(arm);
       window.removeEventListener('mousedown', onDown);
       window.removeEventListener('keydown', onKey);
-      window.removeEventListener('scroll', onClose, true);
+      window.removeEventListener('scroll', onScroll, true);
     };
   }, [onClose]);
 

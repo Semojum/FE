@@ -7,6 +7,7 @@ vi.mock('../../api/JobService', () => ({
 }));
 
 import { useJobUpload } from '../UseJobUpload';
+import { TABS } from '../../types';
 import { createJob } from '../../api/JobService';
 
 const createJobMock = createJob as unknown as ReturnType<typeof vi.fn>;
@@ -40,7 +41,7 @@ describe('useJobUpload', () => {
     await act(async () => {
       const res = await result.current.uploadFile(
         fakeFile(),
-        'OCR 변환',
+        TABS.OCR,
         'tok',
       );
       expect(res?.jobId).toBe('job-1');
@@ -59,9 +60,9 @@ describe('useJobUpload', () => {
   });
 
   it.each([
-    ['OCR 변환', 'a'],
-    ['점역 변환', 'b'],
-    ['통합 변환', 'c'],
+    [TABS.OCR, 'a'],
+    [TABS.BRAILLE, 'b'],
+    [TABS.INTEGRATED, 'c'],
   ] as const)('maps tab "%s" to mode "%s"', async (tab, expectedMode) => {
     createJobMock.mockResolvedValue(jobResult({ mode: expectedMode }));
     const { result } = renderHook(() => useJobUpload());
@@ -83,7 +84,7 @@ describe('useJobUpload', () => {
     await act(async () => {
       await result.current.uploadFile(
         fakeFile(),
-        '점역 변환',
+        TABS.BRAILLE,
         'tok',
         true,
         '수학 익힘책 1',
@@ -103,7 +104,7 @@ describe('useJobUpload', () => {
     await act(async () => {
       const res = await result.current.uploadFile(
         fakeFile(),
-        '점역 변환',
+        TABS.BRAILLE,
         'tok',
         false,
         'ㄱ'.repeat(201),
@@ -119,7 +120,7 @@ describe('useJobUpload', () => {
     const { result } = renderHook(() => useJobUpload());
 
     await act(async () => {
-      const res = await result.current.uploadFile(fakeFile(), 'OCR 변환');
+      const res = await result.current.uploadFile(fakeFile(), TABS.OCR);
       expect(res).toBeNull();
     });
 
@@ -139,7 +140,7 @@ describe('useJobUpload', () => {
 
     let uploadPromise: Promise<unknown>;
     act(() => {
-      uploadPromise = result.current.uploadFile(fakeFile(), 'OCR 변환');
+      uploadPromise = result.current.uploadFile(fakeFile(), TABS.OCR);
     });
 
     await waitFor(() => expect(result.current.isUploading).toBe(true));
@@ -156,7 +157,7 @@ describe('useJobUpload', () => {
     createJobMock.mockResolvedValue(jobResult({ jobId: 'j-1' }));
     const { result } = renderHook(() => useJobUpload());
     await act(async () => {
-      await result.current.uploadFile(fakeFile(), 'OCR 변환');
+      await result.current.uploadFile(fakeFile(), TABS.OCR);
     });
     expect(result.current.jobId).toBe('j-1');
 

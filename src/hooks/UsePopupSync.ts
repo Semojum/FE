@@ -23,6 +23,9 @@ export type SyncAction =
   | { type: 'selectDraft'; page: number; id: string; idx: number }
   | { type: 'removeBlock'; page: number; id: string }
   | { type: 'addBlock'; page: number; index: number }
+  // 블록 순서 변경 — delta는 -1(위로) / +1(아래로).
+  // 저장 시 배열 순서가 곧 reading_order라 서버에는 별도 API가 필요 없다.
+  | { type: 'moveBlock'; page: number; id: string; delta: -1 | 1 }
   | { type: 'setSelected'; id: string | null }
   | { type: 'setPage'; page: number }
   // 현재 페이지 저장(Ctrl+S) — 토큰·jobId를 가진 메인 창이 실행한다.
