@@ -17,10 +17,15 @@ const isTauri = (): boolean =>
 const currentVersion = (): string =>
   (import.meta.env.VITE_APP_VERSION as string | undefined) ?? '0.0.0';
 
-export const useAppVersion = (enabled: boolean) => {
+// onBeforeInstall — 설치는 앱을 끝내므로(윈도우) 그 직전에 저장을 밀어낼 기회를 준다.
+export const useAppVersion = (
+  enabled: boolean,
+  onBeforeInstall?: () => Promise<void>,
+) => {
   const [info, setInfo] = useState<AppVersionInfo | null>(null);
-  // 설치까지 끝나 다음 실행에 적용될 버전 — 좌하단 토스트로 알린다.
-  const [installedVersion, setInstalledVersion] = useState<string | null>(null);
+  // 받아서 설치할 수 있는 새 버전 — 좌하단 토스트로 알리고, 설치는 사용자가 고른다.
+  const [availableVersion, setAvailableVersion] = useState<string | null>(null);
+  const [isInstalling, setIsInstalling] = useState(false);
   const [dismissedToast, setDismissedToast] = useState(false);
 
   // 서버 기준 버전 확인. 로그인 전에도 호출 가능(인증 불필요).
@@ -37,21 +42,17 @@ export const useAppVersion = (enabled: boolean) => {
     };
   }, [enabled]);
 
-  // 새 버전 내려받기·설치는 백그라운드에서. 강제 업데이트여도 같은 경로를 쓴다.
+  // 새 버전이 있는지 **확인만** 한다. 설치는 사용자가 토스트/게이트에서 고를 때 한다.
+  //
+  // 예전에는 시작하자마자 downloadAndInstall까지 갔는데, Windows에서 그 호출이
+  // 설치 프로그램을 띄우고 `std::process::exit(0)`으로 프로세스를 즉시 끝낸다.
+  // 사용자에게는 "앱이 저 혼자 강제로 꺼진다"로 보였고, close-requested를 거치지 않아
+  // 저장하지 않은 편집도 함께 날아갔다.
   useEffect(() => {
     if (!enabled) return;
-    checkForUpdates({
-      onProgress: (p) => {
-        if (p.event === 'installing')
-          setInstalledVersion(info?.latestVersion ?? '');
-      },
-    })
-      .then((version) => {
-        if (version) setInstalledVersion(version);
-      })
+    checkForUpdates({ autoInstall: false })
+      .then((version) => setAvailableVersion(version))
       .catch((e) => console.warn('업데이트 확인 실패', e));
-    // info가 늦게 와도 설치 자체는 한 번만 시도한다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
 
   // 업데이트 후 첫 실행이면 릴리스 노트를 새 창으로 띄운다.
@@ -74,28 +75,40 @@ export const useAppVersion = (enabled: boolean) => {
 
   const dismissToast = useCallback(() => setDismissedToast(true), []);
 
-  const relaunchNow = useCallback(async () => {
-    if (!isTauri()) {
-      window.location.reload();
-      return;
+  // 지금 설치. 저장을 먼저 밀어낸 뒤 내려받아 설치한다.
+  // Windows에서는 이 호출이 돌아오지 않는다 — 설치 프로그램이 뜨고 앱이 종료됐다가
+  // 설치가 끝나면 다시 뜬다. macOS·Linux는 살아 있으므로 직접 재시작한다.
+  const installNow = useCallback(async () => {
+    if (isInstalling) return;
+    setIsInstalling(true);
+    try {
+      await onBeforeInstall?.();
+    } catch (e) {
+      // 저장 실패가 업데이트를 막지는 않는다 — 강제 업데이트면 막으면 안 된다.
+      console.warn('업데이트 전 저장 실패', e);
     }
     try {
-      const { relaunch } = await import('@tauri-apps/plugin-process');
-      await relaunch();
+      // Windows에서는 이 호출이 돌아오지 않는다 — 설치 프로그램이 뜨고 프로세스가 끝난다.
+      // macOS·Linux는 설치 후에도 살아 있어 relaunch로 재시작한다.
+      // 브라우저(개발용)에서는 checkForUpdates가 곧바로 null이라 아무 일도 없다.
+      await checkForUpdates({ autoInstall: true, relaunch: true });
     } catch (e) {
-      console.warn('재시작 실패', e);
+      console.warn('업데이트 설치 실패', e);
     }
-  }, []);
+    // 여기에 닿았다면 앱이 아직 살아 있다(설치할 게 없었거나 실패). 버튼을 되살린다.
+    setIsInstalling(false);
+  }, [isInstalling, onBeforeInstall]);
 
   return {
     // 호환성이 깨지는 패치 — 업데이트 외의 모든 조작을 막아야 한다.
     forceUpdate: info?.forceUpdate === true,
     latestVersion: info?.latestVersion ?? null,
     releaseNoteUrl: info?.releaseNoteUrl ?? null,
-    // 설치가 준비돼 재시작하면 적용되는 상태
-    pendingInstall: !!installedVersion && !dismissedToast,
-    installedVersion,
+    // 내려받아 설치할 수 있는 새 버전이 있는 상태
+    updateAvailable: !!availableVersion && !dismissedToast,
+    availableVersion,
+    isInstalling,
     dismissToast,
-    relaunchNow,
+    installNow,
   };
 };

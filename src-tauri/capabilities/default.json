@@ -8,15 +8,19 @@
     "core:webview:allow-get-all-webviews",
     "core:webview:allow-webview-close",
     "core:window:allow-close",
+    "core:window:allow-destroy",
     "opener:default",
     {
       "identifier": "http:default",
       "allow": [
         { "url": "https://api.semojum.app/*" },
-        { "url": "https://storage.googleapis.com/*" }
+        { "url": "https://storage.googleapis.com/*" },
+        { "url": "https://*.s3.ap-northeast-2.amazonaws.com/*" }
       ]
     },
     "updater:default",
-    "process:default"
+    "process:default",
+    "dialog:allow-save",
+    "fs:allow-write-file"
   ]
 }

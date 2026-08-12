@@ -1,9 +1,16 @@
 // 데스크톱(Tauri) 자동 업데이트 유틸.
 //  - 브라우저/테스트 환경에서는 아무 동작도 하지 않는다(no-op).
 //  - 플러그인은 Tauri 런타임에서만 동적 import 한다(브라우저 번들에 포함되지 않게).
-//  - 기본 동작: 새 버전이 있으면 조용히 내려받아 설치하고, 강제 재시작 없이
-//    사용자의 다음 실행 시 새 버전이 적용된다(사용 중 방해 없음).
-//    즉시 재시작이 필요하면 checkForUpdates({ relaunch: true }).
+//
+// ⚠️ **Windows에서 설치는 앱을 죽인다.** tauri-plugin-updater의 Windows 구현은
+//    설치 파일을 ShellExecute로 띄운 뒤 `std::process::exit(0)`으로 현재 프로세스를
+//    즉시 끝낸다(plugin 2.10.1 `src/updater.rs` Windows `install_inner` 마지막 줄).
+//    close-requested 이벤트도, 저장 플러시도 거치지 않는다.
+//    → 그래서 시작하자마자 조용히 자동 설치하면 사용자에게는 "앱이 저 혼자 꺼진다"가 된다.
+//    설치는 **반드시 사용자가 고른 시점에만** 하고, 그 전에 저장을 밀어내야 한다.
+//    (macOS·Linux는 프로세스를 죽이지 않으므로 설치 후 relaunch가 필요하다.)
+//
+//  - autoInstall 기본값은 false다 — 확인만 하고 설치는 호출 측이 결정한다.
 //
 // 사용 예 (앱 시작 시 1회):
 //   import { checkForUpdates } from './utils/updater';
@@ -23,12 +30,12 @@ export type UpdateProgress =
   | { event: 'up-to-date' };
 
 export interface CheckForUpdatesOptions {
-  // true면 업데이트 발견 시 자동으로 내려받아 설치한다.
-  // false면 발견 여부만 반환하고, 설치는 호출 측에서 결정한다.
+  // true면 업데이트 발견 시 내려받아 설치한다. Windows에서는 이 호출이 돌아오지 않는다
+  // (설치 프로그램을 띄우고 프로세스가 종료된다). 사용자가 명시적으로 고른 때만 켤 것.
+  // 기본 false — 발견 여부만 반환한다.
   autoInstall?: boolean;
-  // 설치 후 즉시 앱을 재시작할지 여부.
-  //  - false(기본): 조용히 설치만 하고 다음 실행 시 새 버전 적용(사용 중 방해 없음).
-  //  - true: 설치 직후 relaunch()로 재시작.
+  // 설치 후 재시작 여부. Windows는 설치 단계에서 이미 종료되므로 이 값과 무관하고,
+  // macOS·Linux에서만 의미가 있다(설치해도 프로세스가 살아 있어 직접 재시작해야 한다).
   relaunch?: boolean;
   onProgress?: (p: UpdateProgress) => void;
 }
@@ -38,7 +45,11 @@ export interface CheckForUpdatesOptions {
 export const checkForUpdates = async (
   opts: CheckForUpdatesOptions = {},
 ): Promise<string | null> => {
-  const { autoInstall = true, relaunch: doRelaunch = false, onProgress } = opts;
+  const {
+    autoInstall = false,
+    relaunch: doRelaunch = false,
+    onProgress,
+  } = opts;
   if (!isTauri()) return null;
 
   // Tauri 환경에서만 로드(동적 import).

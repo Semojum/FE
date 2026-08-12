@@ -23,6 +23,11 @@ import {
   Undo2,
   Redo2,
   Lock,
+  Plus,
+  ArrowUp,
+  ArrowDown,
+  Trash2,
+  Layers,
 } from 'lucide-react';
 
 // Hooks
@@ -94,6 +99,10 @@ import {
   ForceUpdateGate,
   UpdateReadyToast,
 } from './component/features/update/UpdateGate';
+
+// 결과 패널 블록 도구 버튼 공통 스타일
+const blockToolCls =
+  'flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:border-[#407FAC]/40 hover:bg-[#eef3fc] hover:text-[#407FAC] disabled:cursor-not-allowed disabled:border-gray-100 disabled:bg-transparent disabled:text-gray-300 disabled:hover:bg-transparent';
 
 // 탭별로 보존하는 작업물 스냅샷 — 탭을 전환해도 각 탭의 입력/결과가 날아가지 않게 한다.
 interface TabState {
@@ -181,8 +190,15 @@ const BrailleMate: React.FC = () => {
   } = useTranslationBlocks();
 
   const auth = useAuth();
-  // 앱 시작 시 서버 기준 버전 확인 + 백그라운드 업데이트 (결과 팝업 창은 제외)
-  const appVersion = useAppVersion(!isPopup);
+  // 앱 시작 시 서버 기준 버전 확인 + 새 버전 확인 (결과 팝업 창은 제외).
+  // 설치는 사용자가 고를 때만 한다 — Windows에서 설치는 곧 프로세스 종료라,
+  // 자동 설치하면 앱이 저 혼자 꺼진 것처럼 보이고 미저장 편집도 날아간다.
+  // editorRef를 거치는 이유: editor는 아래에서 만들어진다.
+  const editorRef = useRef<{ saveAllDirty: () => Promise<void> } | null>(null);
+  const flushBeforeInstall = useCallback(async () => {
+    await editorRef.current?.saveAllDirty();
+  }, []);
+  const appVersion = useAppVersion(!isPopup, flushBeforeInstall);
   const [isMyPageOpen, setIsMyPageOpen] = useState(false);
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   // 업로드 시 확정하는 쪽번호 삽입 여부(2026-08-04 확정 — 에디터 토글이 아니라 업로드 옵션).
@@ -206,8 +222,12 @@ const BrailleMate: React.FC = () => {
   } | null>(null);
   const [visibleOutputPage, setVisibleOutputPage] = useState(1);
   const [scrollToRow, setScrollToRow] = useState<number | null>(null);
-  // 대체 초안 피커를 연 블록
-  const [draftBlockId, setDraftBlockId] = useState<string | null>(null);
+  // 대체 초안 피커를 연 블록 — 어느 페이지의 블록인지까지 들고 있는다.
+  // (id만 들고 페이지 전체를 훑으면 다른 페이지의 같은 블록을 먼저 집을 수 있다)
+  const [draftTarget, setDraftTarget] = useState<{
+    pageNo: number;
+    blockId: string;
+  } | null>(null);
 
   // 페이지 일괄 저장(PUT) 대상 Job ID. 라이브 업로드/마이페이지 복원/탭 복원 시 갱신된다.
   const [workingJobId, setWorkingJobId] = useState<string | null>(null);
@@ -275,6 +295,10 @@ const BrailleMate: React.FC = () => {
     setBlocksForPage,
     replaceBlockId,
   });
+
+  useEffect(() => {
+    editorRef.current = editor;
+  }, [editor]);
 
   // 현재 화면 상태를 탭 스냅샷으로 캡처
   const captureState = useCallback(
@@ -553,15 +577,24 @@ const BrailleMate: React.FC = () => {
 
   const outputPageCount = Math.max(1, layout.length);
 
-  // 대체 초안 피커 대상 블록 — 어느 원본 페이지의 블록인지 함께 찾는다.
+  // 대체 초안 피커 대상 블록 — 지정된 페이지 안에서만 찾는다.
   const draftBlock = useMemo(() => {
-    if (!draftBlockId) return null;
-    for (const [page, blocks] of Object.entries(blocksByPage)) {
-      const block = blocks.find((b) => b.id === draftBlockId);
-      if (block) return { pageNo: Number(page), block };
-    }
-    return null;
-  }, [draftBlockId, blocksByPage]);
+    if (!draftTarget) return null;
+    const block = (blocksByPage[draftTarget.pageNo] ?? []).find(
+      (b) => b.id === draftTarget.blockId,
+    );
+    return block ? { pageNo: draftTarget.pageNo, block } : null;
+  }, [draftTarget, blocksByPage]);
+
+  // 커서가 놓인 줄의 블록 — 결과 패널 블록 버튼(추가·이동·삭제·대체 텍스트)의 대상.
+  // 우클릭 메뉴만으로는 기능이 있는지조차 알기 어려웠다 (QA "블록 관련 버튼 생성").
+  const caretSource = caret ? (gridRows[caret.rowIndex]?.source ?? null) : null;
+  const caretBlocks = caretSource
+    ? (blocksByPage[caretSource.pageNo] ?? [])
+    : [];
+  const caretBlockIndex = caretSource
+    ? caretBlocks.findIndex((b) => b.id === caretSource.blockId)
+    : -1;
 
   // 커서가 놓인 줄의 블록을 원본 대조 선택으로도 반영한다(좌측 원본이 같이 강조됨).
   const handleCaretChange = useCallback(
@@ -570,7 +603,10 @@ const BrailleMate: React.FC = () => {
       const source = gridRows[next.rowIndex]?.source;
       if (!source) return;
       if (source.blockId !== selectedBlockId) {
-        dispatchActionRef.current?.({ type: 'setSelected', id: source.blockId });
+        dispatchActionRef.current?.({
+          type: 'setSelected',
+          id: source.blockId,
+        });
       }
       // 결과는 원본 페이지 경계와 무관하게 이어지므로, 한 판면에 여러 원본 페이지의 줄이
       // 섞여 있다. 다른 페이지의 줄을 짚으면 왼쪽 원본도 그 페이지로 옮겨 대조를 맞춘다.
@@ -773,6 +809,13 @@ const BrailleMate: React.FC = () => {
     !isStreaming &&
     fileState.totalPages > 0 &&
     settledPages >= fileState.totalPages;
+
+  // 업로드 응답을 받은 뒤 SSE가 붙기까지는 isUploading·isStreaming이 둘 다 false인
+  // 짧은 구간이 있다. 그 사이 결과 패널이 "결과가 없습니다"로 떨어졌다가 변환이 끝나야
+  // 결과로 바뀌어, 실패한 것처럼 보였다 (QA "파일 업로드 시 결과가 없습니다 뜨다…").
+  // jobId가 있는 동안은 변환이 진행 중인 것으로 본다.
+  const isConverting =
+    isUploading || isStreaming || (!!jobId && !isConversionComplete);
 
   const snapshot: SyncSnapshot = useMemo(
     () => ({
@@ -1110,19 +1153,31 @@ const BrailleMate: React.FC = () => {
         auth.token,
       );
       const ext = activeTab === TABS.OCR ? '.txt' : '.brf';
-      saveBlob(blob, served ?? `${fileName}${ext}`);
+      const saved = await saveBlob(blob, served ?? `${fileName}${ext}`);
+      if (saved) setToast(`저장했습니다 — ${saved}`);
     },
     [workingJobId, auth.token, editor, activeTab],
   );
 
   const tabs = TAB_VALUES;
 
+  // 각 탭에서 작업 중인 문서명. 현재 탭은 화면 상태에서, 나머지 탭은 보관된 스냅샷에서
+  // 읽는다. 좌측 원본만 보고는 어떤 파일을 다루는지 알 수 없었고, 다른 탭에 무엇이
+  // 열려 있는지도 알 방법이 없었다 (QA "현재 각 탭에서 작업 중인 문서명 UI에 표기").
+  const currentDocName = fileState.file?.name ?? originalFileName;
+  const docNameOf = (tab: ConversionTab): string | null => {
+    if (tab === activeTab) return currentDocName;
+    const saved = tabSnapshots[tab];
+    return saved?.fileState.file?.name ?? saved?.originalFileName ?? null;
+  };
+
   // 호환성이 깨지는 패치는 업데이트 외의 모든 조작을 막는다 (자동 업데이트 D-1).
   if (!isPopup && appVersion.forceUpdate) {
     return (
       <ForceUpdateGate
         latestVersion={appVersion.latestVersion}
-        onRelaunch={() => void appVersion.relaunchNow()}
+        busy={appVersion.isInstalling}
+        onInstall={() => void appVersion.installNow()}
       />
     );
   }
@@ -1141,11 +1196,14 @@ const BrailleMate: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#F0F4F8] flex flex-col font-sans text-gray-800 antialiased transition-colors duration-500">
-      <header className="max-w-6xl mx-auto pt-12 px-6 w-full">
-        <div className="flex items-center justify-between mb-3 -ml-15">
+      {/* 좌우 여백이 넓어 32칸 판면이 결과 패널에 다 들어가지 못하고 가로 스크롤이
+          생겼다(QA "화면 크기 조정"). 컨테이너 폭·패딩·패널 간격을 줄이고 결과 패널
+          비중을 키워, 기본 창 크기에서는 확대 없이 32칸이 그대로 들어가게 한다. */}
+      <header className="max-w-[1560px] mx-auto pt-8 px-4 w-full">
+        <div className="flex items-center justify-between mb-3">
           <img
-            src={'BrailleMate_Logo.png'}
-            alt="Logo"
+            src={'semojum-wordmark.png'}
+            alt="세모점"
             className="w-50 object-contain"
           />
           <div className="flex items-center gap-2">
@@ -1202,6 +1260,7 @@ const BrailleMate: React.FC = () => {
               <button
                 key={tab}
                 onClick={() => handleTabChange(tab)}
+                title={docNameOf(tab) ?? undefined}
                 className={`pb-4 text-lg font-semibold transition-all relative ${
                   activeTab === tab
                     ? 'text-[#407FAC]'
@@ -1209,6 +1268,9 @@ const BrailleMate: React.FC = () => {
                 }`}
               >
                 {TAB_LABEL[tab]}
+                <span className="block max-w-[170px] truncate text-left text-[11px] font-normal text-gray-400">
+                  {docNameOf(tab) ?? ' '}
+                </span>
                 {activeTab === tab && (
                   <motion.div
                     layoutId="activeTab"
@@ -1262,11 +1324,11 @@ const BrailleMate: React.FC = () => {
         )}
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-12 flex flex-col items-center w-full">
+      <main className="max-w-[1560px] mx-auto px-4 py-6 flex flex-col items-center w-full">
         <div
           className={
             panelMode === 'both'
-              ? 'w-full flex flex-col md:flex-row items-stretch gap-8 mb-4'
+              ? 'w-full flex flex-col md:flex-row items-stretch gap-6 mb-4'
               : 'w-full flex flex-col items-stretch mb-4'
           }
         >
@@ -1277,10 +1339,22 @@ const BrailleMate: React.FC = () => {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-[2.5rem] p-8 shadow-xl border border-white/10 h-150 flex flex-col"
+                className="bg-white rounded-[2rem] p-6 shadow-xl border border-white/10 h-150 flex flex-col"
               >
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-xl font-bold text-gray-800">원본 파일</h2>
+                <div className="flex justify-between items-center mb-4 gap-3">
+                  <div className="min-w-0">
+                    <h2 className="text-xl font-bold text-gray-800">
+                      원본 파일
+                    </h2>
+                    {currentDocName && (
+                      <p
+                        title={currentDocName}
+                        className="mt-0.5 truncate text-xs text-gray-400"
+                      >
+                        {currentDocName}
+                      </p>
+                    )}
+                  </div>
                   {hasInputPreview && (
                     <button
                       title="이 작업 비우기"
@@ -1341,8 +1415,8 @@ const BrailleMate: React.FC = () => {
                           {/* 지침 1장 2절 2-1에 따라 페이지행은 홀수 면에만 들어간다.
                               "판면 마지막 줄"이라고만 쓰면 매 면마다 들어갈 것처럼 읽힌다. */}
                           <p className="mt-1 text-left text-[11px] leading-snug text-gray-400">
-                            홀수 면 마지막 줄에 원본 쪽번호·꼬리말·점자 면 번호가
-                            들어갑니다. 업로드 후에는 바꿀 수 없습니다.
+                            홀수 면 마지막 줄에 원본 쪽번호·꼬리말·점자 면
+                            번호가 들어갑니다. 업로드 후에는 바꿀 수 없습니다.
                           </p>
 
                           <label className="mt-2 block border-t border-gray-100 pt-2 text-left text-gray-500">
@@ -1411,14 +1485,14 @@ const BrailleMate: React.FC = () => {
           {panelMode !== 'input-only' && (
             <section
               className={
-                panelMode === 'both' ? 'flex-1 md:flex-[1.4] min-w-0' : 'w-full'
+                panelMode === 'both' ? 'flex-1 md:flex-[1.5] min-w-0' : 'w-full'
               }
             >
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 }}
-                className="bg-white rounded-[2.5rem] p-8 shadow-xl border border-white/10 h-[600px] flex flex-col"
+                className="bg-white rounded-[2rem] p-6 shadow-xl border border-white/10 h-[600px] flex flex-col"
               >
                 <div className="flex justify-between items-center mb-6">
                   <div className="flex items-baseline gap-3">
@@ -1520,6 +1594,111 @@ const BrailleMate: React.FC = () => {
                   </div>
                 )}
 
+                {/* 블록 도구 — 우클릭 메뉴와 같은 동작을 버튼으로도 제공한다.
+                    대상은 커서가 놓인 줄의 블록이다 (QA "블록 관련 버튼 생성" ·
+                    "대체 텍스트 버튼 생성"). */}
+                {gridRows.length > 0 && (
+                  <div className="mb-2 flex items-center gap-1 border-b border-gray-100 pb-2">
+                    <button
+                      type="button"
+                      disabled={caretBlockIndex === -1}
+                      title={
+                        caretSource
+                          ? '커서가 있는 블록 앞에 빈 블록을 넣습니다'
+                          : '판면에서 줄을 먼저 선택해 주세요'
+                      }
+                      onClick={() =>
+                        caretSource &&
+                        dispatchAction({
+                          type: 'addBlock',
+                          page: caretSource.pageNo,
+                          index: caretBlockIndex,
+                        })
+                      }
+                      className={blockToolCls}
+                    >
+                      <Plus size={13} /> 블록 추가
+                    </button>
+                    <button
+                      type="button"
+                      disabled={caretBlockIndex <= 0}
+                      title="블록을 위로 옮깁니다"
+                      onClick={() =>
+                        caretSource &&
+                        dispatchAction({
+                          type: 'moveBlock',
+                          page: caretSource.pageNo,
+                          id: caretSource.blockId,
+                          delta: -1,
+                        })
+                      }
+                      className={blockToolCls}
+                    >
+                      <ArrowUp size={13} /> 위로
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        caretBlockIndex === -1 ||
+                        caretBlockIndex >= caretBlocks.length - 1
+                      }
+                      title="블록을 아래로 옮깁니다"
+                      onClick={() =>
+                        caretSource &&
+                        dispatchAction({
+                          type: 'moveBlock',
+                          page: caretSource.pageNo,
+                          id: caretSource.blockId,
+                          delta: 1,
+                        })
+                      }
+                      className={blockToolCls}
+                    >
+                      <ArrowDown size={13} /> 아래로
+                    </button>
+                    <button
+                      type="button"
+                      disabled={caretBlockIndex === -1}
+                      title="이 블록을 지웁니다 (Ctrl+Z로 되돌릴 수 있습니다)"
+                      onClick={() =>
+                        caretSource &&
+                        dispatchAction({
+                          type: 'removeBlock',
+                          page: caretSource.pageNo,
+                          id: caretSource.blockId,
+                        })
+                      }
+                      className={`${blockToolCls} text-[#ff3b30] hover:bg-red-50 hover:text-[#ff3b30]`}
+                    >
+                      <Trash2 size={13} /> 블록 삭제
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={!caretSource?.hasDrafts}
+                      title={
+                        caretSource?.hasDrafts
+                          ? 'AI가 만든 다른 표현(대체 텍스트)을 골라 넣습니다'
+                          : '이 블록에는 대체 텍스트가 없습니다'
+                      }
+                      onClick={() =>
+                        caretSource &&
+                        setDraftTarget({
+                          pageNo: caretSource.pageNo,
+                          blockId: caretSource.blockId,
+                        })
+                      }
+                      className={`ml-auto flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                        caretSource?.hasDrafts
+                          ? 'border-[#f47726]/40 bg-[#fdf0e6] text-[#c25a12] hover:bg-[#fbe4d3]'
+                          : 'border-gray-200 text-gray-400'
+                      }`}
+                    >
+                      <Layers size={13} /> 대체 텍스트
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex-1 overflow-hidden pr-1">
                   {uploadError ? (
                     <div className="h-full flex flex-col items-center justify-center text-red-500 space-y-2">
@@ -1531,7 +1710,7 @@ const BrailleMate: React.FC = () => {
                       <Loader2 className="w-10 h-10 text-[#407FAC] animate-spin" />
                       <p className="font-medium text-gray-500">전송 중...</p>
                     </div>
-                  ) : isStreaming && gridRows.length === 0 ? (
+                  ) : isConverting && gridRows.length === 0 ? (
                     // 결과 격자는 원본 페이지 경계와 무관하게 이어지므로, 한 페이지라도
                     // 도착하면 그것을 보여준다. 예전에는 "현재 페이지 블록이 비었는가"로
                     // 판단해서, 이미 끝난 페이지를 보고 있어도 아직 안 온 페이지로 넘기면
@@ -1662,7 +1841,11 @@ const BrailleMate: React.FC = () => {
                 title: line.hasDrafts
                   ? undefined
                   : '이 블록에는 대체 초안이 없습니다',
-                onSelect: () => setDraftBlockId(line.blockId),
+                onSelect: () =>
+                  setDraftTarget({
+                    pageNo: line.pageNo,
+                    blockId: line.blockId,
+                  }),
               },
               {
                 label: '블록 삭제',
@@ -1683,7 +1866,7 @@ const BrailleMate: React.FC = () => {
       {draftBlock && (
         <CandidateModal
           isOpen
-          onClose={() => setDraftBlockId(null)}
+          onClose={() => setDraftTarget(null)}
           candidates={draftBlock.block.candidates}
           drafts={draftBlock.block.drafts}
           currentText={draftBlock.block.currentText}
@@ -1729,10 +1912,11 @@ const BrailleMate: React.FC = () => {
         </div>
       )}
 
-      {!isPopup && appVersion.pendingInstall && (
+      {!isPopup && appVersion.updateAvailable && (
         <UpdateReadyToast
-          version={appVersion.installedVersion}
-          onRelaunch={() => void appVersion.relaunchNow()}
+          version={appVersion.availableVersion}
+          busy={appVersion.isInstalling}
+          onInstall={() => void appVersion.installNow()}
           onDismiss={appVersion.dismissToast}
         />
       )}

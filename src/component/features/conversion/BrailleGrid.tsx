@@ -6,7 +6,12 @@ import React, {
   useState,
 } from 'react';
 import { ConversionTab, TABS } from '../../../types';
-import { deleteAt, deleteBefore, insertAt, toCells } from '../../../utils/brailleGrid';
+import {
+  deleteAt,
+  deleteBefore,
+  insertAt,
+  toCells,
+} from '../../../utils/brailleGrid';
 import {
   CELLS_PER_ROW,
   flattenRows,
@@ -38,6 +43,38 @@ export interface GridCaret {
   rowIndex: number;
   cell: number;
 }
+
+// AI가 시각 요소 설명을 감싸 보내는 점역자주 태그. 본문에 그대로 실려 오고,
+// FE가 벗기면 다운로드 파일과 어긋나므로 지우지 않고 흐리게만 그린다
+// (QA "mode a 우측의 점자 태깅 회색 글자 처리" — 가독성).
+const TN_TAGS = ['<!점역자주>', '<!/점역자주>'];
+
+// 본문 행을 순서대로 이어 읽으며 태그가 차지하는 칸을 표시한다.
+// 태그가 32칸 경계에서 잘려 다음 행으로 넘어가도 이어서 잡힌다.
+const buildTagMask = (rows: LayoutRow[]): boolean[][] => {
+  const mask = rows.map((r) => [...r.text].map(() => false));
+  const coords: Array<[number, number]> = [];
+  const chars: string[] = [];
+  rows.forEach((row, rowIdx) => {
+    if (row.kind !== 'body') return;
+    [...row.text].forEach((ch, cellIdx) => {
+      coords.push([rowIdx, cellIdx]);
+      chars.push(ch);
+    });
+  });
+  // 코드포인트 배열 위에서 직접 찾는다 — 인덱스가 곧 칸 번호라 좌표가 어긋나지 않는다.
+  const tags = TN_TAGS.map((t) => [...t]);
+  for (let i = 0; i < chars.length; i += 1) {
+    const hit = tags.find((tag) => tag.every((ch, k) => chars[i + k] === ch));
+    if (!hit) continue;
+    for (let k = 0; k < hit.length; k += 1) {
+      const [rowIdx, cellIdx] = coords[i + k];
+      mask[rowIdx][cellIdx] = true;
+    }
+    i += hit.length - 1;
+  }
+  return mask;
+};
 
 interface Props {
   pages: LayoutPage[];
@@ -74,6 +111,8 @@ const BrailleGrid: React.FC<Props> = ({
 
   const isBraille = mode !== TABS.OCR;
   const rows = useMemo(() => flattenRows(pages), [pages]);
+  // 점역자주 태그가 놓인 칸 — 회색으로 흐리게 그린다.
+  const tagMask = useMemo(() => buildTagMask(rows), [rows]);
   // 각 면의 첫 행이 전체에서 몇 번째인지 — 행 번호와 커서는 전체 기준으로 센다.
   const pageStarts = useMemo(() => {
     let acc = 0;
@@ -257,6 +296,21 @@ const BrailleGrid: React.FC<Props> = ({
     moveCaret(caret.rowIndex, caret.cell + 1);
   };
 
+  // 비제어 input이라 조합이 끝나지 않은 사이에도 값이 남는다. 조합 중이 아닌 입력
+  // (붙여넣기 등 keydown을 거치지 않는 경로)만 여기서 받아 격자에 넣고 input을 비운다.
+  const handleInput = (e: React.FormEvent<HTMLInputElement>) => {
+    // 조합 중에는 건드리지 않는다 — compositionend가 처리한다.
+    // (브라우저마다 마지막 input과 compositionend의 순서가 달라 양쪽으로 막는다.)
+    if (isComposing || (e.nativeEvent as InputEvent).isComposing) return;
+    const el = e.currentTarget;
+    const value = el.value;
+    el.value = '';
+    if (!value || !caret || !caretRow) return;
+    if (isBraille) return; // 점자 모드는 6점 키 조합만 받는다
+    applyText(insertAt(caretRow.text, caret.cell, value));
+    moveCaret(caret.rowIndex, caret.cell + [...value].length);
+  };
+
   const handleCompositionEnd = (
     e: React.CompositionEvent<HTMLInputElement>,
   ) => {
@@ -275,6 +329,8 @@ const BrailleGrid: React.FC<Props> = ({
     row: LayoutRow,
     selected: boolean,
     isCaret: boolean,
+    highlighted: boolean,
+    dimmed: boolean,
   ): string =>
     [
       'flex h-[19px] w-[19px] shrink-0 items-center justify-center border-r border-b text-[13px] leading-none',
@@ -286,9 +342,18 @@ const BrailleGrid: React.FC<Props> = ({
           : row.kind === 'fixed'
             ? // 변경선·페이지행은 조판이 만든 줄이라 고칠 수 없다 — 눌러서 구분되게 한다.
               'bg-[#f2f5fa] text-gray-400'
-            : row.source?.isBlocked
-              ? 'bg-amber-50'
-              : 'bg-white',
+            : // 디자인 V3/BlockCard의 세 상태를 격자에 옮긴 것.
+              //  review(검토 필요) — 크림 배경 + 주황 테두리 (테두리는 행 단위로 그린다)
+              //  selected(원본 대조) — 연한 주황 배경. 디자인은 주황 테두리지만 그 뜻이
+              //    전달되지 않아 배경색으로 바꿨다 (QA "AI 생성 블록 표기 방식 변경").
+              //    review와 헷갈리지 않도록 크림(노랑기)과 주황기로 색을 갈라 둔다.
+              row.source?.isBlocked
+              ? 'bg-[#fdf8e3]'
+              : highlighted
+                ? 'bg-[#fbe4d3]'
+                : 'bg-white',
+      // 점역자주 태그는 본문에 남겨 두되 흐리게 그려 읽기를 방해하지 않게 한다.
+      dimmed && !isCaret ? 'text-[#c8ccd4]' : '',
     ].join(' ');
 
   return (
@@ -297,12 +362,16 @@ const BrailleGrid: React.FC<Props> = ({
       onScroll={handleScroll}
       className="custom-scrollbar h-full overflow-auto bg-[#fafcff]"
     >
-      {/* 실제 키 입력을 받는 숨은 input — 한글 IME 조합을 위해 진짜 입력 요소가 필요하다. */}
+      {/* 실제 키 입력을 받는 숨은 input — 한글 IME 조합을 위해 진짜 입력 요소가 필요하다.
+          value를 ''로 고정한 제어 컴포넌트로 두면 안 된다: 조합 중에도 React가 매 렌더마다
+          값을 ''로 되돌려 IME 조합 버퍼가 끊긴다(영문은 keydown에서 직접 넣어 멀쩡했고
+          한글만 입력되지 않았다 — QA "mode a 우측 한글 입력 안됨").
+          비제어로 두고 조합이 끝난 뒤 handleCompositionEnd가 직접 비운다. */}
       <input
         ref={inputRef}
         aria-label="점자 판면 편집"
-        value=""
-        onChange={() => undefined}
+        defaultValue=""
+        onInput={handleInput}
         onKeyDown={handleKeyDown}
         onKeyUp={handleKeyUp}
         onCompositionStart={() => setIsComposing(true)}
@@ -314,7 +383,7 @@ const BrailleGrid: React.FC<Props> = ({
         // w-max: 면의 폭은 패널이 아니라 32칸 내용이 정한다. 예전에는 행이 패널 폭에
         // 맞춰지고 칸은 그 밖으로 넘쳐서, 블록 강조 테두리가 32칸까지 가지 못하고
         // 31칸 언저리에서 잘렸다. 패널이 좁으면 가로로 스크롤한다.
-        <div key={page.braillePage} className="mb-5 w-max px-3 pt-2">
+        <div key={page.braillePage} className="mb-5 w-max px-2 pt-2">
           {/* 칸 눈금 */}
           <div className="mb-0.5 flex w-max pl-[26px] text-[9px] text-gray-400">
             {Array.from({ length: CELLS_PER_ROW }, (_, i) => (
@@ -331,14 +400,14 @@ const BrailleGrid: React.FC<Props> = ({
               const isSelected = caret?.rowIndex === rowIndex && editable;
               const isHighlighted =
                 !!highlightBlockId && row.source?.blockId === highlightBlockId;
-              // 한 블록이 여러 줄이면 줄마다 테두리를 그리지 않고 한 덩어리로 감싼다.
-              const isBlockTop =
-                isHighlighted &&
-                rows[rowIndex - 1]?.source?.blockId !== row.source?.blockId;
-              const isBlockBottom =
-                isHighlighted &&
-                rows[rowIndex + 1]?.source?.blockId !== row.source?.blockId;
               const cells = toCells(row.text);
+              const dimMaskRow = tagMask[rowIndex] ?? [];
+              // 검토 필요(review) 블록은 디자인대로 주황 테두리로 감싼다 —
+              // 배경색만으로 알리는 선택(대조) 상태와 섞이지 않게 하는 구분이기도 하다.
+              // 한 블록이 여러 줄이면 줄마다 그리지 않고 한 덩어리로 두른다.
+              const isReview = !!row.source?.isBlocked;
+              const sameBlock = (other?: LayoutRow) =>
+                other?.source?.blockId === row.source?.blockId;
 
               return (
                 <div
@@ -348,11 +417,15 @@ const BrailleGrid: React.FC<Props> = ({
                   }}
                   className={[
                     'flex',
-                    isHighlighted
-                      ? 'border-x-2 border-[#f47726] bg-[#f47726]/[0.04]'
+                    isReview
+                      ? 'border-x-2 border-[#f47726]'
                       : 'border-x-2 border-transparent',
-                    isBlockTop ? 'border-t-2 border-t-[#f47726]' : '',
-                    isBlockBottom ? 'border-b-2 border-b-[#f47726]' : '',
+                    isReview && !sameBlock(rows[rowIndex - 1])
+                      ? 'border-t-2 border-t-[#f47726]'
+                      : '',
+                    isReview && !sameBlock(rows[rowIndex + 1])
+                      ? 'border-b-2 border-b-[#f47726]'
+                      : '',
                   ].join(' ')}
                 >
                   {/* 대체 초안이 있는 블록은 줄번호 옆에 점을 찍는다 — 진입점이
@@ -366,7 +439,10 @@ const BrailleGrid: React.FC<Props> = ({
                     className="flex h-[19px] w-[26px] shrink-0 items-center justify-end gap-0.5 pr-1.5 text-[9px] text-gray-400"
                   >
                     {row.source?.hasDrafts && (
-                      <span aria-label="대체 초안 있음" className="text-[#f47726]">
+                      <span
+                        aria-label="대체 초안 있음"
+                        className="text-[#f47726]"
+                      >
                         •
                       </span>
                     )}
@@ -391,6 +467,8 @@ const BrailleGrid: React.FC<Props> = ({
                         row,
                         isSelected,
                         isSelected && caret?.cell === cellIdx,
+                        isHighlighted,
+                        dimMaskRow[cellIdx] === true,
                       )}
                     >
                       {ch}

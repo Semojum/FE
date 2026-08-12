@@ -1,6 +1,7 @@
 {
-  "productName": "BrailleMate",
-  "version": "3.0.1",
+  "productName": "세모점",
+  "mainBinaryName": "semojum",
+  "version": "3.0.2",
   "identifier": "com.braillemate.app",
   "build": {
     "beforeDevCommand": "bun run dev",
@@ -12,11 +13,11 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "BrailleMate",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 800,
-        "minHeight": 600,
+        "title": "세모점",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 640,
         "resizable": true,
         "fullscreen": false,
         "dragDropEnabled": false

@@ -44,8 +44,28 @@ export const onAppClose = (handler: () => Promise<void>): (() => void) => {
         // 저장에 실패해도 창은 닫아 준다 — 종료를 막는 것이 더 나쁘다.
         console.warn('종료 전 저장 실패', e);
       }
-      // destroy는 close-requested를 다시 발생시키지 않으므로 순환하지 않는다.
-      await appWindow.destroy();
+      // 결과 전용 창(반으로 나누기)이 열려 있으면 메인만 없애도 프로세스가 남아
+      // 앱이 종료되지 않는다. 남은 창을 먼저 정리한다.
+      try {
+        const { getAllWindows } = await import('@tauri-apps/api/window');
+        const others = (await getAllWindows()).filter(
+          (w) => w.label !== appWindow.label,
+        );
+        await Promise.all(
+          others.map((w) => w.destroy().catch(() => undefined)),
+        );
+      } catch (e) {
+        console.warn('보조 창 정리 실패', e);
+      }
+      try {
+        // destroy는 close-requested를 다시 발생시키지 않으므로 순환하지 않는다.
+        await appWindow.destroy();
+      } catch (e) {
+        // destroy가 막히면(권한 누락 등) 창이 영영 닫히지 않는다 — 프로세스를 직접 끝낸다.
+        console.warn('창 destroy 실패 — 프로세스 종료로 대체', e);
+        const { exit } = await import('@tauri-apps/plugin-process');
+        await exit(0);
+      }
     });
     if (disposed) stop();
     else unlisten = stop;

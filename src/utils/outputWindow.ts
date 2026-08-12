@@ -47,7 +47,7 @@ export const openOutputWindow =
 
     const win = new WebviewWindow(OUTPUT_LABEL, {
       url,
-      title: 'BrailleMate — 결과',
+      title: '세모점 — 결과',
       width: 900,
       height: 900,
       resizable: true,

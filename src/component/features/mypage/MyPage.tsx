@@ -190,7 +190,8 @@ const MyPage: React.FC<Props> = ({
           undefined,
           token,
         );
-        saveBlob(blob, fileName ?? file.originalFileName);
+        const saved = await saveBlob(blob, fileName ?? file.originalFileName);
+        if (saved) onToast(`저장했습니다 — ${saved}`);
       } catch (err) {
         onToast(toUserMessage(err, '다운로드하지 못했습니다.'));
       }

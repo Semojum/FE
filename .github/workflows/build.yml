@@ -53,7 +53,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: BrailleMate ${{ github.ref_name }}
+          releaseName: 세모점 ${{ github.ref_name }}
           releaseDraft: true
           includeUpdaterJson: true
           args: --target ${{ env.TARGET }}
@@ -73,7 +73,7 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
-          name: BrailleMate-windows
+          name: semojum-windows
           path: |
             src-tauri/target/${{ env.TARGET }}/release/bundle/**/*.msi*
             src-tauri/target/${{ env.TARGET }}/release/bundle/**/*.exe

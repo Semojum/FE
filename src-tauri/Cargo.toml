@@ -1,6 +1,6 @@
 [package]
 name = "braillemate"
-version = "3.0.1"
+version = "3.0.2"
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -16,6 +16,9 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-http = "2"
 tauri-plugin-process = "2"
+# 다운로드 저장 위치 선택 — 저장 대화상자로 고른 경로에만 쓴다.
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

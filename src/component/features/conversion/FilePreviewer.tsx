@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useRef } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import {
   BoundingBox,
@@ -38,6 +38,21 @@ const FilePreviewer: React.FC<Props> = memo(
     const { previewUrl, fileType, currentPage, textContent, isRestoredPages } =
       state;
     const activeTextRef = useRef<HTMLDivElement>(null);
+    // PDF 페이지 폭은 패널 폭에 맞춘다. 예전에는 500px 고정이라 패널이 그보다 좁으면
+    // 가운데 정렬된 페이지의 좌우가 잘려 나갔다(문제 번호가 안 보였다 — QA "mode A 좌측
+    // 원본 잘려서 보임"). 넓을 때는 여백을 남기지 않고 더 크게 그린다.
+    const viewportRef = useRef<HTMLDivElement>(null);
+    const [pageWidth, setPageWidth] = useState(0);
+
+    useEffect(() => {
+      const el = viewportRef.current;
+      if (!el) return;
+      const measure = () => setPageWidth(el.clientWidth);
+      measure();
+      const ro = new ResizeObserver(measure);
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, [previewUrl, fileType]);
 
     // 선택된 텍스트 블록으로 스크롤 이동
     useEffect(() => {
@@ -92,8 +107,11 @@ const FilePreviewer: React.FC<Props> = memo(
 
     return (
       <div className="w-full h-full flex flex-col bg-gray-50 rounded-2xl overflow-hidden relative">
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-2 flex justify-center items-start">
-          <div className="relative inline-block shadow-sm rounded-lg bg-white">
+        <div
+          ref={viewportRef}
+          className="flex-1 overflow-y-auto custom-scrollbar p-2 flex justify-center items-start"
+        >
+          <div className="relative inline-block max-w-full shadow-sm rounded-lg bg-white">
             {fileType === 'image' ? (
               <img
                 src={previewUrl}
@@ -112,7 +130,8 @@ const FilePreviewer: React.FC<Props> = memo(
               >
                 <Page
                   pageNumber={isRestoredPages ? 1 : currentPage}
-                  width={500}
+                  // p-2(8px×2)를 뺀 실제 그릴 수 있는 폭. 아직 측정 전이면 종전 값(500).
+                  width={pageWidth > 0 ? Math.max(240, pageWidth - 16) : 500}
                   renderTextLayer={false}
                   renderAnnotationLayer={false}
                 />
