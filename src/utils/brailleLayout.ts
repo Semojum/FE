@@ -31,10 +31,6 @@ export interface RowSource {
   offset: number;
   isBlocked?: boolean;
   hasDrafts?: boolean;
-  // 시각 요소 설명(점역자주) 블록 — 본문이 아니라 주석이라 흐리게 그린다.
-  // 초안 생성(a)은 본문에 <!점역자주> 래퍼가 그대로 실려 와 글자로도 찾을 수 있지만,
-  // 점역 모드(b·c)는 본문이 점자라 문자열로는 못 찾는다. 모드와 무관한 tn_text로 가른다.
-  isTnNote?: boolean;
 }
 
 // 판면의 한 행.
@@ -99,7 +95,6 @@ const flattenLogicalLines = (
           text,
           isBlocked: block.isBlocked,
           hasDrafts: (block.drafts?.length ?? 0) > 0,
-          isTnNote: (block.tnText?.length ?? 0) > 0,
         });
       });
     }

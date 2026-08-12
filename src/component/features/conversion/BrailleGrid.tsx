@@ -44,29 +44,21 @@ export interface GridCaret {
   cell: number;
 }
 
-// 점역자주(시각 요소 설명)는 본문이 아니라 주석이라 **글자색만** 흐리게 그린다.
-// 칸 배경은 건드리지 않는다 — 배경을 칠하면 선택·검토 상태 표시와 섞인다.
+// `<!…>` 꼴 표식(`<!점역자주>`, `<!/점역자주>`, `<!표>` …)은 **표식 자체만**
+// 글자색을 흐리게 그린다. 안쪽 내용은 본문이므로 그대로 두고, 칸 배경도 건드리지
+// 않는다 — 배경을 칠하면 선택(대조)·검토 필요 표시와 섞인다.
 // 지우지 않는 이유: FE가 벗기면 다운로드 파일과 어긋난다(BE·AI 몫).
 // (QA "mode a 우측의 점자 태깅 회색 글자 처리" — 가독성)
 //
-// 찾는 방법이 세 가지다. 모드마다 본문에 실려 오는 모양이 달라서다.
-//  1) tn_text가 있는 블록 전체 — 모드와 무관하다. 점역 모드(b·c)는 본문이 점자라
-//     아래 문자열 검색이 걸리지 않으므로 이쪽이 유일한 단서다.
-//  2) 본문에 그대로 실려 오는 <!점역자주>…<!/점역자주> 래퍼 — 초안 생성(a)에서
-//     한 블록 안에 본문과 주석이 섞여 있을 때 안쪽 설명까지 통째로 집어낸다.
-//  3) 그 밖의 <!…> 꼴 표식 — 종류를 가리지 않고 표식 자체를 흐린다.
-//     AI가 어떤 표식을 더 붙일지 목록으로 못 박을 수 없으므로 모양으로 찾는다.
-const TN_TAGS = ['<!점역자주>', '<!/점역자주>'];
-
-// <!…> 한 개가 차지할 수 있는 최대 길이. 여는 <! 뒤에 닫는 >가 이 안에 없으면
+// 어떤 표식이 더 생길지 목록으로 못 박을 수 없으므로 종류가 아니라 모양으로 찾는다.
+// 모드를 가리지 않는다 — 본문에 이 모양이 실려 오면 어느 모드든 흐려진다.
+//
+// <!…> 한 개가 차지할 수 있는 최대 길이. 여는 `<!` 뒤에 닫는 `>`가 이 안에 없으면
 // 표식이 아니라 우연히 나온 글자로 본다 — 판면이 통째로 회색이 되는 쪽이 더 나쁘다.
 const MAX_TAG_LEN = 40;
 
-// 본문 행을 순서대로 이어 읽으며 점역자주가 차지하는 칸을 표시한다.
-// 여는 태그부터 닫는 태그까지 **안쪽 설명 글까지 통째로** 흐려진다 — 점역자주는
-// 본문이 아니라 시각 요소 설명이라, 태그 기호만 흐리면 읽는 데 걸리는 건 그대로였다.
-// 태그가 32칸 경계에서 잘려 다음 행으로 넘어가도 이어서 잡힌다. 닫는 태그가 없으면
-// 그 블록 끝까지만 흐린다 — 응답이 깨졌을 때 판면 전체가 회색이 되지 않게 한다.
+// 본문 행을 순서대로 이어 읽으며 표식이 차지하는 칸을 표시한다.
+// 표식이 32칸 경계에서 잘려 다음 행으로 넘어가도 이어서 잡힌다.
 const buildTagMask = (rows: LayoutRow[]): boolean[][] => {
   const mask = rows.map((r) => [...r.text].map(() => false));
   const coords: Array<[number, number]> = [];
@@ -74,42 +66,14 @@ const buildTagMask = (rows: LayoutRow[]): boolean[][] => {
   const blockIds: Array<string | undefined> = [];
   rows.forEach((row, rowIdx) => {
     if (row.kind !== 'body') return;
-    // ① tn_text가 달린 블록은 줄 전체가 주석이다 (모든 모드 공통).
-    const isNote = row.source?.isTnNote === true;
     [...row.text].forEach((ch, cellIdx) => {
-      if (isNote) mask[rowIdx][cellIdx] = true;
       coords.push([rowIdx, cellIdx]);
       chars.push(ch);
       blockIds.push(row.source?.blockId);
     });
   });
 
-  // ② 본문에 섞여 들어온 래퍼 구간.
   // 코드포인트 배열 위에서 직접 찾는다 — 인덱스가 곧 칸 번호라 좌표가 어긋나지 않는다.
-  const [open, close] = TN_TAGS.map((t) => [...t]);
-  const matchAt = (tag: string[], at: number) =>
-    tag.every((ch, k) => chars[at + k] === ch);
-  const dim = (at: number) => {
-    const [rowIdx, cellIdx] = coords[at];
-    mask[rowIdx][cellIdx] = true;
-  };
-
-  for (let i = 0; i < chars.length; i += 1) {
-    if (!matchAt(open, i)) continue;
-    const block = blockIds[i];
-    let j = i;
-    for (; j < chars.length && blockIds[j] === block; j += 1) {
-      if (matchAt(close, j)) {
-        for (let k = 0; k < close.length; k += 1) dim(j + k);
-        j += close.length;
-        break;
-      }
-      dim(j);
-    }
-    i = j - 1;
-  }
-
-  // ③ 남은 <!…> 표식 — 종류를 가리지 않고 표식 자체를 흐린다.
   for (let i = 0; i < chars.length; i += 1) {
     if (chars[i] !== '<' || chars[i + 1] !== '!') continue;
     const block = blockIds[i];
@@ -122,7 +86,10 @@ const buildTagMask = (rows: LayoutRow[]): boolean[][] => {
       }
     }
     if (end === -1) continue; // 닫히지 않았으면 표식으로 보지 않는다
-    for (let k = i; k <= end; k += 1) dim(k);
+    for (let k = i; k <= end; k += 1) {
+      const [rowIdx, cellIdx] = coords[k];
+      mask[rowIdx][cellIdx] = true;
+    }
     i = end;
   }
   return mask;

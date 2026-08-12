@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import BrailleGrid, { GridCaret } from '../conversion/BrailleGrid';
-import { buildLayout, CELLS_PER_ROW } from '../../../utils/brailleLayout';
+import { buildLayout } from '../../../utils/brailleLayout';
 import { ConversionTab, TABS, TranslationBlock } from '../../../types';
 
 // 격자 편집 — 점자 모드에서 묵자가 섞여 들어가던 문제(QA 2026-08-09)와
@@ -139,61 +139,23 @@ describe('BrailleGrid', () => {
     expect(onEditRow.mock.calls[0][1]).toContain('가');
   });
 
-  // 점역자주는 본문에 남기되(다운로드 파일과 어긋나면 안 된다) 태그부터 설명 글까지
-  // 통째로 흐리게 그린다 — 시각 요소 설명이라 읽는 데 걸리면 안 된다.
-  it('점역자주는 태그와 안쪽 설명까지 회색으로 그린다', () => {
-    const tagged: Record<number, TranslationBlock[]> = {
-      1: [
-        {
-          id: 'b1',
-          currentText: '본문<!점역자주>그림<!/점역자주>끝',
-          candidates: [],
-        },
-      ],
-    };
-    render(
-      <BrailleGrid
-        pages={buildLayout(tagged, false)}
-        mode={TABS.OCR}
-        caret={null}
-        highlightBlockId={null}
-        onCaretChange={() => undefined}
-        onEditRow={() => undefined}
-        onContextMenu={() => undefined}
-      />,
-    );
-    const cells = screen.getAllByRole('gridcell');
-    const dim = 'text-[#c8ccd4]';
-    // 본문 "본문" 2칸(0~1) → 그대로
-    expect(cells[0].className).not.toContain(dim);
-    expect(cells[1].className).not.toContain(dim);
-    // "<!점역자주>" 7칸(2~8) + 안쪽 "그림" 2칸(9~10) + "<!/점역자주>" 8칸(11~18) → 전부 흐림
-    for (const i of [2, 8, 9, 10, 11, 18]) {
-      expect(cells[i].className, `cell ${i}`).toContain(dim);
-    }
-    // 닫힌 뒤 이어지는 본문 "끝"(19) → 다시 그대로
-    expect(cells[19].className).not.toContain(dim);
-  });
-
-  // 점역 모드(b·c)는 본문이 점자라 <!점역자주> 문자열이 없다. tn_text가 달린
-  // 블록인지로 갈라야 모든 모드에 같은 규칙이 적용된다.
-  it.each([TABS.BRAILLE, TABS.INTEGRATED, TABS.OCR])(
-    'tn_text가 있는 블록은 %s 모드에서도 흐리게 그린다',
+  // <!…> 표식은 표식 자체만 흐리게 그린다. 안쪽 내용은 본문이라 그대로 둔다.
+  // 모드를 가리지 않는다 — 본문에 이 모양이 실려 오면 어느 모드든 흐려진다.
+  it.each([TABS.OCR, TABS.BRAILLE, TABS.INTEGRATED])(
+    '%s 모드에서 <!…> 표식만 회색으로 그린다',
     (mode) => {
-      const withNote: Record<number, TranslationBlock[]> = {
+      const tagged: Record<number, TranslationBlock[]> = {
         1: [
-          { id: 'b1', currentText: '⠫⠎⠣⠝', candidates: [] },
           {
-            id: 'b2',
-            currentText: '⠛⠗⠍',
+            id: 'b1',
+            currentText: '본문<!점역자주>그림<!/점역자주>끝',
             candidates: [],
-            tnText: '그림: 사면체 ABCD',
           },
         ],
       };
       render(
         <BrailleGrid
-          pages={buildLayout(withNote, false)}
+          pages={buildLayout(tagged, false)}
           mode={mode}
           caret={null}
           highlightBlockId={null}
@@ -204,15 +166,26 @@ describe('BrailleGrid', () => {
       );
       const cells = screen.getAllByRole('gridcell');
       const dim = 'text-[#c8ccd4]';
-      // 1번째 줄(일반 블록)은 그대로, 2번째 줄(tn_text 블록)은 흐림
+      // "본문"(0~1) → 그대로
       expect(cells[0].className).not.toContain(dim);
-      expect(cells[CELLS_PER_ROW].className).toContain(dim);
-      // 배경은 건드리지 않는다 — 글자색만 흐려야 한다
-      expect(cells[CELLS_PER_ROW].className).toContain('bg-white');
+      expect(cells[1].className).not.toContain(dim);
+      // "<!점역자주>" 7칸(2~8) → 흐림
+      expect(cells[2].className).toContain(dim);
+      expect(cells[8].className).toContain(dim);
+      // 안쪽 "그림"(9~10) → 본문이므로 그대로
+      expect(cells[9].className).not.toContain(dim);
+      expect(cells[10].className).not.toContain(dim);
+      // "<!/점역자주>" 8칸(11~18) → 흐림
+      expect(cells[11].className).toContain(dim);
+      expect(cells[18].className).toContain(dim);
+      // "끝"(19) → 그대로
+      expect(cells[19].className).not.toContain(dim);
+      // 바꾸는 것은 글자색뿐 — 칸 배경은 그대로다
+      expect(cells[2].className).toContain('bg-white');
     },
   );
 
-  // 점역자주 말고도 AI가 붙이는 <!…> 표식은 종류를 가리지 않고 흐려야 한다.
+  // 종류를 가리지 않는다 — 점역자주가 아닌 표식도 같은 규칙이다.
   it('점역자주가 아닌 <!…> 표식도 흐리게 그린다', () => {
     const tagged: Record<number, TranslationBlock[]> = {
       1: [{ id: 'b1', currentText: '앞<!표>뒤', candidates: [] }],
@@ -258,35 +231,5 @@ describe('BrailleGrid', () => {
     for (const i of [0, 1, 2, 3]) {
       expect(cells[i].className, `cell ${i}`).not.toContain(dim);
     }
-  });
-
-  // 응답이 깨져 닫는 태그가 없으면 그 블록까지만 흐려야 한다 — 판면 전체가
-  // 회색이 되면 그게 더 큰 사고다.
-  it('닫는 태그가 없으면 그 블록에서 멈춘다', () => {
-    const broken: Record<number, TranslationBlock[]> = {
-      1: [
-        { id: 'b1', currentText: '<!점역자주>그림', candidates: [] },
-        { id: 'b2', currentText: '다음블록', candidates: [] },
-      ],
-    };
-    render(
-      <BrailleGrid
-        pages={buildLayout(broken, false)}
-        mode={TABS.OCR}
-        caret={null}
-        highlightBlockId={null}
-        onCaretChange={() => undefined}
-        onEditRow={() => undefined}
-        onContextMenu={() => undefined}
-      />,
-    );
-    const cells = screen.getAllByRole('gridcell');
-    const dim = 'text-[#c8ccd4]';
-    // 첫 블록 "<!점역자주>그림" 9칸(0~8)은 흐림
-    expect(cells[0].className).toContain(dim);
-    expect(cells[8].className).toContain(dim);
-    // 다음 블록은 새 줄에서 시작한다 — 흐림이 넘어가지 않아야 한다
-    const secondRowFirstCell = cells[CELLS_PER_ROW];
-    expect(secondRowFirstCell.className).not.toContain(dim);
   });
 });
