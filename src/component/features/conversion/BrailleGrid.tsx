@@ -44,9 +44,16 @@ export interface GridCaret {
   cell: number;
 }
 
-// AI가 시각 요소 설명을 감싸 보내는 점역자주 태그. 본문에 그대로 실려 오고,
-// FE가 벗기면 다운로드 파일과 어긋나므로 지우지 않고 흐리게만 그린다
-// (QA "mode a 우측의 점자 태깅 회색 글자 처리" — 가독성).
+// 점역자주(시각 요소 설명)는 본문이 아니라 주석이라 **글자색만** 흐리게 그린다.
+// 칸 배경은 건드리지 않는다 — 배경을 칠하면 선택·검토 상태 표시와 섞인다.
+// 지우지 않는 이유: FE가 벗기면 다운로드 파일과 어긋난다(BE·AI 몫).
+// (QA "mode a 우측의 점자 태깅 회색 글자 처리" — 가독성)
+//
+// 찾는 방법이 두 가지다. 모드마다 본문에 실려 오는 모양이 달라서다.
+//  1) tn_text가 있는 블록 전체 — 모드와 무관하다. 점역 모드(b·c)는 본문이 점자라
+//     아래 문자열 검색이 걸리지 않으므로 이쪽이 유일한 단서다.
+//  2) 본문에 그대로 실려 오는 <!점역자주>…<!/점역자주> 래퍼 — 초안 생성(a)에서
+//     한 블록 안에 본문과 주석이 섞여 있을 때 그 구간만 집어낸다.
 const TN_TAGS = ['<!점역자주>', '<!/점역자주>'];
 
 // 본문 행을 순서대로 이어 읽으며 점역자주가 차지하는 칸을 표시한다.
@@ -61,13 +68,17 @@ const buildTagMask = (rows: LayoutRow[]): boolean[][] => {
   const blockIds: Array<string | undefined> = [];
   rows.forEach((row, rowIdx) => {
     if (row.kind !== 'body') return;
+    // ① tn_text가 달린 블록은 줄 전체가 주석이다 (모든 모드 공통).
+    const isNote = row.source?.isTnNote === true;
     [...row.text].forEach((ch, cellIdx) => {
+      if (isNote) mask[rowIdx][cellIdx] = true;
       coords.push([rowIdx, cellIdx]);
       chars.push(ch);
       blockIds.push(row.source?.blockId);
     });
   });
 
+  // ② 본문에 섞여 들어온 래퍼 구간.
   // 코드포인트 배열 위에서 직접 찾는다 — 인덱스가 곧 칸 번호라 좌표가 어긋나지 않는다.
   const [open, close] = TN_TAGS.map((t) => [...t]);
   const matchAt = (tag: string[], at: number) =>

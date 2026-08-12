@@ -175,6 +175,43 @@ describe('BrailleGrid', () => {
     expect(cells[19].className).not.toContain(dim);
   });
 
+  // 점역 모드(b·c)는 본문이 점자라 <!점역자주> 문자열이 없다. tn_text가 달린
+  // 블록인지로 갈라야 모든 모드에 같은 규칙이 적용된다.
+  it.each([TABS.BRAILLE, TABS.INTEGRATED, TABS.OCR])(
+    'tn_text가 있는 블록은 %s 모드에서도 흐리게 그린다',
+    (mode) => {
+      const withNote: Record<number, TranslationBlock[]> = {
+        1: [
+          { id: 'b1', currentText: '⠫⠎⠣⠝', candidates: [] },
+          {
+            id: 'b2',
+            currentText: '⠛⠗⠍',
+            candidates: [],
+            tnText: '그림: 사면체 ABCD',
+          },
+        ],
+      };
+      render(
+        <BrailleGrid
+          pages={buildLayout(withNote, false)}
+          mode={mode}
+          caret={null}
+          highlightBlockId={null}
+          onCaretChange={() => undefined}
+          onEditRow={() => undefined}
+          onContextMenu={() => undefined}
+        />,
+      );
+      const cells = screen.getAllByRole('gridcell');
+      const dim = 'text-[#c8ccd4]';
+      // 1번째 줄(일반 블록)은 그대로, 2번째 줄(tn_text 블록)은 흐림
+      expect(cells[0].className).not.toContain(dim);
+      expect(cells[CELLS_PER_ROW].className).toContain(dim);
+      // 배경은 건드리지 않는다 — 글자색만 흐려야 한다
+      expect(cells[CELLS_PER_ROW].className).toContain('bg-white');
+    },
+  );
+
   // 응답이 깨져 닫는 태그가 없으면 그 블록까지만 흐려야 한다 — 판면 전체가
   // 회색이 되면 그게 더 큰 사고다.
   it('닫는 태그가 없으면 그 블록에서 멈춘다', () => {
