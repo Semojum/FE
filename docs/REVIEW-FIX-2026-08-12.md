@@ -41,6 +41,42 @@
 > ASCII로 되돌렸다. Windows 프로그램 목록에는 `Semojum`으로 보인다.
 > 한글 이름을 프로그램 목록에까지 반영하려면 MSI를 빼고 NSIS만 내거나
 > (`bundle.targets: ["nsis"]`), `bundle.windows.wix.language`를 `ko-KR`로 두고 검증해야 한다.
+
+### ⚠️ v3.0.2는 기존 설치를 덮어쓰지 않는다 (의도된 선택)
+
+`productName`이 `BrailleMate` → `Semojum`으로 바뀌면서 **두 인스톨러 모두 이전 설치를
+찾지 못한다.** 확인한 근거:
+
+- **MSI** — UpgradeCode를 productName에서 파생한다.
+  `tauri-bundler/src/bundle/windows/msi/mod.rs:619`
+  ```rust
+  let upgrade_code = …wix.upgrade_code.unwrap_or_else(|| {
+      Uuid::new_v5(&Uuid::NAMESPACE_DNS,
+          format!("{}.exe.app.x64", settings.product_name()).as_bytes())
+  });
+  ```
+  | productName | UpgradeCode |
+  | --- | --- |
+  | `BrailleMate` (≤ v3.0.1) | `d818c893-150b-54e2-a919-fba460555a74` |
+  | `Semojum` (v3.0.2~) | `8d0e7cf2-4f7e-55c0-80c4-4d9709b0d2f1` |
+
+- **NSIS** — 언인스톨 키와 기존 설치 탐지가 productName 기준이다.
+  `installer.nsi`: `!define UNINSTKEY "Software\…\Uninstall\${PRODUCTNAME}"`,
+  기존 설치는 `DisplayName`이 `${PRODUCTNAME}`과 같은지로 찾는다. 옛 설치의 DisplayName은
+  `BrailleMate`라 매칭되지 않는다.
+
+**결과.** 업데이트하면 덮어쓰기가 아니라 **나란히 설치**된다 — 프로그램 목록에
+`BrailleMate 3.0.1`과 `Semojum 3.0.2`가 함께, 설치 폴더·바로가기도 두 벌.
+사용자가 옛 바로가기로 3.0.1을 계속 실행할 수 있다.
+
+**2026-08-12에 이 여파를 알고도 이름 통일을 우선하기로 했다.**
+
+> **릴리스 노트에 반드시 넣을 것:** "이번 버전부터 앱 이름이 Semojum으로 바뀌어
+> 기존 BrailleMate와 별도로 설치됩니다. 설치 후 제어판에서 이전 **BrailleMate**를
+> 제거하고, 바탕화면·시작 메뉴의 옛 바로가기도 지워 주세요."
+
+다음에 또 이름을 바꿔야 하면 `bundle.windows.wix.upgradeCode`를 지금 값
+(`8d0e7cf2-…`)으로 **고정해 두면** 최소한 MSI 업그레이드 경로는 지킬 수 있다.
 - `src-tauri/icons/*` — `bunx tauri icon public/semojum-symbol.png`로 전부 재생성.
 - `index.html` `<title>`, `src/utils/outputWindow.ts`(결과 창 제목), `package.json` name,
   `.github/workflows/build.yml`(릴리스 이름·artifact 이름).
