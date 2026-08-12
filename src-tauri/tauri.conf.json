@@ -1,6 +1,5 @@
 {
-  "productName": "세모점",
-  "mainBinaryName": "semojum",
+  "productName": "Semojum",
   "version": "3.0.2",
   "identifier": "com.braillemate.app",
   "build": {

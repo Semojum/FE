@@ -30,8 +30,17 @@
 
 앱 이름 `BrailleMate` → `세모점`, 앱 아이콘을 세모점 심볼로 교체.
 
-- `src-tauri/tauri.conf.json` — `productName`·창 `title` → `세모점`.
-  번들·설치 파일 이름이 한글이 되지 않도록 `mainBinaryName: "semojum"`을 함께 둔다.
+- `src-tauri/tauri.conf.json` — 창 `title` → `세모점`, `productName` → **`Semojum`(ASCII)**.
+
+> ⚠️ **`productName`에 한글을 쓰면 Windows 빌드가 깨진다.** 처음에는 `productName`도
+> `세모점`으로 뒀는데 v3.0.2 태그 빌드가 MSI 단계에서 실패했다 —
+> NSIS(`세모점_3.0.2_x64-setup.exe`)는 통과했지만 WiX 3의 `light.exe`가
+> `세모점_3.0.2_x64_en-US.msi`를 만들지 못했다. en-US 컬처(코드페이지 1252) MSI에
+> 한글 ProductName이 들어가지 않는다(`candle`은 통과, MSI를 실제로 쓰는 `light`에서 실패).
+> 그래서 사용자에게 보이는 창 제목·화면은 세모점으로 두고, 번들 식별용 `productName`만
+> ASCII로 되돌렸다. Windows 프로그램 목록에는 `Semojum`으로 보인다.
+> 한글 이름을 프로그램 목록에까지 반영하려면 MSI를 빼고 NSIS만 내거나
+> (`bundle.targets: ["nsis"]`), `bundle.windows.wix.language`를 `ko-KR`로 두고 검증해야 한다.
 - `src-tauri/icons/*` — `bunx tauri icon public/semojum-symbol.png`로 전부 재생성.
 - `index.html` `<title>`, `src/utils/outputWindow.ts`(결과 창 제목), `package.json` name,
   `.github/workflows/build.yml`(릴리스 이름·artifact 이름).
