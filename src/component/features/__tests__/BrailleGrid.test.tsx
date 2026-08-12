@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import BrailleGrid, { GridCaret } from '../conversion/BrailleGrid';
-import { buildLayout } from '../../../utils/brailleLayout';
+import { buildLayout, CELLS_PER_ROW } from '../../../utils/brailleLayout';
 import { ConversionTab, TABS, TranslationBlock } from '../../../types';
 
 // 격자 편집 — 점자 모드에서 묵자가 섞여 들어가던 문제(QA 2026-08-09)와
@@ -139,13 +139,14 @@ describe('BrailleGrid', () => {
     expect(onEditRow.mock.calls[0][1]).toContain('가');
   });
 
-  // 점역자주 태그는 본문에 남기되(다운로드 파일과 어긋나면 안 된다) 흐리게 그린다.
-  it('점역자주 태그 칸은 회색으로 그린다', () => {
+  // 점역자주는 본문에 남기되(다운로드 파일과 어긋나면 안 된다) 태그부터 설명 글까지
+  // 통째로 흐리게 그린다 — 시각 요소 설명이라 읽는 데 걸리면 안 된다.
+  it('점역자주는 태그와 안쪽 설명까지 회색으로 그린다', () => {
     const tagged: Record<number, TranslationBlock[]> = {
       1: [
         {
           id: 'b1',
-          currentText: '<!점역자주>그림<!/점역자주>',
+          currentText: '본문<!점역자주>그림<!/점역자주>끝',
           candidates: [],
         },
       ],
@@ -163,13 +164,44 @@ describe('BrailleGrid', () => {
     );
     const cells = screen.getAllByRole('gridcell');
     const dim = 'text-[#c8ccd4]';
-    // "<!점역자주>" 7칸 → 흐림, 이어지는 "그림" 2칸 → 본문 색 그대로
+    // 본문 "본문" 2칸(0~1) → 그대로
+    expect(cells[0].className).not.toContain(dim);
+    expect(cells[1].className).not.toContain(dim);
+    // "<!점역자주>" 7칸(2~8) + 안쪽 "그림" 2칸(9~10) + "<!/점역자주>" 8칸(11~18) → 전부 흐림
+    for (const i of [2, 8, 9, 10, 11, 18]) {
+      expect(cells[i].className, `cell ${i}`).toContain(dim);
+    }
+    // 닫힌 뒤 이어지는 본문 "끝"(19) → 다시 그대로
+    expect(cells[19].className).not.toContain(dim);
+  });
+
+  // 응답이 깨져 닫는 태그가 없으면 그 블록까지만 흐려야 한다 — 판면 전체가
+  // 회색이 되면 그게 더 큰 사고다.
+  it('닫는 태그가 없으면 그 블록에서 멈춘다', () => {
+    const broken: Record<number, TranslationBlock[]> = {
+      1: [
+        { id: 'b1', currentText: '<!점역자주>그림', candidates: [] },
+        { id: 'b2', currentText: '다음블록', candidates: [] },
+      ],
+    };
+    render(
+      <BrailleGrid
+        pages={buildLayout(broken, false)}
+        mode={TABS.OCR}
+        caret={null}
+        highlightBlockId={null}
+        onCaretChange={() => undefined}
+        onEditRow={() => undefined}
+        onContextMenu={() => undefined}
+      />,
+    );
+    const cells = screen.getAllByRole('gridcell');
+    const dim = 'text-[#c8ccd4]';
+    // 첫 블록 "<!점역자주>그림" 9칸(0~8)은 흐림
     expect(cells[0].className).toContain(dim);
-    expect(cells[6].className).toContain(dim);
-    expect(cells[7].className).not.toContain(dim);
-    expect(cells[8].className).not.toContain(dim);
-    // 닫는 태그 "<!/점역자주>" 8칸도 흐림
-    expect(cells[9].className).toContain(dim);
-    expect(cells[16].className).toContain(dim);
+    expect(cells[8].className).toContain(dim);
+    // 다음 블록은 새 줄에서 시작한다 — 흐림이 넘어가지 않아야 한다
+    const secondRowFirstCell = cells[CELLS_PER_ROW];
+    expect(secondRowFirstCell.className).not.toContain(dim);
   });
 });

@@ -49,29 +49,47 @@ export interface GridCaret {
 // (QA "mode a 우측의 점자 태깅 회색 글자 처리" — 가독성).
 const TN_TAGS = ['<!점역자주>', '<!/점역자주>'];
 
-// 본문 행을 순서대로 이어 읽으며 태그가 차지하는 칸을 표시한다.
-// 태그가 32칸 경계에서 잘려 다음 행으로 넘어가도 이어서 잡힌다.
+// 본문 행을 순서대로 이어 읽으며 점역자주가 차지하는 칸을 표시한다.
+// 여는 태그부터 닫는 태그까지 **안쪽 설명 글까지 통째로** 흐려진다 — 점역자주는
+// 본문이 아니라 시각 요소 설명이라, 태그 기호만 흐리면 읽는 데 걸리는 건 그대로였다.
+// 태그가 32칸 경계에서 잘려 다음 행으로 넘어가도 이어서 잡힌다. 닫는 태그가 없으면
+// 그 블록 끝까지만 흐린다 — 응답이 깨졌을 때 판면 전체가 회색이 되지 않게 한다.
 const buildTagMask = (rows: LayoutRow[]): boolean[][] => {
   const mask = rows.map((r) => [...r.text].map(() => false));
   const coords: Array<[number, number]> = [];
   const chars: string[] = [];
+  const blockIds: Array<string | undefined> = [];
   rows.forEach((row, rowIdx) => {
     if (row.kind !== 'body') return;
     [...row.text].forEach((ch, cellIdx) => {
       coords.push([rowIdx, cellIdx]);
       chars.push(ch);
+      blockIds.push(row.source?.blockId);
     });
   });
+
   // 코드포인트 배열 위에서 직접 찾는다 — 인덱스가 곧 칸 번호라 좌표가 어긋나지 않는다.
-  const tags = TN_TAGS.map((t) => [...t]);
+  const [open, close] = TN_TAGS.map((t) => [...t]);
+  const matchAt = (tag: string[], at: number) =>
+    tag.every((ch, k) => chars[at + k] === ch);
+  const dim = (at: number) => {
+    const [rowIdx, cellIdx] = coords[at];
+    mask[rowIdx][cellIdx] = true;
+  };
+
   for (let i = 0; i < chars.length; i += 1) {
-    const hit = tags.find((tag) => tag.every((ch, k) => chars[i + k] === ch));
-    if (!hit) continue;
-    for (let k = 0; k < hit.length; k += 1) {
-      const [rowIdx, cellIdx] = coords[i + k];
-      mask[rowIdx][cellIdx] = true;
+    if (!matchAt(open, i)) continue;
+    const block = blockIds[i];
+    let j = i;
+    for (; j < chars.length && blockIds[j] === block; j += 1) {
+      if (matchAt(close, j)) {
+        for (let k = 0; k < close.length; k += 1) dim(j + k);
+        j += close.length;
+        break;
+      }
+      dim(j);
     }
-    i += hit.length - 1;
+    i = j - 1;
   }
   return mask;
 };
