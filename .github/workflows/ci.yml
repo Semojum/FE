@@ -16,8 +16,13 @@ jobs:
     name: Type check, test, build
     runs-on: ubuntu-latest
     steps:
+      # 점자 조판 라이브러리(vendor/braille-assist)를 서브모듈로 받는다. 없으면
+      # vite alias가 가리키는 소스가 비어 타입 검사·빌드가 모두 실패한다
+      # (build.yml에는 있었지만 여기 빠져 있어 CI가 계속 빨간불이었다).
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
