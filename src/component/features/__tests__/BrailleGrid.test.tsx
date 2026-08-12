@@ -212,6 +212,54 @@ describe('BrailleGrid', () => {
     },
   );
 
+  // 점역자주 말고도 AI가 붙이는 <!…> 표식은 종류를 가리지 않고 흐려야 한다.
+  it('점역자주가 아닌 <!…> 표식도 흐리게 그린다', () => {
+    const tagged: Record<number, TranslationBlock[]> = {
+      1: [{ id: 'b1', currentText: '앞<!표>뒤', candidates: [] }],
+    };
+    render(
+      <BrailleGrid
+        pages={buildLayout(tagged, false)}
+        mode={TABS.OCR}
+        caret={null}
+        highlightBlockId={null}
+        onCaretChange={() => undefined}
+        onEditRow={() => undefined}
+        onContextMenu={() => undefined}
+      />,
+    );
+    const cells = screen.getAllByRole('gridcell');
+    const dim = 'text-[#c8ccd4]';
+    expect(cells[0].className).not.toContain(dim); // "앞"
+    for (const i of [1, 2, 3, 4]) {
+      expect(cells[i].className, `cell ${i}`).toContain(dim); // "<!표>"
+    }
+    expect(cells[5].className).not.toContain(dim); // "뒤"
+  });
+
+  // 닫는 >가 없으면 표식이 아니다 — 우연히 나온 "<!"에 판면이 통째로 회색이 되면 안 된다.
+  it('닫히지 않은 <! 는 표식으로 보지 않는다', () => {
+    const tagged: Record<number, TranslationBlock[]> = {
+      1: [{ id: 'b1', currentText: '앞<!뒤', candidates: [] }],
+    };
+    render(
+      <BrailleGrid
+        pages={buildLayout(tagged, false)}
+        mode={TABS.OCR}
+        caret={null}
+        highlightBlockId={null}
+        onCaretChange={() => undefined}
+        onEditRow={() => undefined}
+        onContextMenu={() => undefined}
+      />,
+    );
+    const cells = screen.getAllByRole('gridcell');
+    const dim = 'text-[#c8ccd4]';
+    for (const i of [0, 1, 2, 3]) {
+      expect(cells[i].className, `cell ${i}`).not.toContain(dim);
+    }
+  });
+
   // 응답이 깨져 닫는 태그가 없으면 그 블록까지만 흐려야 한다 — 판면 전체가
   // 회색이 되면 그게 더 큰 사고다.
   it('닫는 태그가 없으면 그 블록에서 멈춘다', () => {
