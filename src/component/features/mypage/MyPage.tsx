@@ -367,7 +367,7 @@ const MyPage: React.FC<Props> = ({
                 <input
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="작업 검색"
+                  placeholder="검색"
                   aria-label="작업 검색"
                   className="h-[38px] w-full rounded-[10px] border border-gray-200 bg-white pl-9 pr-8 text-sm outline-none transition-colors focus:border-[#5b8ce6]"
                 />
