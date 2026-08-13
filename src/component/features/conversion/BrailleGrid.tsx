@@ -402,7 +402,7 @@ const BrailleGrid: React.FC<Props> = ({
         // w-max: 면의 폭은 패널이 아니라 32칸 내용이 정한다. 예전에는 행이 패널 폭에
         // 맞춰지고 칸은 그 밖으로 넘쳐서, 블록 강조 테두리가 32칸까지 가지 못하고
         // 31칸 언저리에서 잘렸다. 패널이 좁으면 가로로 스크롤한다.
-        <div key={page.braillePage} className="mb-5 w-max px-2 pt-2">
+        <div key={page.braillePage} className="mb-5 w-max px-1 pt-2">
           {/* 칸 눈금 */}
           <div className="mb-0.5 flex w-max pl-[26px] text-[9px] text-gray-400">
             {Array.from({ length: CELLS_PER_ROW }, (_, i) => (

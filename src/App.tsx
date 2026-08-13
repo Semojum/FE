@@ -1196,10 +1196,17 @@ const BrailleMate: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#F0F4F8] flex flex-col font-sans text-gray-800 antialiased transition-colors duration-500">
-      {/* 좌우 여백이 넓어 32칸 판면이 결과 패널에 다 들어가지 못하고 가로 스크롤이
-          생겼다(QA "화면 크기 조정"). 컨테이너 폭·패딩·패널 간격을 줄이고 결과 패널
-          비중을 키워, 기본 창 크기에서는 확대 없이 32칸이 그대로 들어가게 한다. */}
-      <header className="max-w-[1560px] mx-auto pt-8 px-4 w-full">
+      {/* 화면 폭 배분 — 입력란과 출력란을 같은 크기로 두고 바깥 여백을 최소로 깎는다.
+          그래도 32칸 판면이 가로 스크롤 없이 들어가야 해서(QA "화면 크기 조정") 숫자가 빠듯하다.
+          기본 창 1440(세로 스크롤바 감안 뷰포트 ~1425) 기준:
+
+            1425 − px-2(16) − gap-4(16) = 1393 → 패널 하나 696
+            696 − p-4(32) − pr-1(4)             = 660  ← 격자가 쓸 수 있는 폭
+            격자 필요 폭: px-1(8) + 테두리(4) + 줄번호(26) + 32칸×19 = 646
+
+          여유가 14px뿐이다. 패딩·간격을 더 키우거나 칸 크기를 늘리면 스크롤이 되살아난다.
+          (Windows 디스플레이 배율이 100%가 아니면 CSS 폭이 줄어 여전히 스크롤이 생긴다) */}
+      <header className="w-full pt-5 px-2">
         <div className="flex items-center justify-between mb-3">
           <img
             src={'semojum-wordmark.png'}
@@ -1324,11 +1331,11 @@ const BrailleMate: React.FC = () => {
         )}
       </header>
 
-      <main className="max-w-[1560px] mx-auto px-4 py-6 flex flex-col items-center w-full">
+      <main className="w-full px-2 py-4 flex flex-col items-center">
         <div
           className={
             panelMode === 'both'
-              ? 'w-full flex flex-col md:flex-row items-stretch gap-6 mb-4'
+              ? 'w-full flex flex-col md:flex-row items-stretch gap-4 mb-3'
               : 'w-full flex flex-col items-stretch mb-4'
           }
         >
@@ -1339,7 +1346,7 @@ const BrailleMate: React.FC = () => {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-[2rem] p-6 shadow-xl border border-white/10 h-150 flex flex-col"
+                className="bg-white rounded-[2rem] p-4 shadow-xl border border-white/10 h-[600px] flex flex-col"
               >
                 <div className="flex justify-between items-center mb-4 gap-3">
                   <div className="min-w-0">
@@ -1484,15 +1491,13 @@ const BrailleMate: React.FC = () => {
 
           {panelMode !== 'input-only' && (
             <section
-              className={
-                panelMode === 'both' ? 'flex-1 md:flex-[1.5] min-w-0' : 'w-full'
-              }
+              className={panelMode === 'both' ? 'flex-1 min-w-0' : 'w-full'}
             >
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 }}
-                className="bg-white rounded-[2rem] p-6 shadow-xl border border-white/10 h-[600px] flex flex-col"
+                className="bg-white rounded-[2rem] p-4 shadow-xl border border-white/10 h-[600px] flex flex-col"
               >
                 <div className="flex justify-between items-center mb-6">
                   <div className="flex items-baseline gap-3">
