@@ -23,6 +23,9 @@ interface Props {
   imageResolution: ImageResolution;
   originalTextBlocks?: OriginalTextBlock[];
   onBlockClick?: (id: string) => void; // ✅ 클릭 핸들러
+  // 마우스가 얹힌 블록 — 결과 격자와 같은 값을 공유해 양쪽에 같은 상자를 그린다.
+  hoveredBlockId?: string | null;
+  onBlockHover?: (id: string | null) => void;
 }
 
 const FilePreviewer: React.FC<Props> = memo(
@@ -34,6 +37,8 @@ const FilePreviewer: React.FC<Props> = memo(
     imageResolution,
     originalTextBlocks,
     onBlockClick,
+    hoveredBlockId,
+    onBlockHover,
   }) => {
     const { previewUrl, fileType, currentPage, textContent, isRestoredPages } =
       state;
@@ -74,16 +79,23 @@ const FilePreviewer: React.FC<Props> = memo(
             <div className="flex flex-col gap-4">
               {originalTextBlocks.map((block) => {
                 const isActive = block.id === selectedBlockId;
+                // hover 표시는 CSS :hover가 아니라 상태로 그린다 — 결과 격자에서
+                // 얹었을 때도 여기에 같은 상자가 떠야 하기 때문이다.
+                const isHovered = !isActive && block.id === hoveredBlockId;
                 return (
                   <div
                     key={block.id}
                     ref={isActive ? activeTextRef : null}
                     // ✅ 클릭 이벤트 연결 & 커서 스타일 추가
                     onClick={() => onBlockClick?.(block.id)}
+                    onMouseEnter={() => onBlockHover?.(block.id)}
+                    onMouseLeave={() => onBlockHover?.(null)}
                     className={`p-3 rounded-lg border transition-all duration-200 cursor-pointer ${
                       isActive
                         ? 'bg-[#5A8FBB]/10 border-[#5A8FBB] text-[#2c3e50] shadow-sm scale-[1.01]'
-                        : 'bg-white border-transparent text-gray-500 hover:bg-white hover:border-gray-200 hover:shadow-sm'
+                        : isHovered
+                          ? 'bg-white border-[#c3cfdd] text-gray-500 shadow-sm'
+                          : 'bg-white border-transparent text-gray-500'
                     }`}
                   >
                     <p className="leading-relaxed whitespace-pre-wrap text-sm md:text-base font-medium">
@@ -144,6 +156,8 @@ const FilePreviewer: React.FC<Props> = memo(
               selectedId={selectedBlockId}
               originalResolution={imageResolution}
               onBlockClick={onBlockClick}
+              hoveredId={hoveredBlockId}
+              onBlockHover={onBlockHover}
             />
           </div>
         </div>

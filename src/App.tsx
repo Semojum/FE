@@ -162,6 +162,9 @@ const Semojum: React.FC = () => {
   } = useJobUpload();
 
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  // 마우스가 얹힌 블록 — 원본 패널과 결과 격자가 같은 값을 쓴다.
+  // 어느 쪽에 얹든 양쪽의 대응되는 블록에 같은 테두리 상자가 뜬다.
+  const [hoverBlockId, setHoverBlockId] = useState<string | null>(null);
   const [bboxDataByPage, setBboxDataByPage] = useState<
     Record<number, BoundingBox[]>
   >({});
@@ -1536,6 +1539,8 @@ const Semojum: React.FC = () => {
                       onBlockClick={(id) =>
                         dispatchAction({ type: 'setSelected', id })
                       }
+                      hoveredBlockId={hoverBlockId}
+                      onBlockHover={setHoverBlockId}
                     />
                   )}
                 </div>
@@ -1803,6 +1808,8 @@ const Semojum: React.FC = () => {
                       onContextMenu={(rowIndex, x, y) =>
                         setGridMenu({ rowIndex, x, y })
                       }
+                      hoverBlockId={hoverBlockId}
+                      onHoverBlockChange={setHoverBlockId}
                       onVisiblePageChange={setVisibleOutputPage}
                       scrollToRow={scrollToRow}
                     />

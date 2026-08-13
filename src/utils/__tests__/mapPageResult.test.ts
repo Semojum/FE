@@ -130,7 +130,11 @@ describe('mapPageResult', () => {
           selected_idx: 2,
           drafts: [
             { label: '생략', text: '그림 생략', contents: [] },
-            { label: '짧은 제목', text: '그림: 건국대학교 상징 문장', contents: [] },
+            {
+              label: '짧은 제목',
+              text: '그림: 건국대학교 상징 문장',
+              contents: [],
+            },
           ],
         },
       ],

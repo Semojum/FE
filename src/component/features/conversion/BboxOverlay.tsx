@@ -7,6 +7,9 @@ interface BBoxOverlayProps {
   selectedId: string | null; // 현재 선택된 블록 ID
   originalResolution: ImageResolution; // 원본 이미지 해상도
   onBlockClick?: (id: string) => void; // ✅ [New] 클릭 핸들러 추가
+  // 마우스가 얹힌 블록 — 결과 격자와 같은 값을 공유해 양쪽에 같은 상자를 그린다.
+  hoveredId?: string | null;
+  onBlockHover?: (id: string | null) => void;
 }
 
 const BBoxOverlay: React.FC<BBoxOverlayProps> = ({
@@ -14,6 +17,8 @@ const BBoxOverlay: React.FC<BBoxOverlayProps> = ({
   selectedId,
   originalResolution,
   onBlockClick,
+  hoveredId,
+  onBlockHover,
 }) => {
   // 해상도 정보가 없으면 렌더링하지 않음
   if (
@@ -31,6 +36,7 @@ const BBoxOverlay: React.FC<BBoxOverlayProps> = ({
       <AnimatePresence>
         {bboxes.map((box) => {
           const isSelected = box.id === selectedId;
+          const isHovered = !isSelected && box.id === hoveredId;
 
           // 좌표를 % 단위로 변환
           const style = {
@@ -49,13 +55,19 @@ const BBoxOverlay: React.FC<BBoxOverlayProps> = ({
                 e.stopPropagation(); // 이벤트 버블링 방지
                 onBlockClick?.(box.id); // ✅ 클릭 시 ID 전달
               }}
+              onMouseEnter={() => onBlockHover?.(box.id)}
+              onMouseLeave={() => onBlockHover?.(null)}
               style={style}
               // ✅ 중요: pointer-events-auto를 줘서 이 박스는 클릭 가능하게 만듦
-              className={`absolute border-2 rounded-sm cursor-pointer pointer-events-auto transition-all duration-200 
+              // hover 표시는 CSS :hover가 아니라 상태로 그린다 — 결과 격자에서 얹었을 때도
+              // 여기에 같은 상자가 떠야 하기 때문이다.
+              className={`absolute border-2 rounded-sm cursor-pointer pointer-events-auto transition-all duration-200
                 ${
                   isSelected
                     ? 'border-[#5A8FBB] bg-[#5A8FBB]/20 shadow-[0_0_10px_rgba(90,143,187,0.5)] z-20 scale-[1.02]' // 선택됨
-                    : 'border-transparent hover:border-[#5A8FBB]/40 hover:bg-[#5A8FBB]/5 z-10' // 선택 안됨 (호버 효과만)
+                    : isHovered
+                      ? 'border-[#5A8FBB]/40 bg-[#5A8FBB]/5 z-10' // 양쪽 대응 hover
+                      : 'border-transparent z-10'
                 }
               `}
               // 선택된 박스가 나타날 때 약간의 애니메이션 효과

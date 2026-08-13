@@ -27,7 +27,8 @@ const asArray = <T>(val: T[] | null | undefined): T[] =>
 // 이 값을 그대로 join('\n')하면 buildGridLines가 다시 split('\n')할 때 블록마다 빈 줄이
 // 하나씩 생겨 격자가 한 줄 걸러 비고, 줄 수가 두 배가 되어 판면 쪽수까지 어긋난다.
 // 줄 끝 개행만 벗긴다 — 줄 안쪽 개행은 그대로 줄 구분으로 살려 둔다.
-const stripTrailingNewline = (line: string): string => line.replace(/\r?\n$/, '');
+const stripTrailingNewline = (line: string): string =>
+  line.replace(/\r?\n$/, '');
 
 const toArray = (val: string[] | string | undefined): string[] => {
   if (Array.isArray(val)) {

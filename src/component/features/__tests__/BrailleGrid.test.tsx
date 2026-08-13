@@ -243,6 +243,52 @@ describe('BrailleGrid', () => {
     expect(rowOf(CELLS_PER_ROW).className).not.toContain(hoverBox);
   });
 
+  // 원본 패널과 hover 상태를 공유한다 — 어느 쪽에 얹든 양쪽에 같은 상자가 떠야 한다.
+  it('상위가 준 hoverBlockId로도 상자를 그린다 (원본 패널에서 얹은 경우)', () => {
+    const two: Record<number, TranslationBlock[]> = {
+      1: [
+        { id: 'b1', currentText: '첫블록', candidates: [] },
+        { id: 'b2', currentText: '둘째블록', candidates: [] },
+      ],
+    };
+    render(
+      <BrailleGrid
+        pages={buildLayout(two, false)}
+        mode={TABS.OCR}
+        caret={null}
+        highlightBlockId={null}
+        hoverBlockId="b2"
+        onHoverBlockChange={() => undefined}
+        onCaretChange={() => undefined}
+        onEditRow={() => undefined}
+        onContextMenu={() => undefined}
+      />,
+    );
+    const cells = screen.getAllByRole('gridcell');
+    const hoverBox = 'border-[#c3cfdd]';
+    expect(cells[0].parentElement!.className).not.toContain(hoverBox);
+    expect(cells[CELLS_PER_ROW].parentElement!.className).toContain(hoverBox);
+  });
+
+  it('격자에 마우스를 얹으면 상위에 블록 id를 알린다', () => {
+    const onHoverBlockChange = vi.fn();
+    render(
+      <BrailleGrid
+        pages={buildLayout(blocks, false)}
+        mode={TABS.OCR}
+        caret={null}
+        highlightBlockId={null}
+        hoverBlockId={null}
+        onHoverBlockChange={onHoverBlockChange}
+        onCaretChange={() => undefined}
+        onEditRow={() => undefined}
+        onContextMenu={() => undefined}
+      />,
+    );
+    fireEvent.mouseOver(screen.getAllByRole('gridcell')[0]);
+    expect(onHoverBlockChange).toHaveBeenCalledWith('b1');
+  });
+
   // 종류를 가리지 않는다 — 점역자주가 아닌 표식도 같은 규칙이다.
   it('점역자주가 아닌 <!…> 표식도 흐리게 그린다', () => {
     const tagged: Record<number, TranslationBlock[]> = {

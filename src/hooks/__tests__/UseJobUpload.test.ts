@@ -39,11 +39,7 @@ describe('useJobUpload', () => {
     const { result } = renderHook(() => useJobUpload());
 
     await act(async () => {
-      const res = await result.current.uploadFile(
-        fakeFile(),
-        TABS.OCR,
-        'tok',
-      );
+      const res = await result.current.uploadFile(fakeFile(), TABS.OCR, 'tok');
       expect(res?.jobId).toBe('job-1');
     });
 

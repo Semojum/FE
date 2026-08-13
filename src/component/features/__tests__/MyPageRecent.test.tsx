@@ -79,7 +79,9 @@ describe('마이페이지 · 최근 작업 전체', () => {
 
     await user.click(screen.getByRole('button', { name: /전체 보기/ }));
 
-    await waitFor(() => expect(screen.getByText('최근 작업 전체')).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText('최근 작업 전체')).toBeTruthy(),
+    );
     expect(screen.queryByText('수학')).toBeNull();
     expect(screen.getAllByText('테스트.pdf').length).toBeGreaterThan(0);
   });

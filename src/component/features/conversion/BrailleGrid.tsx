@@ -104,6 +104,10 @@ interface Props {
   onCaretChange: (caret: GridCaret) => void;
   onEditRow: (rowIndex: number, text: string) => void;
   onContextMenu: (rowIndex: number, x: number, y: number) => void;
+  // 마우스가 얹힌 블록 — 원본 패널과 같은 값을 공유해 양쪽에 같은 상자를 그린다.
+  // 주지 않으면 격자 안에서만 쓰는 자체 상태로 동작한다.
+  hoverBlockId?: string | null;
+  onHoverBlockChange?: (id: string | null) => void;
   // 화면에 보이는 출력 쪽이 바뀔 때 (상단 "12 / 40쪽" 표시용)
   onVisiblePageChange?: (page: number) => void;
   // 원본 페이지를 넘겼을 때 그 지점으로 스크롤하기 위한 요청 신호
@@ -118,6 +122,8 @@ const BrailleGrid: React.FC<Props> = ({
   onCaretChange,
   onEditRow,
   onContextMenu,
+  hoverBlockId: hoverBlockIdProp,
+  onHoverBlockChange,
   onVisiblePageChange,
   scrollToRow,
 }) => {
@@ -127,8 +133,14 @@ const BrailleGrid: React.FC<Props> = ({
   // 점자 동시 입력 추적 — 키를 떼는 순간 한 글자로 합친다.
   const pressedDots = useRef<Set<string>>(new Set());
   const [isComposing, setIsComposing] = useState(false);
-  // 마우스가 얹힌 블록 — 그 블록의 줄들을 상자로 감싼다(원본 패널의 블록 hover와 같은 방식).
-  const [hoverBlockId, setHoverBlockId] = useState<string | null>(null);
+  // 마우스가 얹힌 블록 — 그 블록의 줄들을 상자로 감싼다.
+  // 상위가 값을 주면 원본 패널과 같은 값을 쓰게 되어 양쪽에 같은 상자가 뜬다.
+  const [localHoverBlockId, setLocalHoverBlockId] = useState<string | null>(
+    null,
+  );
+  const hoverBlockId =
+    hoverBlockIdProp !== undefined ? hoverBlockIdProp : localHoverBlockId;
+  const setHoverBlockId = onHoverBlockChange ?? setLocalHoverBlockId;
 
   const isBraille = mode !== TABS.OCR;
   const rows = useMemo(() => flattenRows(pages), [pages]);

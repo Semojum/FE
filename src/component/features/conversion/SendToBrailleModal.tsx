@@ -38,8 +38,8 @@ const SendToBrailleModal: React.FC<Props> = ({
     }
   >
     <p className="text-[13px] leading-relaxed text-gray-500">
-      점역 탭의 작업물을 이번 OCR 결과로 교체합니다. 기존 문서는 마이페이지에 그대로
-      남아 있어 언제든 다시 열 수 있습니다.
+      점역 탭의 작업물을 이번 OCR 결과로 교체합니다. 기존 문서는 마이페이지에
+      그대로 남아 있어 언제든 다시 열 수 있습니다.
     </p>
   </Modal>
 );
