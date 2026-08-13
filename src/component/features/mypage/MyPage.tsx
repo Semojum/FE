@@ -9,7 +9,6 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
-  FolderPlus,
   Loader2,
   Search,
   Trash2,
@@ -40,7 +39,7 @@ import {
 } from '../../../types/mypage';
 import { JobMode } from '../../../types/apiTypes';
 import { JobRef, User } from '../../../types/auth';
-import { FileCardItem, FolderCardItem } from './Cards';
+import { DetailList, PreviewPane } from './DetailView';
 import ContextMenu, { MenuItem } from '../../shared/ContextMenu';
 import TrashView from './TrashView';
 import {
@@ -62,9 +61,19 @@ interface Props {
   onToast: (message: string) => void;
 }
 
-type MenuTarget =
+// 카드 하나를 가리키는 대상 — 이름 변경·이동·삭제는 항상 카드가 대상이다.
+type CardTarget =
   | { kind: 'folder'; folder: FolderSummary; x: number; y: number }
   | { kind: 'file'; file: FileCard; x: number; y: number };
+
+// 우클릭 메뉴는 카드가 아닌 빈 곳에서도 열린다(지금 위치에 새 폴더).
+type MenuTarget = CardTarget | { kind: 'blank'; x: number; y: number };
+
+// 끌고 있는 것 — 파일 여러 건(다중 선택)이거나 폴더 한 건.
+interface DragPayload {
+  jobIds: string[];
+  folderIds: string[];
+}
 
 const STATUS_OPTIONS: { value: JobStatus; label: string }[] = [
   { value: 'COMPLETED', label: '완료' },
@@ -120,12 +129,18 @@ const MyPage: React.FC<Props> = ({
 
   const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [isNewFolderOpen, setIsNewFolderOpen] = useState(false);
-  const [renameTarget, setRenameTarget] = useState<MenuTarget | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<MenuTarget | null>(null);
+  const [renameTarget, setRenameTarget] = useState<CardTarget | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<CardTarget | null>(null);
   // 이동 대상: 메뉴에서 고른 한 건이거나, 툴바에서 고른 다중 선택 파일들
-  const [moveTarget, setMoveTarget] = useState<MenuTarget | 'selection' | null>(
+  const [moveTarget, setMoveTarget] = useState<CardTarget | 'selection' | null>(
     null,
   );
+  // 끌고 있는 대상과, 지금 올라가 있는 드롭 대상 폴더(null이면 없음).
+  // dataTransfer는 dragover 중에 값을 읽을 수 없어(브라우저 제약) ref로 들고 있는다.
+  const dragRef = useRef<DragPayload | null>(null);
+  const [dropFolderId, setDropFolderId] = useState<string | null>(null);
+  // 오른쪽 미리보기에 띄운 파일 — 목록에서 한 줄을 누르면 바뀐다.
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
@@ -199,7 +214,51 @@ const MyPage: React.FC<Props> = ({
     [token, onToast],
   );
 
+  // ─── 끌어 옮기기 ────────────────────────────────────────────────────
+  // 파일·폴더를 폴더 카드 위로 끌어다 놓으면 그 폴더로 옮긴다.
+  // 파일이 다중 선택돼 있고 그중 하나를 끌면 선택한 것 전부가 함께 간다.
+
+  const startDragFile = (file: FileCard) => {
+    const ids = selection.selected.has(file.jobId)
+      ? [...selection.selected]
+      : [file.jobId];
+    dragRef.current = { jobIds: ids, folderIds: [] };
+  };
+
+  const startDragFolder = (folder: FolderSummary) => {
+    dragRef.current = { jobIds: [], folderIds: [folder.folderId] };
+  };
+
+  const endDrag = () => {
+    dragRef.current = null;
+    setDropFolderId(null);
+  };
+
+  const dropInto = (targetFolderId: string | null) => {
+    const payload = dragRef.current;
+    endDrag();
+    if (!payload) return;
+    // 폴더를 자기 자신 안에 넣을 수는 없다. (더 깊은 순환은 서버가 막는다)
+    if (targetFolderId && payload.folderIds.includes(targetFolderId)) return;
+    if (payload.jobIds.length === 0 && payload.folderIds.length === 0) return;
+    // 이미 그 폴더 안에 있는 것을 같은 폴더로 끌면 아무 일도 하지 않는다.
+    if (targetFolderId === folderId && payload.folderIds.length === 0) return;
+
+    void run(async () => {
+      if (payload.jobIds.length > 0) {
+        await moveJobs(payload.jobIds, targetFolderId, token);
+      }
+      for (const id of payload.folderIds) {
+        await updateFolder(id, { parentFolderId: targetFolderId }, token);
+      }
+      selection.clear();
+    }, '옮기지 못했습니다.').catch(() => undefined);
+  };
+
   const menuItemsFor = (target: MenuTarget): MenuItem[] => {
+    if (target.kind === 'blank') {
+      return [{ label: '새 폴더', onSelect: () => setIsNewFolderOpen(true) }];
+    }
     if (target.kind === 'folder') {
       const f = target.folder;
       return [
@@ -483,13 +542,6 @@ const MyPage: React.FC<Props> = ({
                     >
                       <Trash2 size={16} />
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsNewFolderOpen(true)}
-                      className="flex h-[38px] items-center gap-1.5 rounded-[10px] bg-[#eef1f5] px-4 text-sm font-semibold text-gray-700 transition-colors hover:bg-[#e3e8ef]"
-                    >
-                      <FolderPlus size={15} /> 새 폴더
-                    </button>
                   </>
                 )}
               </div>
@@ -557,121 +609,122 @@ const MyPage: React.FC<Props> = ({
               </p>
             )}
 
-            {/* 본문 */}
-            <div
-              ref={scrollRef}
-              onScroll={onScroll}
-              onClick={(e) => {
-                // 빈 곳을 클릭하면 선택이 풀린다.
-                if (e.target === e.currentTarget) selection.clear();
-              }}
-              className="custom-scrollbar flex-1 overflow-y-auto px-6 pb-10"
-            >
-              {isLoading ? (
-                <div className="flex flex-col items-center gap-2 py-24 text-gray-400">
-                  <Loader2 className="animate-spin" size={30} />
-                  <p className="text-sm">불러오는 중...</p>
-                </div>
-              ) : visibleFolders.length === 0 && files.length === 0 ? (
-                <p className="py-24 text-center text-sm text-gray-400">
-                  {search.trim()
-                    ? '검색 결과가 없습니다'
-                    : folderId
-                      ? '폴더가 비어 있습니다'
-                      : '저장된 작업이 없습니다'}
-                </p>
-              ) : (
-                <>
-                  {/* 최근 작업 줄 — 메인(S1)에만 있다 */}
-                  {showRecentRow && (
-                    <div className="mb-6 rounded-[12px] bg-[#eef3fc]/70 p-4">
-                      <div className="mb-3 flex items-center justify-between">
-                        <h4 className="text-sm font-bold text-[#5b8ce6]">
-                          최근 작업
-                        </h4>
+            {/* 본문 — 왼쪽 목록 · 오른쪽 미리보기 */}
+            <div className="flex min-h-0 flex-1">
+              <div
+                ref={scrollRef}
+                onScroll={onScroll}
+                onClick={(e) => {
+                  // 빈 곳을 클릭하면 선택이 풀린다.
+                  if (e.target === e.currentTarget) selection.clear();
+                }}
+                // 빈 곳 우클릭 — 지금 위치에 새 폴더를 만든다.
+                // 카드 위 우클릭은 카드가 stopPropagation으로 막아 여기까지 오지 않는다.
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setMenu({ kind: 'blank', x: e.clientX, y: e.clientY });
+                }}
+                // 빈 곳에 떨어뜨리면 지금 보고 있는 폴더(루트면 전체)로 옮긴다.
+                onDragOver={(e) => {
+                  if (dragRef.current) e.preventDefault();
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  dropInto(folderId);
+                }}
+                className="custom-scrollbar min-w-0 flex-1 overflow-y-auto px-6 pb-10"
+              >
+                {isLoading ? (
+                  <div className="flex flex-col items-center gap-2 py-24 text-gray-400">
+                    <Loader2 className="animate-spin" size={30} />
+                    <p className="text-sm">불러오는 중...</p>
+                  </div>
+                ) : visibleFolders.length === 0 && files.length === 0 ? (
+                  <p className="py-24 text-center text-sm text-gray-400">
+                    {search.trim()
+                      ? '검색 결과가 없습니다'
+                      : folderId
+                        ? '폴더가 비어 있습니다'
+                        : '저장된 작업이 없습니다'}
+                  </p>
+                ) : (
+                  <>
+                    {/* 최근 작업 바로가기 — 메인(S1)에만 있다 */}
+                    {showRecentRow && (
+                      <div className="mb-2 flex items-center justify-end">
                         <button
                           type="button"
                           onClick={() => setView('recent')}
-                          className="text-[13px] font-semibold text-[#f47726] transition-opacity hover:opacity-80"
+                          className="text-[12px] font-semibold text-[#f47726] transition-opacity hover:opacity-80"
                         >
-                          전체 보기 ›
+                          최근 작업 전체 보기 ›
                         </button>
                       </div>
-                      <div className="flex gap-4 overflow-x-auto pb-1">
-                        {files.slice(0, 5).map((f) => (
-                          <div key={`recent-${f.jobId}`} className="shrink-0">
-                            <FileCardItem
-                              file={f}
-                              isSelected={false}
-                              onClick={() => selection.clear()}
-                              onOpen={() => handleOpenFile(f)}
-                              onToggleFavorite={() =>
-                                void run(
-                                  () => toggleJobFavorite(f.jobId, token),
-                                  '즐겨찾기를 바꾸지 못했습니다.',
-                                ).catch(() => undefined)
-                              }
-                              onMenu={(x, y) =>
-                                setMenu({ kind: 'file', file: f, x, y })
-                              }
-                            />
-                          </div>
-                        ))}
+                    )}
+
+                    {/* 자세히 보기 — 이름·모드·작성일 */}
+                    <DetailList
+                      folders={visibleFolders}
+                      files={files}
+                      selectedIds={selection.selected}
+                      previewId={previewId}
+                      showLocation={showLocation}
+                      dropFolderId={dropFolderId}
+                      onOpenFolder={(f) => openFolder(f.folderId, f.name)}
+                      onOpenFile={handleOpenFile}
+                      onClickFile={(f, e) => {
+                        setPreviewId(f.jobId);
+                        selection.handleClick(f.jobId, e);
+                      }}
+                      onClickFolder={() => {
+                        setPreviewId(null);
+                        selection.clear();
+                      }}
+                      onToggleFolderFavorite={(f) =>
+                        void run(
+                          () => toggleFolderFavorite(f.folderId, token),
+                          '즐겨찾기를 바꾸지 못했습니다.',
+                        ).catch(() => undefined)
+                      }
+                      onToggleFileFavorite={(f) =>
+                        void run(
+                          () => toggleJobFavorite(f.jobId, token),
+                          '즐겨찾기를 바꾸지 못했습니다.',
+                        ).catch(() => undefined)
+                      }
+                      onFolderMenu={(folder, x, y) =>
+                        setMenu({ kind: 'folder', folder, x, y })
+                      }
+                      onFileMenu={(file, x, y) =>
+                        setMenu({ kind: 'file', file, x, y })
+                      }
+                      onDragStartFolder={startDragFolder}
+                      onDragStartFile={startDragFile}
+                      onDragEnd={endDrag}
+                      onDragEnterFolder={setDropFolderId}
+                      onDragLeaveFolder={(id) =>
+                        setDropFolderId((cur) => (cur === id ? null : cur))
+                      }
+                      onDropOnFolder={dropInto}
+                    />
+
+                    {isLoadingMore && (
+                      <div className="flex justify-center py-6 text-gray-400">
+                        <Loader2 className="animate-spin" size={20} />
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </>
+                )}
+              </div>
 
-                  {/* 폴더가 항상 파일보다 앞에 온다 */}
-                  {visibleFolders.length > 0 && (
-                    <div className="mb-5 flex flex-wrap gap-3">
-                      {visibleFolders.map((f) => (
-                        <FolderCardItem
-                          key={f.folderId}
-                          folder={f}
-                          onOpen={() => openFolder(f.folderId, f.name)}
-                          onToggleFavorite={() =>
-                            void run(
-                              () => toggleFolderFavorite(f.folderId, token),
-                              '즐겨찾기를 바꾸지 못했습니다.',
-                            ).catch(() => undefined)
-                          }
-                          onMenu={(x, y) =>
-                            setMenu({ kind: 'folder', folder: f, x, y })
-                          }
-                        />
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap gap-4">
-                    {files.map((f) => (
-                      <FileCardItem
-                        key={f.jobId}
-                        file={f}
-                        isSelected={selection.selected.has(f.jobId)}
-                        showLocation={showLocation}
-                        onClick={(e) => selection.handleClick(f.jobId, e)}
-                        onOpen={() => handleOpenFile(f)}
-                        onToggleFavorite={() =>
-                          void run(
-                            () => toggleJobFavorite(f.jobId, token),
-                            '즐겨찾기를 바꾸지 못했습니다.',
-                          ).catch(() => undefined)
-                        }
-                        onMenu={(x, y) =>
-                          setMenu({ kind: 'file', file: f, x, y })
-                        }
-                      />
-                    ))}
-                  </div>
-
-                  {isLoadingMore && (
-                    <div className="flex justify-center py-6 text-gray-400">
-                      <Loader2 className="animate-spin" size={20} />
-                    </div>
-                  )}
-                </>
-              )}
+              {/* 오른쪽 미리보기 — 목록에서 고른 파일 한 건 */}
+              <aside className="hidden w-[260px] shrink-0 border-l border-gray-200 bg-white lg:block">
+                <PreviewPane
+                  file={files.find((f) => f.jobId === previewId) ?? null}
+                  onOpen={handleOpenFile}
+                  onDownload={(f) => void handleDownloadFile(f)}
+                />
+              </aside>
             </div>
           </>
         )}
