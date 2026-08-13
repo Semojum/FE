@@ -336,4 +336,95 @@ describe('BrailleGrid', () => {
       expect(cells[i].className, `cell ${i}`).not.toContain(dim);
     }
   });
+
+  // 조합이 확정돼야 글자가 나오면 "ㄱ"만 친 상태에서는 아무것도 안 보인다.
+  // 조합 중인 글자도 격자에 바로 그려야 한다.
+  it('조합 중인 한글이 확정 전에도 격자에 보인다', async () => {
+    const user = userEvent.setup();
+
+    // 편집 결과를 실제로 반영하는 하네스 — 조합 갱신마다 같은 자리를 갈아 끼우는지
+    // 보려면 앞선 편집이 화면에 남아 있어야 한다.
+    const Live: React.FC = () => {
+      const [text, setText] = useState('A');
+      const [caret, setCaret] = useState<GridCaret | null>(null);
+      return (
+        <BrailleGrid
+          pages={buildLayout(
+            { 1: [{ id: 'b1', currentText: text, candidates: [] }] },
+            false,
+          )}
+          mode={TABS.OCR}
+          caret={caret}
+          highlightBlockId={null}
+          onCaretChange={setCaret}
+          onEditRow={(_row, t) => setText(t)}
+          onContextMenu={() => undefined}
+        />
+      );
+    };
+
+    render(<Live />);
+    await user.click(screen.getAllByRole('gridcell')[1]);
+    const input = document.activeElement as HTMLInputElement;
+    const cell0 = () => screen.getAllByRole('gridcell')[1];
+
+    const compose = (data: string) => {
+      const ev = new Event('compositionupdate', { bubbles: true });
+      Object.defineProperty(ev, 'data', { value: data });
+      fireEvent(input, ev);
+    };
+
+    fireEvent.compositionStart(input);
+    compose('ㄱ');
+    expect(cell0().textContent).toBe('ㄱ'); // 확정 전인데도 보인다
+
+    compose('가'); // 같은 자리를 갈아 끼운다 — "ㄱ가"가 되면 안 된다
+    expect(cell0().textContent).toBe('가');
+    expect(screen.getAllByRole('gridcell')[2].textContent).toBe('');
+
+    compose('각');
+    expect(cell0().textContent).toBe('각');
+
+    const end = new Event('compositionend', { bubbles: true });
+    Object.defineProperty(end, 'data', { value: '각' });
+    fireEvent(input, end);
+    expect(cell0().textContent).toBe('각');
+    expect(screen.getAllByRole('gridcell')[2].textContent).toBe('');
+  });
+
+  it('조합을 취소하면 미리 넣어 둔 글자를 걷어낸다', async () => {
+    const user = userEvent.setup();
+    const Live: React.FC = () => {
+      const [text, setText] = useState('A');
+      const [caret, setCaret] = useState<GridCaret | null>(null);
+      return (
+        <BrailleGrid
+          pages={buildLayout(
+            { 1: [{ id: 'b1', currentText: text, candidates: [] }] },
+            false,
+          )}
+          mode={TABS.OCR}
+          caret={caret}
+          highlightBlockId={null}
+          onCaretChange={setCaret}
+          onEditRow={(_row, t) => setText(t)}
+          onContextMenu={() => undefined}
+        />
+      );
+    };
+    render(<Live />);
+    await user.click(screen.getAllByRole('gridcell')[1]);
+    const input = document.activeElement as HTMLInputElement;
+
+    fireEvent.compositionStart(input);
+    const up = new Event('compositionupdate', { bubbles: true });
+    Object.defineProperty(up, 'data', { value: 'ㄱ' });
+    fireEvent(input, up);
+    expect(screen.getAllByRole('gridcell')[1].textContent).toBe('ㄱ');
+
+    const end = new Event('compositionend', { bubbles: true });
+    Object.defineProperty(end, 'data', { value: '' });
+    fireEvent(input, end);
+    expect(screen.getAllByRole('gridcell')[1].textContent).toBe('');
+  });
 });

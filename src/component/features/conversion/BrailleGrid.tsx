@@ -234,6 +234,37 @@ const BrailleGrid: React.FC<Props> = ({
     onEditRow(caret.rowIndex, text);
   };
 
+  // 조합 중인 글자를 격자에 미리 넣어 둔다 — 예전에는 조합이 확정돼야 글자가
+  // 나타나서, "ㄱ"만 친 상태에서는 아무것도 안 보였다.
+  // 갱신될 때마다 앞서 넣어 둔 자리를 새 글자로 갈아 끼운다("ㄱ"→"가"→"각").
+  const composingRef = useRef<{ text: string; cell: number } | null>(null);
+
+  // 조합 글자를 넣은(또는 지운) 결과 줄 텍스트와, 커서가 가야 할 칸.
+  const withComposing = (data: string) => {
+    const prev = composingRef.current;
+    const startCell = prev ? prev.cell : (caret?.cell ?? 0);
+    const chars = [...(caretRow?.text ?? '')];
+    // 커서가 줄 끝보다 뒤면 사이를 공백으로 메운다(insertAt과 같은 규칙).
+    while (chars.length < startCell) chars.push(' ');
+    chars.splice(startCell, prev ? [...prev.text].length : 0, ...[...data]);
+    return {
+      text: chars.join(''),
+      startCell,
+      end: startCell + [...data].length,
+    };
+  };
+
+  const handleCompositionUpdate = (
+    e: React.CompositionEvent<HTMLInputElement>,
+  ) => {
+    if (!caret || !caretRow) return;
+    // 점자 모드는 IME 결과를 판면에 넣지 않는다(6점 입력만 받는다).
+    if (isBraille) return;
+    const { text, startCell } = withComposing(e.data ?? '');
+    applyText(text);
+    composingRef.current = e.data ? { text: e.data, cell: startCell } : null;
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!caret || !caretRow) return;
 
@@ -243,6 +274,10 @@ const BrailleGrid: React.FC<Props> = ({
       pressedDots.current.add(e.code);
       return;
     }
+
+    // 조합 중에는 IME가 키를 가진다. 여기서 Backspace·Enter·화살표를 가로채면
+    // 지우기가 두 번 먹거나 조합 도중에 커서가 튄다.
+    if (isComposing || (e.nativeEvent as KeyboardEvent).isComposing) return;
 
     switch (e.key) {
       case 'ArrowLeft':
@@ -350,12 +385,19 @@ const BrailleGrid: React.FC<Props> = ({
     setIsComposing(false);
     // 숨은 input은 항상 비워 둔다 — 값은 격자가 들고 있다.
     if (inputRef.current) inputRef.current.value = '';
-    if (!caret || !caretRow || !e.data) return;
+    const prev = composingRef.current;
+    composingRef.current = null;
+    if (!caret || !caretRow) return;
     // 점자 모드에서는 IME 조합 결과(한글)를 넣지 않는다. keydown의 preventDefault로는
     // IME를 막을 수 없어, 한/영 상태가 한글일 때 점형과 한글이 같이 들어가던 문제.
     if (isBraille) return;
-    applyText(insertAt(caretRow.text, caret.cell, e.data));
-    moveCaret(caret.rowIndex, caret.cell + [...e.data].length);
+    // 조합을 취소하면 data가 비어 온다 — 미리 넣어 둔 글자를 걷어내는 것으로 끝난다.
+    if (!prev && !e.data) return;
+    composingRef.current = prev; // withComposing이 이전 자리를 알아야 한다
+    const { text, end } = withComposing(e.data ?? '');
+    composingRef.current = null;
+    applyText(text);
+    moveCaret(caret.rowIndex, end);
   };
 
   const cellCls = (
@@ -408,7 +450,11 @@ const BrailleGrid: React.FC<Props> = ({
         onInput={handleInput}
         onKeyDown={handleKeyDown}
         onKeyUp={handleKeyUp}
-        onCompositionStart={() => setIsComposing(true)}
+        onCompositionStart={() => {
+          setIsComposing(true);
+          composingRef.current = null;
+        }}
+        onCompositionUpdate={handleCompositionUpdate}
         onCompositionEnd={handleCompositionEnd}
         className="pointer-events-none fixed h-0 w-0 opacity-0"
       />
