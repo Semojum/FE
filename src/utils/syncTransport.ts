@@ -4,7 +4,7 @@
 //    웹뷰 창 사이에서는 전달되지 않으므로 네이티브 이벤트 버스를 사용한다.
 //    (Tauri emit은 보낸 창에도 전달되지만, 메시지 타입별 역할 분기로 자기 메시지는 무시된다.)
 
-const CHANNEL = 'braillemate-sync';
+const CHANNEL = 'semojum-sync';
 
 const isTauri = (): boolean =>
   typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;

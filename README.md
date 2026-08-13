@@ -1,4 +1,4 @@
-# 세모점 (BrailleMate) — Front-end
+# 세모점 (Semojum) — Front-end
 
 점역 담당자용 **Windows 데스크톱 앱**. 원문(PDF·TXT·HWP)을 올리면 AI가 텍스트·점자로
 변환하고, 담당자가 블록 단위로 교정해 `.brf` / `.txt`로 내보낸다.

@@ -80,6 +80,9 @@ import {
 import { httpFetch } from './api/httpFetch';
 import { downloadJobResult, ElementType, selectDraft } from './api/JobService';
 import { toUserMessage } from './api/errorMessages';
+import { ApiError } from './api/apiClient';
+import { mapPageResult } from './utils/mapPageResult';
+import { needsStreamResume, receivedPages } from './utils/tabResume';
 import { saveBlob } from './utils/download';
 import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
 import { onAppClose } from './utils/appLifecycle';
@@ -127,7 +130,7 @@ interface TabState {
   originalFileName: string | null;
 }
 
-const BrailleMate: React.FC = () => {
+const Semojum: React.FC = () => {
   const isPopup = useMemo(
     () => new URLSearchParams(window.location.search).get('panel') === 'output',
     [],
@@ -406,6 +409,24 @@ const BrailleMate: React.FC = () => {
       setOriginalFileName(saved.originalFileName ?? null);
       // 복원된 파일은 이미 변환됐으므로 재업로드 트리거를 막는다.
       lastUploadedFileRef.current = saved.fileState.file;
+
+      // 변환이 끝나지 않은 채 떠났던 탭이면 스트림을 다시 붙인다.
+      // 떠날 때 resetUpload가 jobId를 비워 SSE가 끊기는데, 돌아와도 다시 붙이지 않아
+      // 남은 페이지가 영영 오지 않고 결과 패널이 "결과가 없습니다"로 남았다
+      // (jobId가 없으니 isConverting도 false가 되어 "분석 중"으로도 못 갔다).
+      const have = receivedPages(saved.blocksByPage, saved.pageStatuses);
+      if (
+        saved.jobId &&
+        needsStreamResume(saved.jobId, saved.fileState.totalPages, have)
+      ) {
+        attachJob(saved.jobId, tab);
+        void catchUpMissingPages(
+          saved.jobId,
+          tab,
+          saved.fileState.totalPages,
+          have,
+        );
+      }
     } else {
       clearWorkspace();
       lastUploadedFileRef.current = null;
@@ -487,6 +508,39 @@ const BrailleMate: React.FC = () => {
       setBlocksForPage(page, blocks);
     },
     [editor, setBlocksForPage],
+  );
+
+  // 탭을 떠나 있는 동안 서버가 끝낸 페이지는 SSE로 다시 오지 않는다(그동안 스트림이 끊겨 있었다).
+  // 돌아왔을 때 빠진 페이지만 조회로 채워 넣는다. 아직 변환 전인 페이지(JOB4001)는 건너뛰고,
+  // 그 페이지는 다시 붙인 스트림이 마저 가져온다.
+  const catchUpMissingPages = useCallback(
+    async (
+      jobIdToFetch: string,
+      tab: ConversionTab,
+      totalPages: number,
+      have: Set<number>,
+    ) => {
+      const token = auth.token;
+      if (!token) return;
+      for (let page = 1; page <= totalPages; page += 1) {
+        if (have.has(page)) continue;
+        try {
+          const data = await getJobPage(token, jobIdToFetch, page);
+          const mapped = mapPageResult(tab, data.result ?? {});
+          setBboxDataByPage((prev) => ({ ...prev, [page]: mapped.bboxes }));
+          setOriginalTextsByPage((prev) => ({
+            ...prev,
+            [page]: mapped.originalTexts,
+          }));
+          setBlocksForPageWithBaseline(page, mapped.blocks);
+          setPageStatuses((prev) => ({ ...prev, [page]: 'COMPLETED' }));
+        } catch (e) {
+          if (e instanceof ApiError && e.code === 'JOB4001') continue;
+          console.warn('페이지 따라잡기 실패', page, e);
+        }
+      }
+    },
+    [auth.token, setBlocksForPageWithBaseline],
   );
 
   // 블록 추가 — 화면에만 넣고 저장은 페이지 단위로 미룬다(elementId는 저장 응답에서 받는다).
@@ -1940,4 +1994,4 @@ const BrailleMate: React.FC = () => {
   );
 };
 
-export default BrailleMate;
+export default Semojum;

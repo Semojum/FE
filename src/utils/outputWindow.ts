@@ -23,7 +23,7 @@ export const openOutputWindow =
 
     // ── 브라우저 폴백: window.open ─────────────────────────────────────
     if (!isTauri()) {
-      const popup = window.open(url, 'braillemate-output', WEB_FEATURES);
+      const popup = window.open(url, 'semojum-output', WEB_FEATURES);
       if (!popup) return null; // 팝업 차단
       return {
         close: () => popup.close(),

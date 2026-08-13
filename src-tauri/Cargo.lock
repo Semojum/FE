@@ -296,22 +296,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "braillemate"
-version = "3.0.4"
-dependencies = [
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-http",
- "tauri-plugin-opener",
- "tauri-plugin-process",
- "tauri-plugin-updater",
-]
-
-[[package]]
 name = "brotli"
 version = "8.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3626,6 +3610,22 @@ dependencies = [
  "rustc-hash",
  "servo_arc 0.4.3",
  "smallvec",
+]
+
+[[package]]
+name = "semojum"
+version = "3.0.4"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-http",
+ "tauri-plugin-opener",
+ "tauri-plugin-process",
+ "tauri-plugin-updater",
 ]
 
 [[package]]
