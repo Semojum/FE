@@ -74,7 +74,6 @@ import { JobDetail, JobPageOriginal } from './types/auth';
 import { JobDoneData, PageEventStatus } from './types/apiTypes';
 import {
   fileValidationMessage,
-  FOOTER_TEXT_MAX_LENGTH,
   TAB_ALLOWED_FILE_LABEL,
 } from './utils/fileValidation';
 import { httpFetch } from './api/httpFetch';
@@ -95,6 +94,7 @@ import {
   ROWS_PER_PAGE,
 } from './utils/brailleLayout';
 import DownloadModal from './component/features/conversion/DownloadModal';
+import ConversionSettingsModal from './component/features/conversion/ConversionSettingsModal';
 import SendToBrailleModal from './component/features/conversion/SendToBrailleModal';
 import { usePageEditor } from './hooks/UsePageEditor';
 import { useAppVersion } from './hooks/UseAppVersion';
@@ -212,6 +212,9 @@ const Semojum: React.FC = () => {
   // 페이지행 가운데에 들어갈 꼬리말(묵자). 쪽번호와 마찬가지로 업로드 시점에 확정된다
   // (2026-08-07 명세 추가). 점역은 다운로드 시점에 서버가 한다.
   const [footerText, setFooterText] = useState('');
+  // 파일을 골랐지만 아직 변환 설정(쪽번호·꼬리말)을 정하지 않은 상태.
+  // 값이 있으면 [변환 설정] 모달이 뜨고, [변환 시작]을 눌러야 업로드가 시작된다.
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   // 점역으로 보내기 — 기존 연결 문서가 있어 덮어쓰기 확인이 필요한 상태(JOB4011)
   const [isOverwriteOpen, setIsOverwriteOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -922,14 +925,25 @@ const Semojum: React.FC = () => {
     [setAllBlocks, setPage, setTotalPages],
   );
 
-  const { dispatchAction, togglePopup } = usePopupSync({
+  const { dispatchAction, togglePopup, broadcastHover } = usePopupSync({
     isPopup,
     panelMode,
     setPanelMode,
     snapshot,
     applyAction,
     onSnapshotReceived: handleSnapshotReceived,
+    onHoverReceived: setHoverBlockId,
   });
+
+  // 창이 나뉘어 있으면 원본과 결과가 서로 다른 창에 있다. 이쪽에서 얹은 블록을
+  // 반대편에도 알려 같은 자리에 상자가 뜨게 한다.
+  const handleHoverBlock = useCallback(
+    (id: string | null) => {
+      setHoverBlockId(id);
+      broadcastHover(id);
+    },
+    [broadcastHover],
+  );
 
   useEffect(() => {
     dispatchActionRef.current = dispatchAction;
@@ -1097,7 +1111,13 @@ const Semojum: React.FC = () => {
     onDrop: (files) => {
       // 새 파일 업로드 시 마이페이지 복원 원본 경로를 해제(라이브 미리보기로 전환)
       setSavedOriginalsByPage(null);
-      handleFileDrop(files, activeTab);
+      // 점자 판면을 만드는 모드(b·c)는 쪽번호·꼬리말을 먼저 묻는다.
+      // 초안 생성(a)은 .txt를 내므로 물을 것이 없어 바로 올린다.
+      if (activeTab !== TABS.OCR) {
+        setPendingFile(files[0] ?? null);
+        return;
+      }
+      void handleFileDrop(files, activeTab);
     },
     onDropRejected: () => setFileError(fileValidationMessage(activeTab)),
     accept: acceptConfig,
@@ -1459,48 +1479,9 @@ const Semojum: React.FC = () => {
                         </p>
                       )}
 
-                      {/* 쪽번호·꼬리말은 업로드 시점에 정한다(에디터 토글 방식은 폐기).
-                          둘 다 페이지행에 들어가는 값이라 .brf를 만드는 모드에서만 묻는다. */}
-                      {activeTab !== TABS.OCR && (
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          className="mt-4 w-full max-w-[320px] rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600"
-                        >
-                          <label className="flex cursor-pointer items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={insertPageNumber}
-                              onChange={(e) =>
-                                setInsertPageNumber(e.target.checked)
-                              }
-                            />
-                            페이지행 넣기 (쪽번호·꼬리말)
-                          </label>
-                          {/* 지침 1장 2절 2-1에 따라 페이지행은 홀수 면에만 들어간다.
-                              "판면 마지막 줄"이라고만 쓰면 매 면마다 들어갈 것처럼 읽힌다. */}
-                          <p className="mt-1 text-left text-[11px] leading-snug text-gray-400">
-                            홀수 면 마지막 줄에 원본 쪽번호·꼬리말·점자 면
-                            번호가 들어갑니다. 업로드 후에는 바꿀 수 없습니다.
-                          </p>
-
-                          <label className="mt-2 block border-t border-gray-100 pt-2 text-left text-gray-500">
-                            꼬리말 (선택)
-                            <input
-                              type="text"
-                              value={footerText}
-                              maxLength={FOOTER_TEXT_MAX_LENGTH}
-                              onChange={(e) => setFooterText(e.target.value)}
-                              placeholder="예: 수학 익힘책 1"
-                              className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700 outline-none focus:border-[#407FAC]"
-                            />
-                          </label>
-                          <p className="mt-1 text-left text-[11px] leading-snug text-gray-400">
-                            묵자로 입력하면 다운로드 파일의 페이지행 가운데에
-                            점역되어 들어갑니다. ({footerText.length}/
-                            {FOOTER_TEXT_MAX_LENGTH})
-                          </p>
-                        </div>
-                      )}
+                      {/* 쪽번호·꼬리말은 파일을 고른 직후 [변환 설정] 모달에서 정한다
+                          (Figma V3-02). 예전에는 드롭존 안에 체크박스·입력칸을 붙여 뒀는데
+                          파일을 올리기 전에 눈에 띄지 않아 그냥 지나치기 쉬웠다. */}
                       {fileState.error && (
                         <p className="flex items-center gap-1 text-sm text-red-500 mt-3">
                           <AlertCircle size={14} />
@@ -1540,7 +1521,7 @@ const Semojum: React.FC = () => {
                         dispatchAction({ type: 'setSelected', id })
                       }
                       hoveredBlockId={hoverBlockId}
-                      onBlockHover={setHoverBlockId}
+                      onBlockHover={handleHoverBlock}
                     />
                   )}
                 </div>
@@ -1809,7 +1790,7 @@ const Semojum: React.FC = () => {
                         setGridMenu({ rowIndex, x, y })
                       }
                       hoverBlockId={hoverBlockId}
-                      onHoverBlockChange={setHoverBlockId}
+                      onHoverBlockChange={handleHoverBlock}
                       onVisiblePageChange={setVisibleOutputPage}
                       scrollToRow={scrollToRow}
                     />
@@ -1959,6 +1940,23 @@ const Semojum: React.FC = () => {
         mode={activeTab}
         onClose={() => setIsDownloadOpen(false)}
         onDownload={handleDownloadFile}
+      />
+
+      {/* 파일을 고른 직후의 변환 설정 — 여기서 [변환 시작]을 눌러야 업로드된다. */}
+      <ConversionSettingsModal
+        isOpen={!!pendingFile}
+        fileName={pendingFile?.name ?? null}
+        onCancel={() => setPendingFile(null)}
+        onStart={(withPageNumber, footer) => {
+          const file = pendingFile;
+          setPendingFile(null);
+          if (!file) return;
+          // 업로드 effect가 이 두 값을 함께 읽는다 — 같은 배치에서 갱신되므로
+          // effect가 도는 시점에는 새 값이 반영돼 있다.
+          setInsertPageNumber(withPageNumber);
+          setFooterText(footer);
+          void handleFileDrop([file], activeTab);
+        }}
       />
 
       <SendToBrailleModal

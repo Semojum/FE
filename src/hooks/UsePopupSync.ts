@@ -56,6 +56,10 @@ type SyncMessage =
   | { type: 'state-snapshot'; payload: SyncSnapshot }
   | { type: 'action'; payload: SyncAction }
   | { type: 'request-snapshot' }
+  // 마우스가 얹힌 블록. 창을 나눠도 원본·결과가 서로 대응되는 상자를 그려야 한다.
+  // 스냅샷에 실어 보내지 않고 따로 보낸다 — 스냅샷은 블록 전체를 담고 있어
+  // 마우스가 블록을 옮길 때마다 그걸 다시 브로드캐스트하면 비싸다.
+  | { type: 'hover'; id: string | null }
   | { type: 'popup-closing' };
 
 interface UsePopupSyncOptions {
@@ -65,11 +69,15 @@ interface UsePopupSyncOptions {
   snapshot: SyncSnapshot;
   applyAction: (action: SyncAction) => void;
   onSnapshotReceived: (snapshot: SyncSnapshot) => void;
+  // 반대편 창에서 마우스를 얹은 블록이 바뀌었을 때
+  onHoverReceived?: (id: string | null) => void;
 }
 
 interface UsePopupSyncReturn {
   dispatchAction: (action: SyncAction) => void;
   togglePopup: () => void;
+  // 이쪽 창에서 얹은 블록을 반대편에 알린다.
+  broadcastHover: (id: string | null) => void;
 }
 
 export const usePopupSync = ({
@@ -79,12 +87,14 @@ export const usePopupSync = ({
   snapshot,
   applyAction,
   onSnapshotReceived,
+  onHoverReceived,
 }: UsePopupSyncOptions): UsePopupSyncReturn => {
   const popupRef = useRef<OutputWindowHandle | null>(null);
   const transportRef = useRef<SyncTransport | null>(null);
   const snapshotRef = useRef<SyncSnapshot | null>(null);
   const applyActionRef = useRef(applyAction);
   const onSnapshotReceivedRef = useRef(onSnapshotReceived);
+  const onHoverReceivedRef = useRef(onHoverReceived);
   // 팝업이 최초 스냅샷을 받았는지(요청 재시도 종료 조건)
   const receivedSnapshotRef = useRef(false);
 
@@ -95,6 +105,10 @@ export const usePopupSync = ({
   useEffect(() => {
     onSnapshotReceivedRef.current = onSnapshotReceived;
   }, [onSnapshotReceived]);
+
+  useEffect(() => {
+    onHoverReceivedRef.current = onHoverReceived;
+  }, [onHoverReceived]);
 
   // 메인이 팝업과 분리된 상태일 때만 자동 스냅샷 브로드캐스트
   useEffect(() => {
@@ -108,6 +122,13 @@ export const usePopupSync = ({
     const transport = createSyncTransport((raw) => {
       const data = raw as SyncMessage;
       if (!data) return;
+
+      // hover는 양쪽 창이 똑같이 받아 적용한다(메인/팝업 역할 구분이 없다).
+      // Tauri emit은 보낸 창에도 전달되지만 같은 값을 다시 넣는 것이라 무해하다.
+      if (data.type === 'hover') {
+        onHoverReceivedRef.current?.(data.id);
+        return;
+      }
 
       if (!isPopup) {
         if (data.type === 'request-snapshot') {
@@ -201,5 +222,9 @@ export const usePopupSync = ({
     }
   }, [isPopup, panelMode, setPanelMode]);
 
-  return { dispatchAction, togglePopup };
+  const broadcastHover = useCallback((id: string | null) => {
+    transportRef.current?.post({ type: 'hover', id });
+  }, []);
+
+  return { dispatchAction, togglePopup, broadcastHover };
 };
