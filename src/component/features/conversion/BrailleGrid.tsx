@@ -127,6 +127,8 @@ const BrailleGrid: React.FC<Props> = ({
   // 점자 동시 입력 추적 — 키를 떼는 순간 한 글자로 합친다.
   const pressedDots = useRef<Set<string>>(new Set());
   const [isComposing, setIsComposing] = useState(false);
+  // 마우스가 얹힌 블록 — 그 블록의 줄들을 상자로 감싼다(원본 패널의 블록 hover와 같은 방식).
+  const [hoverBlockId, setHoverBlockId] = useState<string | null>(null);
 
   const isBraille = mode !== TABS.OCR;
   const rows = useMemo(() => flattenRows(pages), [pages]);
@@ -379,6 +381,7 @@ const BrailleGrid: React.FC<Props> = ({
     <div
       ref={scrollRef}
       onScroll={handleScroll}
+      onMouseLeave={() => setHoverBlockId(null)}
       className="custom-scrollbar h-full overflow-auto bg-[#fafcff]"
     >
       {/* 실제 키 입력을 받는 숨은 input — 한글 IME 조합을 위해 진짜 입력 요소가 필요하다.
@@ -427,6 +430,24 @@ const BrailleGrid: React.FC<Props> = ({
               const isReview = !!row.source?.isBlocked;
               const sameBlock = (other?: LayoutRow) =>
                 other?.source?.blockId === row.source?.blockId;
+              // 마우스를 얹으면 그 블록을 상자로 감싼다 — 왼쪽 원본 패널의 텍스트 블록과
+              // 같은 방식으로, 어디까지가 한 블록인지 짚어 준다.
+              const isHovered =
+                !!row.source?.blockId && row.source.blockId === hoverBlockId;
+              // Tailwind는 클래스 문자열을 정적으로 훑으므로 색을 템플릿으로 조립하지 않는다.
+              const box = isReview
+                ? {
+                    x: 'border-x-2 border-[#f47726]',
+                    t: 'border-t-2 border-t-[#f47726]',
+                    b: 'border-b-2 border-b-[#f47726]',
+                  }
+                : isHovered
+                  ? {
+                      x: 'border-x-2 border-[#c3cfdd]',
+                      t: 'border-t-2 border-t-[#c3cfdd]',
+                      b: 'border-b-2 border-b-[#c3cfdd]',
+                    }
+                  : { x: 'border-x-2 border-transparent', t: '', b: '' };
 
               return (
                 <div
@@ -434,37 +455,26 @@ const BrailleGrid: React.FC<Props> = ({
                   ref={(el) => {
                     rowRefs.current[rowIndex] = el;
                   }}
+                  onMouseEnter={() =>
+                    setHoverBlockId(row.source?.blockId ?? null)
+                  }
                   className={[
                     'flex',
-                    isReview
-                      ? 'border-x-2 border-[#f47726]'
-                      : 'border-x-2 border-transparent',
-                    isReview && !sameBlock(rows[rowIndex - 1])
-                      ? 'border-t-2 border-t-[#f47726]'
-                      : '',
-                    isReview && !sameBlock(rows[rowIndex + 1])
-                      ? 'border-b-2 border-b-[#f47726]'
-                      : '',
+                    box.x,
+                    !sameBlock(rows[rowIndex - 1]) ? box.t : '',
+                    !sameBlock(rows[rowIndex + 1]) ? box.b : '',
                   ].join(' ')}
                 >
-                  {/* 대체 초안이 있는 블록은 줄번호 옆에 점을 찍는다 — 진입점이
-                      우클릭 메뉴뿐이라 초안이 있는지 알 방법이 없었다. */}
+                  {/* 대체 텍스트가 있는지는 결과 패널 위 [대체 텍스트] 버튼이 알려 준다 —
+                      줄번호 옆 주황 점은 판면을 어지럽혀 뺐다. 안내는 툴팁으로만 남긴다. */}
                   <span
                     title={
                       row.source?.hasDrafts
-                        ? '대체 초안이 있는 블록 — 우클릭해서 고를 수 있습니다'
+                        ? '대체 텍스트가 있는 블록입니다'
                         : undefined
                     }
-                    className="flex h-[19px] w-[26px] shrink-0 items-center justify-end gap-0.5 pr-1.5 text-[9px] text-gray-400"
+                    className="flex h-[19px] w-[26px] shrink-0 items-center justify-end pr-1.5 text-[9px] text-gray-400"
                   >
-                    {row.source?.hasDrafts && (
-                      <span
-                        aria-label="대체 초안 있음"
-                        className="text-[#f47726]"
-                      >
-                        •
-                      </span>
-                    )}
                     {rowInPage + 1}
                   </span>
                   {cells.map((ch, cellIdx) => (

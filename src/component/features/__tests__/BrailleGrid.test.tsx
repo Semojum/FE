@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import BrailleGrid, { GridCaret } from '../conversion/BrailleGrid';
-import { buildLayout } from '../../../utils/brailleLayout';
+import { buildLayout, CELLS_PER_ROW } from '../../../utils/brailleLayout';
 import { ConversionTab, TABS, TranslationBlock } from '../../../types';
 
 // 격자 편집 — 점자 모드에서 묵자가 섞여 들어가던 문제(QA 2026-08-09)와
@@ -184,6 +184,64 @@ describe('BrailleGrid', () => {
       expect(cells[2].className).toContain('bg-white');
     },
   );
+
+  // 판면을 어지럽혀 뺐다 — 대체 텍스트 유무는 결과 패널 위 버튼이 알려 준다.
+  it('대체 텍스트가 있어도 줄번호 옆에 점을 찍지 않는다', () => {
+    const withDrafts: Record<number, TranslationBlock[]> = {
+      1: [
+        {
+          id: 'b1',
+          currentText: '본문',
+          candidates: ['다른 표현'],
+          drafts: [{ content: '다른 표현' }],
+        },
+      ],
+    };
+    const { container } = render(
+      <BrailleGrid
+        pages={buildLayout(withDrafts, false)}
+        mode={TABS.OCR}
+        caret={null}
+        highlightBlockId={null}
+        onCaretChange={() => undefined}
+        onEditRow={() => undefined}
+        onContextMenu={() => undefined}
+      />,
+    );
+    expect(container.textContent).not.toContain('•');
+    expect(screen.queryByLabelText('대체 초안 있음')).toBeNull();
+  });
+
+  // 원본 패널의 블록 hover와 같이, 마우스를 얹은 블록을 상자로 감싼다.
+  it('마우스를 얹은 블록만 상자로 감싼다', () => {
+    const two: Record<number, TranslationBlock[]> = {
+      1: [
+        { id: 'b1', currentText: '첫블록', candidates: [] },
+        { id: 'b2', currentText: '둘째블록', candidates: [] },
+      ],
+    };
+    render(
+      <BrailleGrid
+        pages={buildLayout(two, false)}
+        mode={TABS.OCR}
+        caret={null}
+        highlightBlockId={null}
+        onCaretChange={() => undefined}
+        onEditRow={() => undefined}
+        onContextMenu={() => undefined}
+      />,
+    );
+    const cells = screen.getAllByRole('gridcell');
+    const rowOf = (cellIdx: number) => cells[cellIdx].parentElement!;
+    const hoverBox = 'border-[#c3cfdd]';
+
+    expect(rowOf(0).className).not.toContain(hoverBox);
+
+    fireEvent.mouseOver(cells[0]);
+    expect(rowOf(0).className).toContain(hoverBox);
+    // 다른 블록(둘째 줄)은 그대로
+    expect(rowOf(CELLS_PER_ROW).className).not.toContain(hoverBox);
+  });
 
   // 종류를 가리지 않는다 — 점역자주가 아닌 표식도 같은 규칙이다.
   it('점역자주가 아닌 <!…> 표식도 흐리게 그린다', () => {
