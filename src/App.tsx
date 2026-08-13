@@ -1282,62 +1282,11 @@ const Semojum: React.FC = () => {
             격자 필요 폭: px-1(8) + 테두리(4) + 줄번호(26) + 32칸×19 = 646
 
           여유가 14px뿐이다. 패딩·간격을 더 키우거나 칸 크기를 늘리면 스크롤이 되살아난다.
-          (Windows 디스플레이 배율이 100%가 아니면 CSS 폭이 줄어 여전히 스크롤이 생긴다) */}
-      <header className="w-full pt-5 px-2">
-        <div className="flex items-center justify-between mb-3">
-          <img
-            src={'semojum-wordmark.png'}
-            alt="세모점"
-            className="w-50 object-contain"
-          />
-          <div className="flex items-center gap-2">
-            {!isPopup && (
-              <>
-                <button
-                  onClick={() => setIsMyPageOpen(true)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:text-[#407FAC] hover:border-[#407FAC]/40 transition-colors shadow-sm text-sm font-medium"
-                  title="마이페이지 — 이전 작업 보기"
-                >
-                  <History size={16} />
-                  <span>마이페이지</span>
-                </button>
-                <span className="hidden md:flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600">
-                  <UserIcon size={14} />
-                  {auth.user?.loginId}
-                </span>
-                <button
-                  onClick={() => auth.logout()}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-500 hover:text-red-500 hover:border-red-200 transition-colors shadow-sm text-sm font-medium"
-                  title="로그아웃"
-                >
-                  <LogOut size={16} />
-                </button>
-                {/* 합치기/나누기 토글은 메인 창에서만 노출한다.
-                    결과 전용 창에서 합치기를 누르면 window.close가 막혀 흰 화면이
-                    되는 문제가 있어, 결과 창은 창 닫기(X)로만 합치도록 한다. */}
-                <button
-                  onClick={togglePopup}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:text-[#407FAC] hover:border-[#407FAC]/40 transition-colors shadow-sm text-sm font-medium"
-                  title={
-                    panelMode === 'both'
-                      ? '결과를 새 창으로 분리'
-                      : '한 창으로 합치기'
-                  }
-                  aria-pressed={panelMode !== 'both'}
-                >
-                  {panelMode === 'both' ? (
-                    <Columns2 size={16} />
-                  ) : (
-                    <Square size={16} />
-                  )}
-                  <span>
-                    {panelMode === 'both' ? '반으로 나누기' : '합치기'}
-                  </span>
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+          (Windows 디스플레이 배율이 100%가 아니면 CSS 폭이 줄어 여전히 스크롤이 생긴다)
+
+          세로는 남는 만큼 패널이 늘어난다 — 로고 줄을 없애고 계정·창 버튼을 탭 줄로
+          내려 위쪽 두 줄을 한 줄로 줄였다. 판면이 화면에 한 줄이라도 더 들어와야 한다. */}
+      <header className="w-full pt-3 px-2">
         {!isPopup && (
           <nav className="flex items-end gap-12 border-b border-white/20 relative">
             {tabs.map((tab) => (
@@ -1364,8 +1313,9 @@ const Semojum: React.FC = () => {
               </button>
             ))}
 
-            {/* 되돌리기 · 다시 실행 · 변환 진행률 (Figma V3-03 상단) */}
-            <div className="ml-auto mb-3 flex items-center gap-3">
+            {/* 되돌리기 · 다시 실행 · 계정/창 조작. 변환 진행률은 결과 패널로 옮겼다 —
+                로고 줄까지 걷어내 위쪽 두 줄을 한 줄로 줄이고, 그만큼 패널을 세로로 키운다. */}
+            <div className="ml-auto mb-3 flex items-center gap-1.5">
               <button
                 onClick={() =>
                   dispatchAction({ type: 'undo', page: currentPage })
@@ -1373,7 +1323,7 @@ const Semojum: React.FC = () => {
                 disabled={!editor.canUndo(currentPage)}
                 title="되돌리기 (Ctrl+Z)"
                 aria-label="되돌리기"
-                className="rounded p-1 text-gray-400 transition-colors hover:text-[#407FAC] disabled:opacity-30"
+                className="rounded p-1.5 text-gray-400 transition-colors hover:text-[#407FAC] disabled:opacity-30"
               >
                 <Undo2 size={17} />
               </button>
@@ -1384,36 +1334,64 @@ const Semojum: React.FC = () => {
                 disabled={!editor.canRedo(currentPage)}
                 title="다시 실행 (Ctrl+Shift+Z)"
                 aria-label="다시 실행"
-                className="rounded p-1 text-gray-400 transition-colors hover:text-[#407FAC] disabled:opacity-30"
+                className="rounded p-1.5 text-gray-400 transition-colors hover:text-[#407FAC] disabled:opacity-30"
               >
                 <Redo2 size={17} />
               </button>
 
-              {fileState.totalPages > 0 && (
-                <div className="flex items-center gap-2 border-l border-gray-200 pl-3">
-                  <span className="text-[12px] font-semibold text-[#407FAC]">
-                    {isConversionComplete ? '변환 완료' : '변환 진행'}{' '}
-                    {settledPages} / {fileState.totalPages}
-                  </span>
-                  <div className="h-1.5 w-[90px] overflow-hidden rounded-full bg-gray-200">
-                    <div
-                      className="h-full rounded-full bg-[#407FAC] transition-[width] duration-300"
-                      style={{ width: `${conversionProgress}%` }}
-                    />
-                  </div>
-                </div>
-              )}
+              <span className="mx-1 h-4 w-px bg-gray-200" />
+
+              <button
+                onClick={() => setIsMyPageOpen(true)}
+                title="마이페이지 — 이전 작업 보기"
+                className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[13px] font-medium text-gray-600 shadow-sm transition-colors hover:border-[#407FAC]/40 hover:text-[#407FAC]"
+              >
+                <History size={15} />
+                <span>마이페이지</span>
+              </button>
+              {/* 합치기/나누기 토글은 메인 창에서만 노출한다.
+                  결과 전용 창에서 합치기를 누르면 window.close가 막혀 흰 화면이
+                  되는 문제가 있어, 결과 창은 창 닫기(X)로만 합치도록 한다. */}
+              <button
+                onClick={togglePopup}
+                title={
+                  panelMode === 'both'
+                    ? '결과를 새 창으로 분리'
+                    : '한 창으로 합치기'
+                }
+                aria-pressed={panelMode !== 'both'}
+                className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[13px] font-medium text-gray-600 shadow-sm transition-colors hover:border-[#407FAC]/40 hover:text-[#407FAC]"
+              >
+                {panelMode === 'both' ? (
+                  <Columns2 size={15} />
+                ) : (
+                  <Square size={15} />
+                )}
+                <span>{panelMode === 'both' ? '반으로 나누기' : '합치기'}</span>
+              </button>
+              <span className="hidden items-center gap-1.5 px-2 text-[13px] text-gray-500 lg:flex">
+                <UserIcon size={14} />
+                {auth.user?.loginId}
+              </span>
+              <button
+                onClick={() => auth.logout()}
+                title="로그아웃"
+                aria-label="로그아웃"
+                className="flex items-center rounded-lg border border-gray-200 bg-white p-1.5 text-gray-500 shadow-sm transition-colors hover:border-red-200 hover:text-red-500"
+              >
+                <LogOut size={16} />
+              </button>
             </div>
           </nav>
         )}
       </header>
 
-      <main className="w-full px-2 py-4 flex flex-col items-center">
+      <main className="flex min-h-0 w-full flex-1 flex-col items-center px-2 py-3">
         <div
           className={
             panelMode === 'both'
-              ? 'w-full flex flex-col md:flex-row items-stretch gap-4 mb-3'
-              : 'w-full flex flex-col items-stretch mb-4'
+              ? 'flex min-h-0 w-full flex-1 flex-col items-stretch gap-4 md:flex-row'
+              : 'flex min-h-0 w-full flex-1 flex-col items-stretch'
           }
         >
           {panelMode !== 'output-only' && (
@@ -1423,7 +1401,7 @@ const Semojum: React.FC = () => {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-[2rem] p-4 shadow-xl border border-white/10 h-[600px] flex flex-col"
+                className="flex h-full min-h-[420px] flex-col rounded-[2rem] border border-white/10 bg-white p-4 shadow-xl"
               >
                 <div className="flex justify-between items-center mb-4 gap-3">
                   <div className="min-w-0">
@@ -1537,7 +1515,7 @@ const Semojum: React.FC = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 }}
-                className="bg-white rounded-[2rem] p-4 shadow-xl border border-white/10 h-[600px] flex flex-col"
+                className="flex h-full min-h-[420px] flex-col rounded-[2rem] border border-white/10 bg-white p-4 shadow-xl"
               >
                 <div className="flex justify-between items-center mb-6">
                   <div className="flex items-baseline gap-3">
@@ -1605,17 +1583,21 @@ const Semojum: React.FC = () => {
                 {/* 변환 진행률은 상단 탭 줄에서 한 번만 보여준다.
                     (여기에도 같은 막대가 있어 중복으로 보였다 — QA 2026-08-09) */}
 
-                {gridRows.length > 0 && (
-                  <div className="mb-2 flex items-center justify-between">
+                {/* 판면 규격 · 페이지행 · 변환 진행률 · 보고 있는 출력 쪽.
+                    진행률은 원래 상단 탭 줄에 있었는데 결과가 여기 있으니 여기가 맞다. */}
+                {(gridRows.length > 0 || fileState.totalPages > 0) && (
+                  <div className="mb-2 flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
-                      <span className="rounded-md bg-[#eef3fc] px-2 py-1 text-[11px] font-semibold text-[#5b8ce6]">
-                        {ROWS_PER_PAGE}줄 × {CELLS_PER_ROW}칸
-                      </span>
+                      {gridRows.length > 0 && (
+                        <span className="rounded-md bg-[#eef3fc] px-2 py-1 text-[11px] font-semibold text-[#5b8ce6]">
+                          {ROWS_PER_PAGE}줄 × {CELLS_PER_ROW}칸
+                        </span>
+                      )}
                       {/* 이 작업의 페이지행 설정. 값을 바꾸면 판면이 통째로 다시 짜이는데,
                           BE가 저장된 값으로만 다운로드를 만들어(PATCH·다운로드 body 모두 무시,
                           2026-08-07 실서버 확인) 여기서 바꾸면 화면과 파일이 어긋난다.
                           바꾸는 API가 생기면 disabled만 풀면 된다. */}
-                      {activeTab !== TABS.OCR && (
+                      {gridRows.length > 0 && activeTab !== TABS.OCR && (
                         <label
                           title="업로드할 때 정해집니다. 바꾸려면 파일을 다시 올려 주세요."
                           className="flex cursor-not-allowed items-center gap-1.5 rounded-md border border-gray-200 px-2 py-1 text-[11px] text-gray-400"
@@ -1632,10 +1614,28 @@ const Semojum: React.FC = () => {
                         </label>
                       )}
                     </div>
-                    {/* 출력 쪽은 원본 페이지와 별개다 — 스크롤로 이어 본다. */}
-                    <span className="text-[11px] text-gray-400">
-                      {visibleOutputPage} / {outputPageCount}쪽
-                    </span>
+                    <div className="flex items-center gap-3">
+                      {fileState.totalPages > 0 && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-semibold text-[#407FAC]">
+                            {isConversionComplete ? '변환 완료' : '변환 진행'}{' '}
+                            {settledPages} / {fileState.totalPages}
+                          </span>
+                          <div className="h-1.5 w-[80px] overflow-hidden rounded-full bg-gray-200">
+                            <div
+                              className="h-full rounded-full bg-[#407FAC] transition-[width] duration-300"
+                              style={{ width: `${conversionProgress}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      {/* 출력 쪽은 원본 페이지와 별개다 — 스크롤로 이어 본다. */}
+                      {gridRows.length > 0 && (
+                        <span className="text-[11px] text-gray-400">
+                          {visibleOutputPage} / {outputPageCount}쪽
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -1824,7 +1824,7 @@ const Semojum: React.FC = () => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
-            className="w-full"
+            className="w-full shrink-0 pt-2"
           >
             <Pagination
               currentPage={currentPage}
