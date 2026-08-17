@@ -464,8 +464,13 @@ const BrailleGrid: React.FC<Props> = ({
         // 맞춰지고 칸은 그 밖으로 넘쳐서, 블록 강조 테두리가 32칸까지 가지 못하고
         // 31칸 언저리에서 잘렸다. 패널이 좁으면 가로로 스크롤한다.
         <div key={page.braillePage} className="mb-5 w-max px-1 pt-2">
-          {/* 칸 눈금 */}
-          <div className="mb-0.5 flex w-max pl-[26px] text-[9px] text-gray-400">
+          {/* 칸 눈금 — 왼쪽 끝에 이 면이 몇 쪽인지 함께 적는다.
+              위쪽 "3 / 12쪽" 표시는 스크롤로 바뀌는 값이라, 면마다 붙여 두면
+              길게 이어 붙인 판면에서 지금 보고 있는 쪽을 바로 짚을 수 있다. */}
+          <div className="mb-0.5 flex w-max items-end text-[9px] text-gray-400">
+            <span className="w-[26px] shrink-0 whitespace-nowrap pr-1.5 text-right font-bold text-[#407FAC]">
+              {page.braillePage}쪽
+            </span>
             {Array.from({ length: CELLS_PER_ROW }, (_, i) => (
               <span key={i} className="w-[19px] shrink-0 text-center">
                 {i === 0 || (i + 1) % 8 === 0 ? i + 1 : ''}

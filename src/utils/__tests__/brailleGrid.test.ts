@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { deleteAt, deleteBefore, insertAt, toCells } from '../brailleGrid';
+import {
+  deleteAt,
+  deleteBefore,
+  insertAt,
+  previewRows,
+  toCells,
+} from '../brailleGrid';
 
 // 판면 배치는 brailleLayout(= braille-assist)이 맡는다. 여기는 한 행 안의 셀 편집만 본다.
 
@@ -43,5 +49,24 @@ describe('deleteBefore / deleteAt — 지우면 뒤쪽이 왼쪽으로 당겨진
 
   it('범위 밖이면 그대로 둔다', () => {
     expect(deleteAt('abc', 9)).toBe('abc');
+  });
+});
+
+// 대체 텍스트 피커의 점자 미리보기 — 판면과 같은 규칙으로 접되 앞 몇 줄만 쓴다.
+describe('previewRows', () => {
+  it('칸 수를 넘기면 다음 줄로 접는다', () => {
+    expect(previewRows('abcdef', 4, 3)).toEqual(['abc', 'def']);
+  });
+
+  it('\n은 무조건 개행이다', () => {
+    expect(previewRows('ab\ncd', 4, 8)).toEqual(['ab', 'cd']);
+  });
+
+  it('앞에서 요청한 줄 수까지만 돌려준다', () => {
+    expect(previewRows('a\nb\nc\nd\ne', 3, 8)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('빈 줄도 한 줄을 차지한다', () => {
+    expect(previewRows('a\n\nb', 4, 8)).toEqual(['a', '', 'b']);
   });
 });

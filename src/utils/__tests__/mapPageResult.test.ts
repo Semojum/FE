@@ -111,7 +111,7 @@ describe('mapPageResult', () => {
     const { blocks } = mapPageResult(TABS.BRAILLE, result);
 
     expect(blocks[0].drafts).toEqual([
-      { label: '격자형', text: undefined, content: '⠨⠕' },
+      { label: '격자형', printText: undefined, content: '⠨⠕' },
     ]);
     expect(blocks[0].candidates).toEqual(['⠨⠕']);
   });
@@ -143,10 +143,10 @@ describe('mapPageResult', () => {
     const { blocks } = mapPageResult(TABS.OCR, result);
 
     expect(blocks[0].drafts).toEqual([
-      { label: '생략', text: undefined, content: '그림 생략' },
+      { label: '생략', printText: undefined, content: '그림 생략' },
       {
         label: '짧은 제목',
-        text: undefined,
+        printText: undefined,
         content: '그림: 건국대학교 상징 문장',
       },
     ]);
@@ -201,7 +201,8 @@ describe('mapPageResult', () => {
     expect(blocks[0].drafts).toEqual([
       {
         label: '수학적 서술',
-        text: '그래프: 막대 네 개.',
+        // text(묵자 원문)는 printText로 옮겨 담는다 — 점자는 contents 쪽이다.
+        printText: '그래프: 막대 네 개.',
         content: '⠠⠄⠈⠪\n⠐⠗⠙⠪',
       },
     ]);

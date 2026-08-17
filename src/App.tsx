@@ -231,6 +231,8 @@ const Semojum: React.FC = () => {
   } | null>(null);
   const [visibleOutputPage, setVisibleOutputPage] = useState(1);
   const [scrollToRow, setScrollToRow] = useState<number | null>(null);
+  // 손으로 고친 블록(`페이지:블록id`) — 대체 텍스트 적용 전 확인 여부를 가른다.
+  const [editedBlocks, setEditedBlocks] = useState<Set<string>>(new Set());
   // 대체 초안 피커를 연 블록 — 어느 페이지의 블록인지까지 들고 있는다.
   // (id만 들고 페이지 전체를 훑으면 다른 페이지의 같은 블록을 먼저 집을 수 있다)
   const [draftTarget, setDraftTarget] = useState<{
@@ -599,6 +601,13 @@ const Semojum: React.FC = () => {
       }
       updateBlock(page, id, text);
       editor.markDirty(page);
+      // 손으로 고친 블록을 기억해 둔다 — 대체 텍스트를 적용하면 이 편집이 사라지므로
+      // 피커가 한 번 확인을 받는다(기획 §2 "대체 텍스트 선택 · 적용").
+      setEditedBlocks((prev) => {
+        const key = `${page}:${id}`;
+        if (prev.has(key)) return prev;
+        return new Set(prev).add(key);
+      });
     },
     [editor, updateBlock],
   );
@@ -679,6 +688,31 @@ const Semojum: React.FC = () => {
     [gridRows, selectedBlockId],
   );
 
+  // 원본에서 블록을 고르면 결과 격자의 커서도 그 블록 첫 칸으로 옮기고 그 줄을 보여 준다.
+  // 예전에는 원본에만 주황 상자가 뜨고 결과의 파란 커서는 보던 자리에 남아 있어,
+  // 어느 줄이 그 블록인지 눈으로 다시 찾아야 했다.
+  const handleSelectFromOriginal = useCallback(
+    (id: string) => {
+      dispatchActionRef.current?.({ type: 'setSelected', id });
+      const rowIndex = gridRows.findIndex(
+        (r) =>
+          r.source?.blockId === id &&
+          r.source?.pageNo === currentPageRef.current,
+      );
+      if (rowIndex < 0) return;
+      setCaret({ rowIndex, cell: 0 });
+      setScrollToRow(rowIndex);
+    },
+    [gridRows],
+  );
+
+  // 같은 줄을 다시 골라도 스크롤이 걸리도록 값을 곧 비운다(격자는 값이 바뀔 때 움직인다).
+  useEffect(() => {
+    if (scrollToRow == null) return;
+    const id = window.setTimeout(() => setScrollToRow(null), 400);
+    return () => window.clearTimeout(id);
+  }, [scrollToRow]);
+
   // 격자에서 한 행을 고치면 그 행이 속한 블록의 본문을 다시 만들어 넘긴다.
   // 접힌 행이면 논리 줄의 그 구간만 갈아 끼우므로, 길어진 만큼 다음 행으로 다시 접힌다.
   const handleEditRow = useCallback(
@@ -709,10 +743,8 @@ const Semojum: React.FC = () => {
       skipGridScrollRef.current = false;
       return;
     }
+    // 값을 비우는 것은 위의 scrollToRow 정리 effect가 맡는다(같은 줄 재선택 대비).
     setScrollToRow(firstRowIndexOfPage(gridRows, currentPage));
-    // 같은 페이지로 다시 이동해도 스크롤이 걸리도록 다음 틱에 비운다.
-    const id = window.setTimeout(() => setScrollToRow(null), 400);
-    return () => window.clearTimeout(id);
     // gridRows가 바뀔 때마다 스크롤하면 스트리밍 중 계속 튀므로 페이지만 본다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage]);
@@ -1503,9 +1535,7 @@ const Semojum: React.FC = () => {
                       selectedBlockId={selectedBlockId}
                       imageResolution={imgResolution}
                       originalTextBlocks={currentOriginalTexts}
-                      onBlockClick={(id) =>
-                        dispatchAction({ type: 'setSelected', id })
-                      }
+                      onBlockClick={handleSelectFromOriginal}
                       hoveredBlockId={hoverBlockId}
                       onBlockHover={handleHoverBlock}
                     />
@@ -1923,15 +1953,18 @@ const Semojum: React.FC = () => {
         />
       )}
 
-      {/* 대체 초안 피커 — 근거(방식명·설명)와 함께 후보를 고른다 */}
+      {/* 대체 초안 피커 — 방식(라벨)을 탭으로 두고 한 안을 크게 본다 */}
       {draftBlock && (
         <CandidateModal
           isOpen
           onClose={() => setDraftTarget(null)}
           candidates={draftBlock.block.candidates}
           drafts={draftBlock.block.drafts}
+          mode={activeTab}
           currentText={draftBlock.block.currentText}
-          originalText={draftBlock.block.originalText}
+          isEdited={editedBlocks.has(
+            `${draftBlock.pageNo}:${draftBlock.block.id}`,
+          )}
           onSelect={(text, idx) => {
             dispatchAction({
               type: 'applyCandidate',
@@ -2003,6 +2036,8 @@ const Semojum: React.FC = () => {
         <MyPage
           isOpen={isMyPageOpen}
           onClose={() => setIsMyPageOpen(false)}
+          // 변환 중이면 그 작업이 목록에 뜨도록 열려 있는 동안 목록을 갱신한다.
+          isConverting={isConverting}
           token={auth.token}
           user={auth.user}
           onSelect={handleSelectJob}

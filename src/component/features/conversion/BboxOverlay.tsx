@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BoundingBox, ImageResolution } from '../../../types';
 
@@ -20,6 +20,18 @@ const BBoxOverlay: React.FC<BBoxOverlayProps> = ({
   hoveredId,
   onBlockHover,
 }) => {
+  // 결과 격자에서 줄을 짚으면 여기 상자만 바뀌고 원본은 보던 자리에 그대로 있었다.
+  // 상자가 화면 밖이면 대조가 안 되므로, 고른 상자가 보이도록 원본을 옮긴다.
+  const selectedRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!selectedId) return;
+    selectedRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+      inline: 'center',
+    });
+  }, [selectedId]);
+
   // 해상도 정보가 없으면 렌더링하지 않음
   if (
     !bboxes ||
@@ -49,6 +61,7 @@ const BBoxOverlay: React.FC<BBoxOverlayProps> = ({
           return (
             <motion.div
               key={box.id}
+              ref={isSelected ? selectedRef : undefined}
               layoutId={isSelected ? 'active-bbox' : undefined} // 선택된 요소만 레이아웃 애니메이션
               initial={false}
               onClick={(e) => {

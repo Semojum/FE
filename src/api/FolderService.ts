@@ -2,6 +2,7 @@ import { apiRequest } from './apiClient';
 import {
   DirectoryContents,
   FileCard,
+  FilePage,
   FolderSummary,
   FolderTreeNode,
   ListQuery,
@@ -13,28 +14,36 @@ import {
 // 실측)는 `{ folders, files: [...], nextCursor, hasMore }`로 files가 평평한 배열이고
 // 커서 필드가 형제로 온다. 어느 쪽이 와도 동작하도록 여기서 흡수한다 — BE가 명세대로
 // 바뀌어도 FE는 그대로 둔다.
+export type RawFilePage =
+  | FileCard[]
+  | { items?: FileCard[]; nextCursor?: string | null; hasMore?: boolean }
+  | undefined;
+
 interface RawContents {
   folders?: FolderSummary[];
-  files?:
-    | FileCard[]
-    | { items?: FileCard[]; nextCursor?: string | null; hasMore?: boolean };
+  files?: RawFilePage;
   nextCursor?: string | null;
   hasMore?: boolean;
 }
 
-export const normalizeContents = (raw: RawContents): DirectoryContents => {
-  const nested = !Array.isArray(raw?.files) ? raw?.files : undefined;
-  const items = Array.isArray(raw?.files) ? raw.files : (nested?.items ?? []);
+// 파일 목록 한 페이지. 평평한 배열로 와도 커서를 형제 필드(fallback)에서 주워 온다.
+export const normalizeFilePage = (
+  raw: RawFilePage,
+  fallback: { nextCursor?: string | null; hasMore?: boolean } = {},
+): FilePage => {
+  const nested = Array.isArray(raw) ? undefined : raw;
   return {
-    folders: raw?.folders ?? [],
-    files: {
-      items,
-      // 중첩 형태면 그 안의 값을, 평평한 형태면 형제 값을 쓴다.
-      nextCursor: nested?.nextCursor ?? raw?.nextCursor ?? null,
-      hasMore: nested?.hasMore ?? raw?.hasMore ?? false,
-    },
+    items: Array.isArray(raw) ? raw : (nested?.items ?? []),
+    // 중첩 형태면 그 안의 값을, 평평한 형태면 형제 값을 쓴다.
+    nextCursor: nested?.nextCursor ?? fallback.nextCursor ?? null,
+    hasMore: nested?.hasMore ?? fallback.hasMore ?? false,
   };
 };
+
+export const normalizeContents = (raw: RawContents): DirectoryContents => ({
+  folders: raw?.folders ?? [],
+  files: normalizeFilePage(raw?.files, raw ?? {}),
+});
 
 // 목록 조회 공통 쿼리 직렬화. status/mode는 복수 지정이 가능해 같은 키를 반복한다.
 export const buildListQuery = (q: ListQuery = {}): string => {

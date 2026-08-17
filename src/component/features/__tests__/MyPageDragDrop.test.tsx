@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 
 vi.mock('../../../api/HistoryService', () => ({
   listJobs: vi.fn(),
+  listRecentJobs: vi.fn(),
 }));
 vi.mock('../../../api/FolderService', () => ({
   getFolderContents: vi.fn(),
@@ -24,7 +25,7 @@ vi.mock('../../../api/JobService', () => ({
 }));
 
 import MyPage from '../mypage/MyPage';
-import { listJobs } from '../../../api/HistoryService';
+import { listJobs, listRecentJobs } from '../../../api/HistoryService';
 import {
   getFolderContents,
   getFolderTree,
@@ -87,6 +88,12 @@ beforeEach(() => {
   vi.mocked(getFolderTree).mockResolvedValue({ folders: [] } as never);
   vi.mocked(getFolderContents).mockResolvedValue(contents as never);
   vi.mocked(listJobs).mockResolvedValue(contents as never);
+  // 여기 관심사는 목록의 끌어 옮기기다 — 위쪽 최근 작업 스트립은 비워 둔다.
+  vi.mocked(listRecentJobs).mockResolvedValue({
+    items: [],
+    nextCursor: null,
+    hasMore: false,
+  } as never);
   vi.mocked(moveJobs).mockResolvedValue({
     movedCount: 1,
     targetFolderId: 'f1',

@@ -102,3 +102,6 @@ export const FILE_STORAGE_LIMIT = 1000;
 
 // 목록 페이지 크기 (기획: 30개씩 추가 로딩)
 export const PAGE_SIZE = 30;
+
+// 마이페이지 첫 화면(S1) 위쪽 '최근 작업' 스트립에 걸어 두는 건수 (디자인 V3-04 · 명세 size=5)
+export const RECENT_STRIP_SIZE = 5;

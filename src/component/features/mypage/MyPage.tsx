@@ -40,6 +40,7 @@ import {
 import { JobMode } from '../../../types/apiTypes';
 import { JobRef, User } from '../../../types/auth';
 import { DetailList, PreviewPane } from './DetailView';
+import RecentStrip from './RecentStrip';
 import ContextMenu, { MenuItem } from '../../shared/ContextMenu';
 import TrashView from './TrashView';
 import {
@@ -50,13 +51,15 @@ import {
   RenameModal,
 } from './MyPageModals';
 
-// Figma V3-05 마이페이지 (S1 메인 · S2 폴더 내부 · S7 검색 결과 · S8 휴지통 · S9 최근 작업 전체)
+// Figma V3-04 마이페이지 (S1 메인 · S2 폴더 내부 · S7 검색 결과 · S8 휴지통 · S9 최근 작업 전체)
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   token: string;
   user?: User | null;
+  // 에디터에서 변환이 돌고 있는지 — 그 작업이 목록에 뜨도록 열린 동안 갱신한다.
+  isConverting?: boolean;
   onSelect: (job: JobRef) => void;
   onToast: (message: string) => void;
 }
@@ -92,10 +95,11 @@ const MyPage: React.FC<Props> = ({
   onClose,
   token,
   user,
+  isConverting,
   onSelect,
   onToast,
 }) => {
-  const mp = useMyPage({ token, isOpen, onError: onToast });
+  const mp = useMyPage({ token, isOpen, isConverting, onError: onToast });
   const {
     view,
     setView,
@@ -111,8 +115,10 @@ const MyPage: React.FC<Props> = ({
     setModeFilter,
     favoriteOnly,
     setFavoriteOnly,
+    isMainScreen,
     folders,
     files,
+    recent,
     tree,
     isLoading,
     isLoadingMore,
@@ -313,8 +319,9 @@ const MyPage: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
-  const showRecentRow =
-    view === 'browse' && !folderId && !search.trim() && files.length > 0;
+  // 최근 작업 스트립은 첫 화면(S1)에만 있다. 아래 목록이 비어 있어도(폴더 안에만
+  // 작업이 있는 경우) 최근 작업은 보여 준다.
+  const showRecentStrip = isMainScreen && recent.length > 0;
   const showLocation = view === 'recent' || !!search.trim();
   // '최근 작업 전체'(S9)는 작업만 나열한다. 전역 조회 응답에는 폴더도 실려 오므로
   // 화면에서 걸러 준다 (QA 2026-08-09).
@@ -634,6 +641,29 @@ const MyPage: React.FC<Props> = ({
                 }}
                 className="custom-scrollbar min-w-0 flex-1 overflow-y-auto px-6 pb-10"
               >
+                {/* 최근 작업 — 첫 화면(S1) 위쪽 스트립 */}
+                {showRecentStrip && (
+                  <RecentStrip
+                    files={recent}
+                    previewId={previewId}
+                    onSeeAll={() => setView('recent')}
+                    onClickFile={(f) => {
+                      setPreviewId(f.jobId);
+                      selection.clear();
+                    }}
+                    onOpenFile={handleOpenFile}
+                    onToggleFavorite={(f) =>
+                      void run(
+                        () => toggleJobFavorite(f.jobId, token),
+                        '즐겨찾기를 바꾸지 못했습니다.',
+                      ).catch(() => undefined)
+                    }
+                    onMenu={(file, x, y) =>
+                      setMenu({ kind: 'file', file, x, y })
+                    }
+                  />
+                )}
+
                 {isLoading ? (
                   <div className="flex flex-col items-center gap-2 py-24 text-gray-400">
                     <Loader2 className="animate-spin" size={30} />
@@ -649,19 +679,6 @@ const MyPage: React.FC<Props> = ({
                   </p>
                 ) : (
                   <>
-                    {/* 최근 작업 바로가기 — 메인(S1)에만 있다 */}
-                    {showRecentRow && (
-                      <div className="mb-2 flex items-center justify-end">
-                        <button
-                          type="button"
-                          onClick={() => setView('recent')}
-                          className="text-[12px] font-semibold text-[#f47726] transition-opacity hover:opacity-80"
-                        >
-                          최근 작업 전체 보기 ›
-                        </button>
-                      </div>
-                    )}
-
                     {/* 자세히 보기 — 이름·모드·작성일 */}
                     <DetailList
                       folders={visibleFolders}
@@ -720,7 +737,11 @@ const MyPage: React.FC<Props> = ({
               {/* 오른쪽 미리보기 — 목록에서 고른 파일 한 건 */}
               <aside className="hidden w-[260px] shrink-0 border-l border-gray-200 bg-white lg:block">
                 <PreviewPane
-                  file={files.find((f) => f.jobId === previewId) ?? null}
+                  // 스트립에서 고른 파일은 아래 목록에 없을 수 있다(다른 폴더 소속).
+                  file={
+                    [...files, ...recent].find((f) => f.jobId === previewId) ??
+                    null
+                  }
                   onOpen={handleOpenFile}
                   onDownload={(f) => void handleDownloadFile(f)}
                 />

@@ -72,7 +72,7 @@ const parseDrafts = (drafts: Draft[] | string | null | undefined): Draft[] => {
 };
 
 // 대체 텍스트 후보는 contents의 여러 줄이 아니라 drafts에서 온다(시각 요소에만 존재).
-// 라벨·점역사주 설명을 유지한 채 매핑해 피커에서 방식을 구분할 수 있게 한다.
+// 라벨(방식명)과 묵자 원문을 유지한 채 매핑해 피커가 탭·묵자·점자를 나눠 그릴 수 있게 한다.
 const itemDrafts = (item: { drafts?: Draft[] | string | null }): BlockDraft[] =>
   parseDrafts(item.drafts)
     .map((d) => {
@@ -80,13 +80,14 @@ const itemDrafts = (item: { drafts?: Draft[] | string | null }): BlockDraft[] =>
       const contents = itemContents(
         d as { contents?: string[]; content?: string },
       ).join('\n');
-      const text = stripTnWrapper(d.text);
-      if (contents) return { label: d.label, text, content: contents };
-      // 실서버는 contents를 빈 배열로 두고 초안 본문을 text에 담아 보낸다
-      // (2026-08-09 mode a 실측: {label:"짧은 제목", text:"그림: …", contents:[]}).
-      // 그때는 text가 곧 본문이므로 설명 자리를 비운다 — 예전에는 contents만 읽어
-      // 초안이 전부 걸러졌고, 그래서 대체 초안 메뉴가 늘 비활성이었다.
-      return { label: d.label, text: undefined, content: text ?? '' };
+      // text = 묵자 원문(점역자주 래퍼를 벗긴 값), contents = 점자 줄 목록.
+      const printText = stripTnWrapper(d.text);
+      if (contents) return { label: d.label, printText, content: contents };
+      // 실서버는 점자가 없는 모드(a)에서 contents를 빈 배열로 두고 초안 본문을 text에
+      // 담아 보낸다 (2026-08-09 실측: {label:"짧은 제목", text:"그림: …", contents:[]}).
+      // 그때는 묵자가 곧 적용될 본문이다 — 예전에는 contents만 읽어 초안이 전부
+      // 걸러졌고, 그래서 대체 초안 메뉴가 늘 비활성이었다.
+      return { label: d.label, printText: undefined, content: printText ?? '' };
     })
     .filter((d) => d.content.length > 0);
 

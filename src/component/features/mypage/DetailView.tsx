@@ -21,7 +21,7 @@ const shortDate = (iso: string): string => {
     : `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`;
 };
 
-const FavoriteStar: React.FC<{
+export const FavoriteStar: React.FC<{
   isFavorite: boolean;
   onToggle: () => void;
 }> = ({ isFavorite, onToggle }) => (

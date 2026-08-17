@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { listActiveJobs, listJobs, getJobPage } from '../HistoryService';
+import {
+  listActiveJobs,
+  listJobs,
+  listRecentJobs,
+  getJobPage,
+} from '../HistoryService';
 import { API_BASE_URL } from '../apiClient';
 import type { DirectoryContents } from '../../types/mypage';
 
@@ -94,6 +99,28 @@ describe('HistoryService', () => {
     expect(url.searchParams.get('sort')).toBe('oldest');
     expect(url.searchParams.get('cursor')).toBe('MjAyNi0=');
     expect(url.searchParams.get('size')).toBe('30');
+  });
+
+  it('listRecentJobs GETs /api/users/jobs/recent with size (첫 화면 스트립)', async () => {
+    fetchSpy.mockResolvedValue(
+      makeJsonResponse(200, envelope(sampleContents.files)),
+    );
+    const page = await listRecentJobs('tok', { size: 5 });
+    expect(page.items).toHaveLength(1);
+    expect(page.hasMore).toBe(false);
+
+    const url = new URL(fetchSpy.mock.calls[0][0] as string);
+    expect(url.pathname).toBe('/api/users/jobs/recent');
+    expect(url.searchParams.get('size')).toBe('5');
+  });
+
+  it('listRecentJobs는 items가 평평한 배열로 와도 받아 준다', async () => {
+    fetchSpy.mockResolvedValue(
+      makeJsonResponse(200, envelope(sampleContents.files.items)),
+    );
+    const page = await listRecentJobs('tok');
+    expect(page.items).toHaveLength(1);
+    expect(page.nextCursor).toBeNull();
   });
 
   it('listActiveJobs GETs /api/users/jobs/active for restart recovery', async () => {

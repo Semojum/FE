@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getFolderContents, getFolderTree } from '../api/FolderService';
-import { listJobs } from '../api/HistoryService';
+import {
+  listActiveJobs,
+  listJobs,
+  listRecentJobs,
+} from '../api/HistoryService';
 import { toUserMessage } from '../api/errorMessages';
 import {
   FileCard,
@@ -10,6 +14,7 @@ import {
   JobStatus,
   ListQuery,
   PAGE_SIZE,
+  RECENT_STRIP_SIZE,
 } from '../types/mypage';
 import { JobMode } from '../types/apiTypes';
 
@@ -24,8 +29,28 @@ export interface Breadcrumb {
   name: string;
 }
 
-// 생성 중 카드가 있는 동안의 목록 갱신 주기 (D-9). 초 단위 실시간 표시는 에디터가 맡는다.
+// 생성 중 카드가 있는 동안의 목록 갱신 주기 (D-9).
 const POLL_INTERVAL_MS = 10_000;
+
+// 진행률만 따로, 더 자주 맞춘다. 목록 응답의 progress는 뒤늦게 따라와 변환 내내 0에
+// 머무는 반면(2026-08-17 실측: 목록 0 · /active 50), /api/users/jobs/active는 지금 값을 준다.
+const PROGRESS_POLL_INTERVAL_MS = 3_000;
+
+// 진행 중 작업의 진행률을 목록 카드에 얹는다. 바뀐 게 없으면 같은 배열을 그대로
+// 돌려줘 헛렌더를 막는다.
+const withLiveProgress = (
+  list: FileCard[],
+  progressById: Map<string, number>,
+): FileCard[] => {
+  let changed = false;
+  const next = list.map((f) => {
+    const progress = progressById.get(f.jobId);
+    if (progress == null || progress === f.progress) return f;
+    changed = true;
+    return { ...f, progress };
+  });
+  return changed ? next : list;
+};
 
 // 폴더 트리에서 folderId까지의 경로를 찾는다. 브레드크럼은 별도 API가 없어
 // 트리에서 계산한다(폴더는 계정당 200개라 트리 한 번이면 충분하다).
@@ -55,10 +80,17 @@ export const flattenTree = (
 interface UseMyPageOptions {
   token: string | null;
   isOpen: boolean;
+  // 지금 에디터에서 변환이 돌고 있는지 — 그 작업이 목록에 뜨도록 열려 있는 동안 갱신한다.
+  isConverting?: boolean;
   onError?: (message: string) => void;
 }
 
-export const useMyPage = ({ token, isOpen, onError }: UseMyPageOptions) => {
+export const useMyPage = ({
+  token,
+  isOpen,
+  isConverting,
+  onError,
+}: UseMyPageOptions) => {
   const [view, setView] = useState<MyPageView>('browse');
   const [folderId, setFolderId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -69,6 +101,8 @@ export const useMyPage = ({ token, isOpen, onError }: UseMyPageOptions) => {
 
   const [folders, setFolders] = useState<FolderSummary[]>([]);
   const [files, setFiles] = useState<FileCard[]>([]);
+  // 첫 화면 위쪽 '최근 작업' 스트립 — 아래 목록과 별개로 전역 최신순 몇 건만 들고 있다.
+  const [recent, setRecent] = useState<FileCard[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -158,6 +192,34 @@ export const useMyPage = ({ token, isOpen, onError }: UseMyPageOptions) => {
     }
   }, [hasMore, isLoadingMore, nextCursor, fetchPage, reportError]);
 
+  // ─── 최근 작업 스트립 (S1 위쪽) ──────────────────────────────────────
+  // 첫 화면 위쪽에 최근 작업 몇 건만 미리 보여 준다. 아래 목록은 '지금 위치'
+  // 기준이라 폴더 안에 넣어 둔 최근 작업이 보이지 않으므로 전역 조회를 따로 쓴다.
+
+  const isMainScreen = view === 'browse' && !folderId && !search.trim();
+
+  useEffect(() => {
+    if (!isOpen || !token || !isMainScreen) return;
+    let cancelled = false;
+    listRecentJobs(token, { size: RECENT_STRIP_SIZE })
+      // 전용 API가 아직 배포 전이면 전역 조회(최신순)로 대신한다.
+      .catch(() =>
+        listJobs(token, { sort: 'latest', size: RECENT_STRIP_SIZE }).then(
+          (res) => res.files,
+        ),
+      )
+      .then((page) => {
+        if (!cancelled) setRecent(page.items.slice(0, RECENT_STRIP_SIZE));
+      })
+      // 스트립은 곁다리라 실패해도 화면을 막지 않는다 — 조용히 감춘다.
+      .catch(() => {
+        if (!cancelled) setRecent([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, token, isMainScreen, reloadToken]);
+
   // ─── 폴더 트리 (브레드크럼 · 이동 모달) ──────────────────────────────
 
   const refreshTree = useCallback(async () => {
@@ -186,18 +248,64 @@ export const useMyPage = ({ token, isOpen, onError }: UseMyPageOptions) => {
   }, [folderId, tree]);
 
   // ─── 변환 중 카드 폴링 (D-9) ────────────────────────────────────────
+  // 목록에 이미 변환 중 카드가 있으면 진행률을 따라가느라 갱신하고,
+  // 에디터에서 변환이 돌고 있으면 그 작업이 아직 목록에 없더라도 갱신한다 —
+  // 예전에는 후자가 빠져 있어, 마이페이지를 열어 둔 채 파일을 올리면 그 작업이
+  // 목록에 나타나지 않았다(닫았다 다시 열어야 보였다).
 
   const hasPendingCard = files.some((f) => isInProgress(f.status));
+  const shouldPoll = hasPendingCard || !!isConverting;
   const reloadRef = useRef(reload);
   useEffect(() => {
     reloadRef.current = reload;
   }, [reload]);
 
   useEffect(() => {
-    if (!isOpen || !hasPendingCard || view === 'trash') return;
+    if (!isOpen || !shouldPoll || view === 'trash') return;
     const id = window.setInterval(() => reloadRef.current(), POLL_INTERVAL_MS);
     return () => window.clearInterval(id);
-  }, [isOpen, hasPendingCard, view]);
+  }, [isOpen, shouldPoll, view]);
+
+  // 진행률만 3초마다 /active로 맞춘다. 목록 자체는 10초 폴링이 갱신한다 —
+  // 여기서는 이미 그려 둔 카드의 progress만 갈아 끼워 "변환 중 0%"로 굳는 것을 막는다.
+  // 값이 null로 오면(Redis 장애) 덮어쓰지 않고 직전 값을 남긴다.
+  useEffect(() => {
+    if (!isOpen || !token || !shouldPoll || view === 'trash') return;
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        const active = await listActiveJobs(token);
+        if (cancelled) return;
+        const progressById = new Map(
+          active
+            .filter((j) => typeof j.progress === 'number')
+            .map((j) => [j.jobId, j.progress]),
+        );
+        if (progressById.size === 0) return;
+        setFiles((prev) => withLiveProgress(prev, progressById));
+        setRecent((prev) => withLiveProgress(prev, progressById));
+      } catch {
+        // 진행률은 곁다리다 — 실패하면 목록에 실려 온 값을 그대로 둔다.
+      }
+    };
+    void pull();
+    const id = window.setInterval(() => void pull(), PROGRESS_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [isOpen, token, shouldPoll, view]);
+
+  // 열어 둔 채로 변환이 시작·종료되면 다음 폴링(10초)까지 기다리지 않고 바로 갱신한다.
+  const wasConvertingRef = useRef(isConverting);
+  useEffect(() => {
+    if (!isOpen || wasConvertingRef.current === isConverting) {
+      wasConvertingRef.current = isConverting;
+      return;
+    }
+    wasConvertingRef.current = isConverting;
+    reloadRef.current();
+  }, [isOpen, isConverting]);
 
   // ─── 이동 ──────────────────────────────────────────────────────────
 
@@ -290,10 +398,12 @@ export const useMyPage = ({ token, isOpen, onError }: UseMyPageOptions) => {
     favoriteOnly,
     setFavoriteOnly,
     isGlobalScope,
+    isMainScreen,
 
     // 데이터
     folders,
     files,
+    recent,
     setFiles,
     setFolders,
     tree,

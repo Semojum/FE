@@ -67,11 +67,12 @@ export interface OCRResponse {
   text_list: { id: string; order: number; contents: string }[];
 }
 
-// 대체 초안(명세 drafts) 한 건 — 피커에 방식명/설명과 함께 표시한다.
+// 대체 초안(명세 drafts) 한 건 — 피커에서 방식(탭)별로 하나씩 크게 보여 준다.
+// 기획 정본(모눈종이 뷰 §3 서버 계약): "drafts[i] = 라벨·묵자 원문, 점자는 contents[i]".
 export interface BlockDraft {
-  label?: string; // 방식명 (예: "격자형", "행↔열 전치")
-  text?: string; // 점역사주 원문(한글) — 이 초안이 어떤 방식인지 설명
-  content: string; // 초안 결과(줄 목록을 \n으로 합친 값). 선택 시 본문이 됨
+  label?: string; // 방식명 = 탭 이름 (예: "격자형", "행↔열 전치")
+  printText?: string; // 묵자 원문(한글) — 점자 안과 짝을 이루는, 사람이 읽는 글
+  content: string; // 적용될 본문. b·c = 점자 줄 목록(\n), a = 묵자 그대로
 }
 
 // 기존 TranslationBlock 확장
