@@ -1272,7 +1272,11 @@ const Semojum: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#F0F4F8] flex flex-col font-sans text-gray-800 antialiased transition-colors duration-500">
+    // h-screen이어야 한다(min-h-screen 아님) — 창 높이가 그대로 확정 높이가 되어야
+    // 아래 flex-1·h-full 사슬이 값을 갖고, 결과 격자가 제 안에서 스크롤한다.
+    // min-h-screen이면 높이가 auto라 판면이 길어질수록 패널이 함께 늘어나고,
+    // 격자의 overflow-auto가 걸릴 데가 없어 탭 줄·페이지 이동까지 화면 밖으로 밀렸다.
+    <div className="h-screen overflow-hidden bg-[#F0F4F8] flex flex-col font-sans text-gray-800 antialiased transition-colors duration-500">
       {/* 화면 폭 배분 — 입력란과 출력란을 같은 크기로 두고 바깥 여백을 최소로 깎는다.
           그래도 32칸 판면이 가로 스크롤 없이 들어가야 해서(QA "화면 크기 조정") 숫자가 빠듯하다.
           기본 창 1440(세로 스크롤바 감안 뷰포트 ~1425) 기준:
@@ -1396,7 +1400,11 @@ const Semojum: React.FC = () => {
         >
           {panelMode !== 'output-only' && (
             <section
-              className={panelMode === 'both' ? 'flex-1 min-w-0' : 'w-full'}
+              className={
+                panelMode === 'both'
+                  ? 'min-h-0 flex-1 min-w-0'
+                  : 'min-h-0 w-full'
+              }
             >
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -1430,7 +1438,7 @@ const Semojum: React.FC = () => {
                 </div>
 
                 <div
-                  className={`flex-1 rounded-[2rem] overflow-hidden border-2 border-dashed transition-all ${!hasInputPreview ? (isDragActive ? 'border-[#5A8FBB] bg-blue-50/50' : 'border-gray-200') : 'border-transparent'}`}
+                  className={`min-h-0 flex-1 rounded-[2rem] overflow-hidden border-2 border-dashed transition-all ${!hasInputPreview ? (isDragActive ? 'border-[#5A8FBB] bg-blue-50/50' : 'border-gray-200') : 'border-transparent'}`}
                 >
                   {!hasInputPreview ? (
                     <div
@@ -1509,7 +1517,11 @@ const Semojum: React.FC = () => {
 
           {panelMode !== 'input-only' && (
             <section
-              className={panelMode === 'both' ? 'flex-1 min-w-0' : 'w-full'}
+              className={
+                panelMode === 'both'
+                  ? 'min-h-0 flex-1 min-w-0'
+                  : 'min-h-0 w-full'
+              }
             >
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -1744,7 +1756,9 @@ const Semojum: React.FC = () => {
                   </div>
                 )}
 
-                <div className="flex-1 overflow-hidden pr-1">
+                {/* min-h-0 — flex 아이템 기본값(min-height:auto)이면 격자가 제 높이만큼
+                    이 칸을 밀어내 스크롤이 걸리지 않는다. */}
+                <div className="min-h-0 flex-1 overflow-hidden pr-1">
                   {uploadError ? (
                     <div className="h-full flex flex-col items-center justify-center text-red-500 space-y-2">
                       <AlertCircle size={32} />

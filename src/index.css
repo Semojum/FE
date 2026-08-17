@@ -1,21 +1,52 @@
 @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
-@import "tailwindcss";
+@import 'tailwindcss';
 
 @theme {
-    --font-sans: "Roboto", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-sans:
+    'Roboto', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
+    'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+}
+
+@layer components {
+  /* 결과 격자·원본 미리보기의 스크롤 막대. 이름만 붙어 있고 정의가 없어
+       그동안 브라우저 기본 막대가 그려졌다 — 판면 위에서 너무 두껍고 튄다.
+       (Chromium/WebView2 전용 의사요소. scrollbar-width를 함께 주면 최신
+        Chromium이 표준 쪽을 택해 이 규칙을 무시하므로 쓰지 않는다.) */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track,
+  .custom-scrollbar::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #c3cfe0;
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: 9999px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #9fb2cc;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
 }
 
 @layer base {
-    /* Tailwind v4는 버튼 기본 커서가 default라 클릭 가능함이 드러나지 않는다. */
-    button:not(:disabled),
-    [role="button"]:not(:disabled) {
-        cursor: pointer;
-    }
+  /* Tailwind v4는 버튼 기본 커서가 default라 클릭 가능함이 드러나지 않는다. */
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
 
-    /* 비밀번호 표시는 앱의 토글 버튼으로 제공하므로 브라우저(Edge) 내장 버튼은 숨긴다.
+  /* 비밀번호 표시는 앱의 토글 버튼으로 제공하므로 브라우저(Edge) 내장 버튼은 숨긴다.
        (내장 버튼은 입력창 밖 클릭 시 사라지는 문제가 있음) */
-    input::-ms-reveal,
-    input::-ms-clear {
-        display: none;
-    }
+  input::-ms-reveal,
+  input::-ms-clear {
+    display: none;
+  }
 }
