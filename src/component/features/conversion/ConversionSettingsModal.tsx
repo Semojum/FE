@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Hash, Pilcrow } from 'lucide-react';
 import Modal, { ModalButton, modalInputCls } from '../../shared/Modal';
 import { FOOTER_TEXT_MAX_LENGTH } from '../../../utils/fileValidation';
+import { loadBrailleDefaults } from '../../../utils/brailleDefaults';
 
 // Figma V3-02 변환 설정 — 파일 선택 직후 (페이지 번호 · 꼬리말)
 //
@@ -26,10 +27,12 @@ const ConversionSettingsModal: React.FC<Props> = ({
   const [footerText, setFooterText] = useState('');
 
   // 열릴 때마다 초기값으로 — 직전 파일의 설정이 흘러들면 안 된다.
+  // 초기값은 점역 기본 설정(V3-06 사용량 화면)에서 정한 값이다.
   useEffect(() => {
     if (isOpen) {
-      setInsertPageNumber(false);
-      setFooterText('');
+      const defaults = loadBrailleDefaults();
+      setInsertPageNumber(defaults.insertPageNumber);
+      setFooterText(defaults.footerText);
     }
   }, [isOpen]);
 

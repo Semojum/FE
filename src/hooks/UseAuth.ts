@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { User } from '../types/auth';
+import { User, UserRole } from '../types/auth';
 import {
   login as apiLogin,
   logout as apiLogout,
@@ -7,6 +7,7 @@ import {
 } from '../api/AuthService';
 import { ApiError, setTokenRefresher } from '../api/apiClient';
 import { decodeJwt, isExpired } from '../utils/jwt';
+import { saveLastLoginId } from '../utils/lastLoginId';
 
 // V3: 자동 로그인을 지원하지 않는다 (로그인 문서 D-3 — 기관 계정은 공유될 수 있어
 // 다른 담당자의 계정으로 작업이 섞이면 안 된다). 따라서 토큰은 localStorage에
@@ -42,13 +43,15 @@ export const useAuth = () => {
 
   // 로그인한 계정의 loginId. 재발급으로 토큰이 바뀌어도 세션 내내 유지된다.
   const loginIdRef = useRef<string | null>(null);
+  // 역할도 로그인 응답에서만 받는다(리프레시 응답에는 없다) — 세션 내내 들고 있는다.
+  const roleRef = useRef<UserRole | undefined>(undefined);
 
   const applyToken = useCallback((accessToken: string) => {
     tokenRef.current = accessToken;
     setToken(accessToken);
     setUser(
       isTokenAlive(accessToken) && loginIdRef.current
-        ? { loginId: loginIdRef.current }
+        ? { loginId: loginIdRef.current, role: roleRef.current }
         : null,
     );
   }, []);
@@ -57,6 +60,7 @@ export const useAuth = () => {
     tokenRef.current = null;
     refreshTokenRef.current = null;
     loginIdRef.current = null;
+    roleRef.current = undefined;
     setToken(null);
     setUser(null);
     setSessionEndedReason(reason);
@@ -69,6 +73,9 @@ export const useAuth = () => {
         const res = await apiLogin(loginId, password);
         refreshTokenRef.current = res.refreshToken;
         loginIdRef.current = loginId;
+        roleRef.current = res.role;
+        // 다음 실행 때 로그인 화면에 미리 채워 넣는다(아이디만 — 비밀번호는 저장하지 않는다).
+        saveLastLoginId(loginId);
         setSessionEndedReason(null);
         applyToken(res.accessToken);
       } finally {

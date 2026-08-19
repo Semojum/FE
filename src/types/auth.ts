@@ -9,14 +9,26 @@ import { JobMode, StreamPageResult } from './apiTypes';
 
 // V3: 계정은 운영자가 발급한다. 사용자가 만들 수 있는 정보(이메일·이름)가 없고
 // 화면에 노출하는 식별자는 loginId 하나뿐이다.
+//
+// 역할은 로그인 응답의 role로만 알 수 있다 — accessToken payload는 { sub, iat, exp }
+// 뿐이고 GET /me도 없다(2026-08-05 실측). ROLE_ORG_ADMIN이면 기관 관리(V3-06 T2)를 연다.
+export type UserRole = 'ROLE_USER' | 'ROLE_ORG_ADMIN' | 'ROLE_ADMIN';
+
+export const isOrgAdmin = (user: User | null | undefined): boolean =>
+  user?.role === 'ROLE_ORG_ADMIN';
+
 export interface User {
   loginId: string;
+  // 서버가 role을 주지 않던 시절 응답(또는 미지원 배포본)에서는 비어 있을 수 있다.
+  role?: UserRole;
 }
 
 // POST /api/auth/login 응답 (result)
 export interface LoginResponse {
   accessToken: string;
   refreshToken: string;
+  // 2026-08-18 명세 추가 · 2026-08-19 운영 서버 실측 확인.
+  role?: UserRole;
 }
 
 // POST /api/auth/refresh 응답 (result) — accessToken만 재발급

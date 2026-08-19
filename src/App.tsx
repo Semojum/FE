@@ -85,6 +85,7 @@ import { needsStreamResume, receivedPages } from './utils/tabResume';
 import { saveBlob } from './utils/download';
 import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
 import { onAppClose } from './utils/appLifecycle';
+import { loadBrailleDefaults } from './utils/brailleDefaults';
 import {
   blockTextWithRowEdit,
   buildLayout,
@@ -136,7 +137,10 @@ const Semojum: React.FC = () => {
     [],
   );
 
-  const [activeTab, setActiveTab] = useState<ConversionTab>(TABS.OCR);
+  // 처음 열리는 탭은 점역 기본 설정(V3-06 사용량 화면 "기본 변환 모드")을 따른다.
+  const [activeTab, setActiveTab] = useState<ConversionTab>(
+    () => loadBrailleDefaults().defaultMode,
+  );
   const [panelMode, setPanelMode] = useState<PanelMode>(
     isPopup ? 'output-only' : 'both',
   );

@@ -7,6 +7,8 @@ import React, {
 } from 'react';
 import {
   ArrowLeft,
+  BarChart3,
+  Building2,
   ChevronLeft,
   ChevronRight,
   Loader2,
@@ -38,11 +40,14 @@ import {
   JobStatus,
 } from '../../../types/mypage';
 import { JobMode } from '../../../types/apiTypes';
-import { JobRef, User } from '../../../types/auth';
+import { isOrgAdmin, JobRef, User } from '../../../types/auth';
+import { UsageJob } from '../../../types/org';
 import { DetailList, PreviewPane } from './DetailView';
 import RecentStrip from './RecentStrip';
 import ContextMenu, { MenuItem } from '../../shared/ContextMenu';
 import TrashView from './TrashView';
+import OrgAdminView from '../org/OrgAdminView';
+import UsageView from '../org/UsageView';
 import {
   DeleteConfirmModal,
   locationLabelOf,
@@ -133,6 +138,9 @@ const MyPage: React.FC<Props> = ({
   const fileIds = useMemo(() => files.map((f) => f.jobId), [files]);
   const selection = useCardSelection(fileIds, isOpen && view !== 'trash');
 
+  // 마이페이지 안에서 여는 별도 화면 (Figma V3-06 기관 관리 T2 · 사용량 T3)
+  const [subView, setSubView] = useState<'org' | 'usage' | null>(null);
+
   const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [isNewFolderOpen, setIsNewFolderOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<CardTarget | null>(null);
@@ -198,6 +206,28 @@ const MyPage: React.FC<Props> = ({
         totalPages: file.totalPages,
         thumbnailUrl: file.thumbnailUrl,
         startPage: file.lastEditedPage ?? 1,
+      });
+    },
+    [onSelect, onToast],
+  );
+
+  // 사용량(V3-06 T3)의 "열기" — 목록 카드 열기와 같은 규칙을 쓴다.
+  // 사용량 응답에는 마지막 편집 페이지가 없어 1페이지부터 연다.
+  const handleOpenUsageJob = useCallback(
+    (job: UsageJob) => {
+      if (isInProgress(job.status)) {
+        onToast('변환이 끝나면 열 수 있습니다.');
+        return;
+      }
+      if (job.status === 'FAILED') {
+        onToast('변환에 실패한 작업입니다. 파일을 다시 올려 주세요.');
+        return;
+      }
+      onSelect({
+        jobId: job.jobId,
+        mode: job.mode,
+        totalPages: job.totalPages,
+        startPage: 1,
       });
     },
     [onSelect, onToast],
@@ -345,15 +375,50 @@ const MyPage: React.FC<Props> = ({
               마이페이지
             </h3>
           </div>
-          {user?.loginId && (
-            <span className="hidden pb-2 text-sm text-gray-500 sm:inline">
-              {user.loginId}
-            </span>
-          )}
+          <div className="flex items-center gap-2 pb-1.5">
+            {/* Figma V3-06 — 사용량은 모두, 기관 관리는 ROLE_ORG_ADMIN만 */}
+            <button
+              type="button"
+              onClick={() => setSubView('usage')}
+              className="flex items-center gap-1.5 rounded-[10px] border border-gray-200 bg-white px-3 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:border-[#5b8ce6]/50 hover:text-[#5b8ce6]"
+            >
+              <BarChart3 size={15} />
+              <span>사용량</span>
+            </button>
+            {isOrgAdmin(user) && (
+              <button
+                type="button"
+                onClick={() => setSubView('org')}
+                className="flex items-center gap-1.5 rounded-[10px] border border-gray-200 bg-white px-3 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:border-[#5b8ce6]/50 hover:text-[#5b8ce6]"
+              >
+                <Building2 size={15} />
+                <span>기관 관리</span>
+              </button>
+            )}
+            {user?.loginId && (
+              <span className="hidden pl-1 text-sm text-gray-500 sm:inline">
+                {user.loginId}
+              </span>
+            )}
+          </div>
         </div>
         <div className="mx-6 border-b border-gray-200" />
 
-        {view === 'trash' ? (
+        {subView === 'usage' ? (
+          <UsageView
+            token={token}
+            loginId={user?.loginId}
+            onBack={() => setSubView(null)}
+            onOpenJob={handleOpenUsageJob}
+            onToast={onToast}
+          />
+        ) : subView === 'org' ? (
+          <OrgAdminView
+            token={token}
+            onBack={() => setSubView(null)}
+            onToast={onToast}
+          />
+        ) : view === 'trash' ? (
           <div className="custom-scrollbar flex-1 overflow-y-auto">
             <TrashView
               token={token}

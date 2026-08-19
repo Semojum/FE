@@ -53,6 +53,52 @@ describe('useAuth', () => {
     expect(result.current.isAuthenticated).toBe(true);
     // JWT에 loginId가 없어도(sub은 UUID) 입력한 아이디를 그대로 보여준다.
     expect(result.current.user?.loginId).toBe('kblib01');
+    // 다음 실행 때 로그인 화면에 미리 채우려고 아이디만 남긴다.
+    expect(localStorage.getItem('semojum.lastLoginId')).toBe('kblib01');
+  });
+
+  it('로그인 응답의 role을 세션 내내 들고 있는다 (기관 관리 진입 판단용)', async () => {
+    // accessToken payload에는 역할이 없다 — 역할은 로그인 응답의 role뿐이고,
+    // 리프레시 응답에는 다시 오지 않는다(2026-08-19 운영 서버 실측).
+    vi.mocked(apiLogin).mockResolvedValue({
+      accessToken: tokenFor('kblib01'),
+      refreshToken: 'ref',
+      role: 'ROLE_ORG_ADMIN',
+    });
+    vi.mocked(apiRefresh).mockResolvedValue({ accessToken: tokenFor() });
+
+    const { result } = renderHook(() => useAuth());
+    await act(async () => {
+      await result.current.login('kblib01', 'pw');
+    });
+    expect(result.current.user?.role).toBe('ROLE_ORG_ADMIN');
+
+    await act(async () => {
+      await result.current.refreshSession();
+    });
+    expect(result.current.user?.role).toBe('ROLE_ORG_ADMIN');
+
+    await act(async () => {
+      await result.current.logout();
+    });
+    expect(result.current.user).toBeNull();
+  });
+
+  it('로그인에 실패하면 아이디를 기억하지 않는다', async () => {
+    vi.mocked(apiLogin).mockRejectedValue(
+      new ApiError(
+        '아이디 또는 비밀번호가 올바르지 않습니다.',
+        'AUTH4001',
+        401,
+      ),
+    );
+
+    const { result } = renderHook(() => useAuth());
+    await act(async () => {
+      await result.current.login('kblib01', 'wrong').catch(() => undefined);
+    });
+
+    expect(localStorage.getItem('semojum.lastLoginId')).toBeNull();
   });
 
   it('토큰을 재발급해도 표시용 loginId를 잃지 않는다', async () => {
@@ -84,7 +130,13 @@ describe('useAuth', () => {
       await result.current.login('kblib01', 'pw');
     });
 
-    expect(localStorage.length).toBe(0);
+    // 남기는 것은 다음 로그인 화면에 미리 채울 아이디뿐이다 — 토큰·비밀번호는 없다.
+    const stored = Object.keys(localStorage).map((k) =>
+      localStorage.getItem(k),
+    );
+    expect(stored).toEqual(['kblib01']);
+    expect(stored.join('|')).not.toContain('ref');
+    expect(stored.join('|')).not.toContain(result.current.token);
     // 새로 마운트하면(=앱 재실행) 로그인 화면부터 시작한다.
     const fresh = renderHook(() => useAuth());
     expect(fresh.result.current.isAuthenticated).toBe(false);
