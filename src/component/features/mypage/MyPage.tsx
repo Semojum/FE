@@ -138,6 +138,8 @@ const MyPage: React.FC<Props> = ({
     hasMore,
     loadMore,
     reload,
+    patchFile,
+    patchFolder,
     openFolder,
     goToCrumb,
     goRoot,
@@ -189,13 +191,35 @@ const MyPage: React.FC<Props> = ({
     async (fn: () => Promise<unknown>, fallback: string) => {
       try {
         await fn();
-        reload();
+        // 조용히 다시 맞춘다 — 이름 변경·이동·삭제마다 목록이 "불러오는 중..."으로
+        // 사라졌다 나타나면 방금 한 조작의 결과를 눈으로 좇을 수 없다.
+        reload({ silent: true });
       } catch (err) {
         onToast(toUserMessage(err, fallback));
         throw err;
       }
     },
     [reload, onToast],
+  );
+
+  // 즐겨찾기는 값 하나만 바뀐다 — 목록을 통째로 다시 부르면 화면이 껌뻑이고
+  // 스크롤도 튄다(2026-08-20 QA). 그 자리에서 바꾸고, 서버가 거절하면 되돌린다.
+  // 즐겨찾기만 보기가 켜져 있을 때만 목록을 조용히 다시 맞춘다(빠져야 할 카드가 있다).
+  const toggleFavorite = useCallback(
+    async (kind: 'file' | 'folder', id: string, wasFavorite: boolean) => {
+      const patch = kind === 'file' ? patchFile : patchFolder;
+      patch(id, { isFavorite: !wasFavorite });
+      try {
+        await (kind === 'file'
+          ? toggleJobFavorite(id, token)
+          : toggleFolderFavorite(id, token));
+        if (favoriteOnly) reload({ silent: true });
+      } catch (err) {
+        patch(id, { isFavorite: wasFavorite });
+        onToast(toUserMessage(err, '즐겨찾기를 바꾸지 못했습니다.'));
+      }
+    },
+    [patchFile, patchFolder, token, favoriteOnly, reload, onToast],
   );
 
   // ─── 동작 ──────────────────────────────────────────────────────────
@@ -745,10 +769,7 @@ const MyPage: React.FC<Props> = ({
                     }}
                     onOpenFile={handleOpenFile}
                     onToggleFavorite={(f) =>
-                      void run(
-                        () => toggleJobFavorite(f.jobId, token),
-                        '즐겨찾기를 바꾸지 못했습니다.',
-                      ).catch(() => undefined)
+                      void toggleFavorite('file', f.jobId, !!f.isFavorite)
                     }
                     onMenu={(file, x, y) =>
                       setMenu({ kind: 'file', file, x, y })
@@ -790,16 +811,14 @@ const MyPage: React.FC<Props> = ({
                         selection.clear();
                       }}
                       onToggleFolderFavorite={(f) =>
-                        void run(
-                          () => toggleFolderFavorite(f.folderId, token),
-                          '즐겨찾기를 바꾸지 못했습니다.',
-                        ).catch(() => undefined)
+                        void toggleFavorite(
+                          'folder',
+                          f.folderId,
+                          !!f.isFavorite,
+                        )
                       }
                       onToggleFileFavorite={(f) =>
-                        void run(
-                          () => toggleJobFavorite(f.jobId, token),
-                          '즐겨찾기를 바꾸지 못했습니다.',
-                        ).catch(() => undefined)
+                        void toggleFavorite('file', f.jobId, !!f.isFavorite)
                       }
                       onFolderMenu={(folder, x, y) =>
                         setMenu({ kind: 'folder', folder, x, y })

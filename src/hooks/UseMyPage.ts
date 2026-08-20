@@ -112,8 +112,16 @@ export const useMyPage = ({
   const [breadcrumb, setBreadcrumb] = useState<Breadcrumb[]>([]);
 
   // 목록을 다시 불러오게 만드는 신호. 생성·이동·삭제 후 증가시킨다.
-  const [reloadToken, setReloadToken] = useState(0);
-  const reload = useCallback(() => setReloadToken((v) => v + 1), []);
+  //
+  // silent=true면 "불러오는 중..." 자리 표시를 띄우지 않고 조용히 갈아 끼운다.
+  // 변환 중 10초 폴링처럼 사용자가 시키지 않은 갱신에서 목록이 통째로 사라졌다
+  // 다시 나타나면 화면이 계속 리프레시되는 것처럼 보인다(2026-08-20 QA).
+  const [reloadToken, setReloadToken] = useState({ n: 0, silent: false });
+  const reload = useCallback(
+    (opts?: { silent?: boolean }) =>
+      setReloadToken((prev) => ({ n: prev.n + 1, silent: !!opts?.silent })),
+    [],
+  );
 
   const reportError = useCallback(
     (err: unknown, fallback: string) => {
@@ -156,7 +164,9 @@ export const useMyPage = ({
   useEffect(() => {
     if (!isOpen || !token || view === 'trash') return;
     let cancelled = false;
-    setIsLoading(true);
+    // 조용한 갱신은 이미 그려진 목록을 그대로 둔 채 값만 바꿔 끼운다.
+    const silent = reloadToken.silent;
+    if (!silent) setIsLoading(true);
     fetchPage(null)
       .then((res) => {
         if (cancelled || !res) return;
@@ -166,10 +176,12 @@ export const useMyPage = ({
         setHasMore(res.files?.hasMore ?? false);
       })
       .catch((err) => {
-        if (!cancelled) reportError(err, '목록을 불러오지 못했습니다.');
+        // 조용한 갱신은 실패도 조용히 넘긴다 — 10초마다 토스트가 뜨면 더 시끄럽다.
+        if (!cancelled && !silent)
+          reportError(err, '목록을 불러오지 못했습니다.');
       })
       .finally(() => {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled && !silent) setIsLoading(false);
       });
     return () => {
       cancelled = true;
@@ -232,8 +244,9 @@ export const useMyPage = ({
     }
   }, [token, reportError]);
 
+  // 폴더 트리는 변환 진행률과 무관하다 — 조용한 갱신(폴링)에서는 건드리지 않는다.
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || reloadToken.silent) return;
     void refreshTree();
   }, [isOpen, refreshTree, reloadToken]);
 
@@ -262,7 +275,10 @@ export const useMyPage = ({
 
   useEffect(() => {
     if (!isOpen || !shouldPoll || view === 'trash') return;
-    const id = window.setInterval(() => reloadRef.current(), POLL_INTERVAL_MS);
+    const id = window.setInterval(
+      () => reloadRef.current({ silent: true }),
+      POLL_INTERVAL_MS,
+    );
     return () => window.clearInterval(id);
   }, [isOpen, shouldPoll, view]);
 
@@ -304,8 +320,26 @@ export const useMyPage = ({
       return;
     }
     wasConvertingRef.current = isConverting;
-    reloadRef.current();
+    reloadRef.current({ silent: true });
   }, [isOpen, isConverting]);
+
+  // 카드 하나의 값만 그 자리에서 바꾼다(즐겨찾기 등) — 목록 전체를 다시 부르면
+  // 화면이 껌뻑이고 스크롤도 튄다. 서버 호출이 실패하면 호출부가 되돌린다.
+  const patchFile = useCallback((jobId: string, patch: Partial<FileCard>) => {
+    const apply = (list: FileCard[]) =>
+      list.map((f) => (f.jobId === jobId ? { ...f, ...patch } : f));
+    setFiles(apply);
+    setRecent(apply);
+  }, []);
+
+  const patchFolder = useCallback(
+    (id: string, patch: Partial<FolderSummary>) => {
+      setFolders((prev) =>
+        prev.map((f) => (f.folderId === id ? { ...f, ...patch } : f)),
+      );
+    },
+    [],
+  );
 
   // ─── 이동 ──────────────────────────────────────────────────────────
 
@@ -412,6 +446,8 @@ export const useMyPage = ({
     hasMore,
     loadMore,
     reload,
+    patchFile,
+    patchFolder,
     refreshTree,
 
     // 이동
