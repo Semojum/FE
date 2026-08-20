@@ -19,6 +19,8 @@ tauri-plugin-process = "2"
 # 다운로드 저장 위치 선택 — 저장 대화상자로 고른 경로에만 쓴다.
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+# 접속 환경(OS)을 X-Client-Os 헤더로 실어 보내기 위한 플러그인.
+tauri-plugin-os = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

@@ -20,6 +20,7 @@
     },
     "updater:default",
     "process:default",
+    "os:default",
     "dialog:allow-save",
     "fs:allow-write-file"
   ]
