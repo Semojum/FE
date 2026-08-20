@@ -56,6 +56,7 @@ import ContextMenu from './component/shared/ContextMenu';
 import CandidateModal from './component/features/conversion/CandidateModal';
 import LoginScreen from './component/features/auth/LoginScreen';
 import MyPage from './component/features/mypage/MyPage';
+import InquiryFab from './component/features/support/InquiryFab';
 
 // Types
 import {
@@ -70,7 +71,7 @@ import {
   TAB_LABEL,
   TAB_VALUES,
 } from './types';
-import { JobDetail, JobPageOriginal } from './types/auth';
+import { isOrgAdmin, JobDetail, JobPageOriginal } from './types/auth';
 import { JobDoneData, PageEventStatus } from './types/apiTypes';
 import {
   fileValidationMessage,
@@ -210,6 +211,19 @@ const Semojum: React.FC = () => {
   }, []);
   const appVersion = useAppVersion(!isPopup, flushBeforeInstall);
   const [isMyPageOpen, setIsMyPageOpen] = useState(false);
+  // ROLE_ORG_ADMIN은 점역 작업자가 아니라 관리자다 — 로그인하면 변환 화면이 아니라
+  // 기관 관리부터 연다(MyPage가 initialSubView='org'로 마운트된다). 세션마다 한 번만.
+  const orgLandingDoneRef = useRef(false);
+  useEffect(() => {
+    if (isPopup) return;
+    if (!auth.isAuthenticated) {
+      orgLandingDoneRef.current = false;
+      return;
+    }
+    if (orgLandingDoneRef.current) return;
+    orgLandingDoneRef.current = true;
+    if (isOrgAdmin(auth.user)) setIsMyPageOpen(true);
+  }, [isPopup, auth.isAuthenticated, auth.user]);
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   // 업로드 시 확정하는 쪽번호 삽입 여부(2026-08-04 확정 — 에디터 토글이 아니라 업로드 옵션).
   const [insertPageNumber, setInsertPageNumber] = useState(false);
@@ -2036,9 +2050,15 @@ const Semojum: React.FC = () => {
         />
       )}
 
+      {/* 문의하기 — 화면에 매이지 않는 FAB. 마이페이지·기관 관리 위에도 뜬다. */}
+      {!isPopup && auth.token && (
+        <InquiryFab token={auth.token} onToast={setToast} />
+      )}
+
       {!isPopup && auth.token && (
         <MyPage
           isOpen={isMyPageOpen}
+          initialSubView={isOrgAdmin(auth.user) ? 'org' : null}
           onClose={() => setIsMyPageOpen(false)}
           // 변환 중이면 그 작업이 목록에 뜨도록 열려 있는 동안 목록을 갱신한다.
           isConverting={isConverting}

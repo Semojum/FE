@@ -99,10 +99,11 @@ beforeEach(() => {
   vi.mocked(listOrgRequests).mockResolvedValue([]);
 });
 
-const renderMyPage = (user: User) =>
+const renderMyPage = (user: User, initialSubView: 'org' | null = null) =>
   render(
     <MyPage
       isOpen
+      initialSubView={initialSubView}
       onClose={vi.fn()}
       token="tk"
       user={user}
@@ -138,6 +139,17 @@ describe('마이페이지 → V3-06 진입', () => {
     // 돌아갈 길은 화면 자체의 "← 마이페이지" 버튼뿐이다.
     await userEvent.click(screen.getByText('마이페이지'));
     expect(screen.getByText('돌아가기')).toBeTruthy();
+  });
+
+  // 기관 담당자는 점역 작업자가 아니라 관리자다 — 로그인 직후 착지 화면이 기관 관리다.
+  // (App이 로그인 시 마이페이지를 initialSubView='org'로 마운트한다.)
+  it('initialSubView="org"면 기관 관리부터 보여 준다', async () => {
+    renderMyPage({ loginId: 'org0105', role: 'ROLE_ORG_ADMIN' }, 'org');
+
+    expect(
+      await screen.findByRole('heading', { name: '기관 관리' }),
+    ).toBeTruthy();
+    expect(screen.queryByText('돌아가기')).toBeNull();
   });
 
   it('사용량을 누르면 사용량 화면이 열린다', async () => {

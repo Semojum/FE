@@ -61,6 +61,9 @@ import {
 
 interface Props {
   isOpen: boolean;
+  // 열자마자 보여 줄 하위 화면. 기관 담당자로 로그인하면 'org'로 마운트되어
+  // 변환 화면이 아니라 기관 관리부터 보인다(마운트 시 한 번만 쓰인다).
+  initialSubView?: 'org' | 'usage' | null;
   onClose: () => void;
   token: string;
   user?: User | null;
@@ -98,6 +101,7 @@ const MODE_OPTIONS: { value: JobMode; label: string }[] = [
 
 const MyPage: React.FC<Props> = ({
   isOpen,
+  initialSubView = null,
   onClose,
   token,
   user,
@@ -140,7 +144,9 @@ const MyPage: React.FC<Props> = ({
   const selection = useCardSelection(fileIds, isOpen && view !== 'trash');
 
   // 마이페이지 안에서 여는 별도 화면 (Figma V3-06 기관 관리 T2 · 사용량 T3)
-  const [subView, setSubView] = useState<'org' | 'usage' | null>(null);
+  const [subView, setSubView] = useState<'org' | 'usage' | null>(
+    initialSubView,
+  );
 
   const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [isNewFolderOpen, setIsNewFolderOpen] = useState(false);
