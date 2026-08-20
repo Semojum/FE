@@ -65,67 +65,72 @@ const LoginScreen: React.FC<Props> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-[#F0F4F8]">
-      {/* 로그인 칸과 공지 패널을 한 줄로 묶어 가운데에 둔다(좁은 창에서는 세로로 쌓인다).
-          공지가 없거나 아직 못 읽으면 패널이 통째로 빠져 예전과 같은 화면이 된다. */}
-      <div className="min-h-full flex flex-col items-center justify-center gap-10 px-4 py-16 lg:flex-row lg:items-center lg:gap-16">
+    <div className="fixed inset-0 z-50 overflow-hidden bg-[#F0F4F8]">
+      {/* 공지는 오른쪽 끝에 책갈피로 걸리고, 로그인 칸은 그 왼쪽 "남은 공간"의
+          한가운데에 놓인다. 공지가 없으면 책갈피가 통째로 빠져 화면 전체 중앙이 된다. */}
+      <div className="flex h-full w-full">
         <form
           onSubmit={handleSubmit}
-          className="flex w-full max-w-[366px] flex-col items-center"
+          className="flex h-full flex-1 items-center justify-center overflow-y-auto px-4 py-12"
         >
-          <img
-            src="semojum-symbol.png"
-            alt="세모점"
-            className="w-[120px] h-[120px] object-contain mb-14 select-none"
-          />
-
-          <div className="flex w-full flex-col gap-3">
-            <input
-              type="text"
-              placeholder="아이디"
-              value={loginId}
-              onChange={(e) => setLoginId(e.target.value)}
-              required
-              autoFocus={!hasSavedId}
-              autoComplete="username"
-              className={inputCls}
+          {/* 입력 칸 폭은 그대로 두고, 남은 공간 안에서 가운데로만 옮긴다. */}
+          <div className="flex w-full max-w-[366px] flex-col items-center">
+            <img
+              src="semojum-symbol.png"
+              alt="세모점"
+              className="w-[120px] h-[120px] object-contain mb-14 select-none"
             />
 
-            <div className="relative">
+            <div className="flex w-full flex-col gap-3">
               <input
-                type={showPassword ? 'text' : 'password'}
-                placeholder="비밀번호"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                type="text"
+                placeholder="아이디"
+                value={loginId}
+                onChange={(e) => setLoginId(e.target.value)}
                 required
-                autoFocus={hasSavedId}
-                autoComplete="current-password"
-                className={`${inputCls} pr-12`}
+                autoFocus={!hasSavedId}
+                autoComplete="username"
+                className={inputCls}
               />
+
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="비밀번호"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoFocus={hasSavedId}
+                  autoComplete="current-password"
+                  className={`${inputCls} pr-12`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={
+                    showPassword ? '비밀번호 숨기기' : '비밀번호 표시'
+                  }
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-[#5b8ce6]"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+
+              {error && (
+                <p role="alert" className="px-1 text-[13px] text-[#ff3b30]">
+                  {error}
+                </p>
+              )}
+
               <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 표시'}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-[#5b8ce6]"
+                type="submit"
+                disabled={isSubmitting}
+                className="mt-1 flex h-[42px] items-center justify-center gap-2 rounded-[10px] bg-[#5b8ce6] text-sm font-semibold text-white transition-colors hover:bg-[#4a7bd4] disabled:opacity-50"
               >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                {isSubmitting && <Loader2 className="animate-spin" size={16} />}
+                로그인
               </button>
             </div>
-
-            {error && (
-              <p role="alert" className="px-1 text-[13px] text-[#ff3b30]">
-                {error}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="mt-1 flex h-[42px] items-center justify-center gap-2 rounded-[10px] bg-[#5b8ce6] text-sm font-semibold text-white transition-colors hover:bg-[#4a7bd4] disabled:opacity-50"
-            >
-              {isSubmitting && <Loader2 className="animate-spin" size={16} />}
-              로그인
-            </button>
           </div>
         </form>
 
