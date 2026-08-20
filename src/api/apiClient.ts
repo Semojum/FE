@@ -158,6 +158,12 @@ export const apiRequest = async <T>(
       }
     }
 
+    // 화면에는 코드별 문구만 뜨므로("서버 오류가 발생했습니다") 어느 호출이
+    // 실패했는지 알 수 없다. 원인 추적용으로 경로·상태·코드를 콘솔에 남긴다.
+    console.warn(
+      `[API] ${method} ${path} → ${res.status} ${code}`,
+      envelope.message,
+    );
     throw new ApiError(
       envelope.message ?? `API Error: ${res.status}`,
       code,

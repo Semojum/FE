@@ -12,9 +12,14 @@ import {
 } from '../../../types/org';
 import {
   DASH,
+  DateRangeInput,
   EmptyRow,
   formatNumber,
   JobStatusPill,
+  monthKey,
+  monthOptions,
+  monthRange,
+  MonthSelect,
   orDash,
   percentOf,
   ProgressBar,
@@ -23,6 +28,7 @@ import {
   Table,
   Td,
   Th,
+  todayIso,
 } from './OrgUi';
 
 // Figma V3-06 계정 상세 (T2-2 · T2에서 계정 ID를 눌러 연다).
@@ -41,44 +47,16 @@ interface Props {
   orgName: string;
   // 기관 할당 크레딧 — "기관 할당 대비 이 계정" 막대의 분모
   orgAllocated: number | null;
+  // 계약 시작일 — 달 드롭다운을 그 달까지만 내려가게 한다(그 전에는 볼 것이 없다).
+  usageSince?: string | null;
   onClose: () => void;
   // 별칭을 바꾸면 뒤쪽 소속 계정 표도 같이 고쳐야 한다.
   onAliasSaved: (loginId: string, alias: string) => void;
   onToast: (message: string) => void;
 }
 
-type RangeKey = 'recent30' | 'thisMonth' | 'lastMonth';
-
-const RANGE_LABEL: Record<RangeKey, string> = {
-  recent30: '최근 30일',
-  thisMonth: '이번 달',
-  lastMonth: '지난달',
-};
-
-const iso = (d: Date): string =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-    d.getDate(),
-  ).padStart(2, '0')}`;
-
-// 기간 미지정(recent30)은 서버 기본값(최근 30일)에 맡긴다.
-export const rangeOf = (
-  key: RangeKey,
-  now: Date = new Date(),
-): { from?: string; to?: string } => {
-  if (key === 'thisMonth') {
-    return {
-      from: iso(new Date(now.getFullYear(), now.getMonth(), 1)),
-      to: iso(now),
-    };
-  }
-  if (key === 'lastMonth') {
-    return {
-      from: iso(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
-      to: iso(new Date(now.getFullYear(), now.getMonth(), 0)),
-    };
-  }
-  return {};
-};
+// 드롭다운에서 달 대신 고르는 값 — 시작일·종료일을 직접 넣는다.
+const CUSTOM_RANGE = 'custom';
 
 const AccountDetailPanel: React.FC<Props> = ({
   token,
@@ -86,11 +64,17 @@ const AccountDetailPanel: React.FC<Props> = ({
   alias,
   orgName,
   orgAllocated,
+  usageSince,
   onClose,
   onAliasSaved,
   onToast,
 }) => {
-  const [range, setRange] = useState<RangeKey>('recent30');
+  // 기본은 이번 달. 드롭다운으로 지난 달을 고르거나, '직접 지정'으로 시작일·종료일을 준다.
+  const [month, setMonth] = useState<string>(() => monthKey());
+  const [custom, setCustom] = useState(() => monthRange(monthKey()));
+  const months = useMemo(() => monthOptions(usageSince), [usageSince]);
+  const isCustom = month === CUSTOM_RANGE;
+  const { from, to } = isCustom ? custom : monthRange(month);
   const [data, setData] = useState<OrgAccountJobs | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [aliasInput, setAliasInput] = useState(alias ?? '');
@@ -101,7 +85,7 @@ const AccountDetailPanel: React.FC<Props> = ({
   useEffect(() => {
     let alive = true;
     setIsLoading(true);
-    listOrgAccountJobs(loginId, token, rangeOf(range))
+    listOrgAccountJobs(loginId, token, { from, to })
       .then((res) => {
         if (alive) setData(res);
       })
@@ -114,7 +98,7 @@ const AccountDetailPanel: React.FC<Props> = ({
     return () => {
       alive = false;
     };
-  }, [loginId, token, range, onToast]);
+  }, [loginId, token, from, to, onToast]);
 
   // ESC로 닫는다 (모달 공통 규칙).
   useEffect(() => {
@@ -242,18 +226,28 @@ const AccountDetailPanel: React.FC<Props> = ({
               <h3 className="text-[12px] font-bold text-gray-700">
                 이 계정의 작업
               </h3>
-              <select
-                value={range}
-                onChange={(e) => setRange(e.target.value as RangeKey)}
-                aria-label="조회 기간"
-                className="ml-auto rounded-[6px] border border-[#e2e8f0] bg-white px-[10px] py-[5px] text-[11px] text-gray-700 outline-none focus:border-[#5b8ce6]"
-              >
-                {(Object.keys(RANGE_LABEL) as RangeKey[]).map((k) => (
-                  <option key={k} value={k}>
-                    {RANGE_LABEL[k]}
-                  </option>
-                ))}
-              </select>
+              <div className="ml-auto flex items-center gap-2">
+                {isCustom && (
+                  <DateRangeInput
+                    from={custom.from}
+                    to={custom.to}
+                    max={todayIso()}
+                    onChange={setCustom}
+                  />
+                )}
+                <MonthSelect
+                  value={month}
+                  months={months}
+                  onChange={(next) => {
+                    // '직접 지정'으로 넘어갈 때는 지금 보던 달을 그대로 채워 준다.
+                    if (next === CUSTOM_RANGE && !isCustom) {
+                      setCustom(monthRange(month));
+                    }
+                    setMonth(next);
+                  }}
+                  extraOptions={[{ value: CUSTOM_RANGE, label: '직접 지정' }]}
+                />
+              </div>
             </div>
             {data && (
               <p className="mb-2 text-[10.5px] text-gray-500">

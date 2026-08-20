@@ -86,19 +86,25 @@ describe('사용량 (V3-06 T3)', () => {
     ).toBeTruthy();
   });
 
-  it('지난달 탭은 month를 지정해 다시 부른다', async () => {
+  // 기본은 이번 달(month 미지정 = 서버 KST 기준), 드롭다운으로 지난 달을 고른다.
+  it('달을 고르면 요약과 작업 목록을 그 달로 다시 부른다', async () => {
     renderView();
     await waitFor(() =>
       expect(getUsageSummary).toHaveBeenCalledWith('tk', undefined),
     );
 
-    await userEvent.click(screen.getByRole('tab', { name: '지난달' }));
+    const select = screen.getByLabelText('조회할 달') as HTMLSelectElement;
+    const lastMonth = select.options[1].value;
+    await userEvent.selectOptions(select, lastMonth);
 
     await waitFor(() =>
-      expect(getUsageSummary).toHaveBeenLastCalledWith(
-        'tk',
-        expect.stringMatching(/^\d{4}-\d{2}$/),
-      ),
+      expect(getUsageSummary).toHaveBeenLastCalledWith('tk', lastMonth),
+    );
+    await waitFor(() =>
+      expect(listUsageJobs).toHaveBeenLastCalledWith('tk', {
+        from: `${lastMonth}-01`,
+        to: expect.stringMatching(new RegExp(`^${lastMonth}-\\d{2}$`)),
+      }),
     );
   });
 

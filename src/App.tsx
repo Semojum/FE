@@ -57,6 +57,7 @@ import CandidateModal from './component/features/conversion/CandidateModal';
 import LoginScreen from './component/features/auth/LoginScreen';
 import MyPage from './component/features/mypage/MyPage';
 import InquiryFab from './component/features/support/InquiryFab';
+import AppVersionBadge from './component/shared/AppVersionBadge';
 
 // Types
 import {
@@ -2049,6 +2050,8 @@ const Semojum: React.FC = () => {
           onDismiss={appVersion.dismissToast}
         />
       )}
+
+      {!isPopup && <AppVersionBadge />}
 
       {/* 문의하기 — 화면에 매이지 않는 FAB. 마이페이지·기관 관리 위에도 뜬다. */}
       {!isPopup && auth.token && (

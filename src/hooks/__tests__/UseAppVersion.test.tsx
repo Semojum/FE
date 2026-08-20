@@ -11,9 +11,12 @@ import { useAppVersion } from '../UseAppVersion';
 vi.mock('../../utils/updater', () => ({
   checkForUpdates: vi.fn(),
 }));
-vi.mock('../../api/AppService', () => ({
-  getAppVersion: vi.fn(),
-}));
+vi.mock('../../api/AppService', async () => {
+  const actual = await vi.importActual<typeof import('../../api/AppService')>(
+    '../../api/AppService',
+  );
+  return { ...actual, getAppVersion: vi.fn() };
+});
 
 import { checkForUpdates } from '../../utils/updater';
 import { getAppVersion } from '../../api/AppService';
@@ -37,6 +40,30 @@ describe('useAppVersion', () => {
     expect(mockedCheck).toHaveBeenCalledWith({ autoInstall: false });
     expect(result.current.updateAvailable).toBe(true);
     expect(result.current.isInstalling).toBe(false);
+  });
+
+  // 2026-08-20 계약 변경: 서버가 forceUpdate를 계산해 주지 않고
+  // minSupportedVersion만 준다. 비교는 문자열이 아니라 숫자 단위여야 한다.
+  it('minSupportedVersion보다 낮은 버전이면 강제 업데이트로 본다', async () => {
+    mockedVersion.mockResolvedValue({
+      latestVersion: '9.9.9',
+      minSupportedVersion: '9.0.0',
+      downloadUrl: null,
+      releaseNotes: null,
+      updatedAt: null,
+    });
+
+    const { result } = renderHook(() => useAppVersion(true));
+    await waitFor(() => expect(result.current.forceUpdate).toBe(true));
+  });
+
+  it('버전 정보가 없으면(result null) 검사를 건너뛴다', async () => {
+    mockedVersion.mockResolvedValue(null);
+
+    const { result } = renderHook(() => useAppVersion(true));
+    await waitFor(() => expect(result.current.availableVersion).toBe('3.1.0'));
+    expect(result.current.forceUpdate).toBe(false);
+    expect(result.current.latestVersion).toBeNull();
   });
 
   it('installNow는 저장을 먼저 밀어낸 뒤 설치한다', async () => {

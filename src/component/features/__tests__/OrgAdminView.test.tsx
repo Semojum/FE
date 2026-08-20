@@ -369,8 +369,46 @@ describe('기관 관리 (V3-06 T2)', () => {
         name: '계정 상세 — kblib02 · 수학 담당',
       }),
     ).toBeTruthy();
+    // 기본 조회 구간은 이번 달 1일 ~ 오늘 (드롭다운으로 지난 달을 고른다).
     await waitFor(() =>
-      expect(listOrgAccountJobs).toHaveBeenCalledWith('kblib02', 'tk', {}),
+      expect(listOrgAccountJobs).toHaveBeenCalledWith('kblib02', 'tk', {
+        from: expect.stringMatching(/^\d{4}-\d{2}-01$/),
+        to: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      }),
+    );
+  });
+
+  it('계정 상세는 달을 고르거나 시작일·종료일을 직접 줄 수 있다', async () => {
+    renderView();
+    await userEvent.click(await screen.findByText('kblib02'));
+    await screen.findByRole('dialog', {
+      name: '계정 상세 — kblib02 · 수학 담당',
+    });
+
+    const select = (await screen.findByLabelText(
+      '조회할 달',
+    )) as HTMLSelectElement;
+    // 지난 달을 고르면 그 달 1일~말일로 다시 부른다.
+    const lastMonth = select.options[1].value;
+    await userEvent.selectOptions(select, lastMonth);
+    await waitFor(() =>
+      expect(listOrgAccountJobs).toHaveBeenLastCalledWith('kblib02', 'tk', {
+        from: `${lastMonth}-01`,
+        to: expect.stringMatching(new RegExp(`^${lastMonth}-\\d{2}$`)),
+      }),
+    );
+
+    // '직접 지정'으로 넘기면 시작일·종료일 입력이 나온다.
+    await userEvent.selectOptions(select, '직접 지정');
+    const from = await screen.findByLabelText('시작일');
+    await userEvent.clear(from);
+    await userEvent.type(from, '2026-07-03');
+
+    await waitFor(() =>
+      expect(listOrgAccountJobs).toHaveBeenLastCalledWith('kblib02', 'tk', {
+        from: '2026-07-03',
+        to: expect.any(String),
+      }),
     );
   });
 });

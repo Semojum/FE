@@ -64,14 +64,24 @@ describe('listPublicNotices', () => {
     fetchSpy.mockImplementation(() => Promise.resolve(fail(404, 'COMMON4004')));
 
     expect(await listPublicNotices()).toBeNull();
-    expect(console.warn).not.toHaveBeenCalled();
+    // apiClient는 실패한 호출을 '[API] …'로 남긴다(원인 추적용). 여기서 보는 것은
+    // 공지 조회가 제 몫의 경고('[공지] …')를 내지 않는다는 것이다.
+    expect(console.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('[공지]'),
+      expect.anything(),
+    );
   });
 
   it('인증을 요구하도록 붙어 있어도(401) 로그인 전에는 쓸 수 없으니 null', async () => {
     fetchSpy.mockImplementation(() => Promise.resolve(fail(401, 'COMMON4001')));
 
     expect(await listPublicNotices()).toBeNull();
-    expect(console.warn).not.toHaveBeenCalled();
+    // apiClient는 실패한 호출을 '[API] …'로 남긴다(원인 추적용). 여기서 보는 것은
+    // 공지 조회가 제 몫의 경고('[공지] …')를 내지 않는다는 것이다.
+    expect(console.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('[공지]'),
+      expect.anything(),
+    );
   });
 
   it('그 밖의 오류는 null을 주되 원인은 콘솔에 남긴다', async () => {

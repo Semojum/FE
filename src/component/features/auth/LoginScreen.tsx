@@ -5,6 +5,7 @@ import { ApiError } from '../../../api/apiClient';
 import type { SessionEndedReason } from '../../../hooks/UseAuth';
 import { readLastLoginId } from '../../../utils/lastLoginId';
 import NoticePanel from './NoticePanel';
+import AppVersionBadge from '../../shared/AppVersionBadge';
 
 // Figma V3-01 로그인 / V3-01 로그인 — 오류(AUTH4001) / V3-01 중복 로그인 안내.
 // V3에서 회원가입·소셜 로그인이 제거되어 화면은 아이디·비밀번호·로그인 버튼뿐이다.
@@ -16,8 +17,9 @@ interface Props {
   onAcknowledgeSessionEnded?: () => void;
 }
 
+// 입력 칸은 각지게 둔다(둥근 모서리 없음 — 사용자 요청 2026-08-20).
 const inputCls =
-  'h-[42px] w-full rounded-[10px] border border-gray-200 bg-white px-4 text-sm text-gray-700 placeholder:text-[#adadad] shadow-sm transition-colors focus:border-[#5b8ce6] focus:outline-none';
+  'h-[42px] w-full border border-gray-200 bg-white px-4 text-sm text-gray-700 placeholder:text-[#adadad] shadow-sm transition-colors focus:border-[#5b8ce6] focus:outline-none';
 
 // 서버 코드별 로그인 화면 문구. 코드가 없거나 모르는 코드면 서버 message를 그대로 쓴다.
 const errorMessage = (err: unknown): string => {
@@ -125,7 +127,7 @@ const LoginScreen: React.FC<Props> = ({
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="mt-1 flex h-[42px] items-center justify-center gap-2 rounded-[10px] bg-[#5b8ce6] text-sm font-semibold text-white transition-colors hover:bg-[#4a7bd4] disabled:opacity-50"
+                className="mt-1 flex h-[42px] items-center justify-center gap-2 bg-[#5b8ce6] text-sm font-semibold text-white transition-colors hover:bg-[#4a7bd4] disabled:opacity-50"
               >
                 {isSubmitting && <Loader2 className="animate-spin" size={16} />}
                 로그인
@@ -136,6 +138,8 @@ const LoginScreen: React.FC<Props> = ({
 
         <NoticePanel />
       </div>
+
+      <AppVersionBadge />
 
       {/* 중복 로그인으로 밀려난 세션 안내 — 확인을 누르면 이 로그인 화면으로 돌아온다. */}
       {sessionEndedReason && (

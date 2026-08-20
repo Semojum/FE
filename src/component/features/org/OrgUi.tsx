@@ -279,6 +279,129 @@ export const monthKey = (offset = 0, now: Date = new Date()): string => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
 
+// 'YYYY-MM' → '2026년 8월'. 가까운 달은 사람 말도 함께 붙여 준다.
+export const monthLabel = (month: string, now: Date = new Date()): string => {
+  const [y, m] = month.split('-').map(Number);
+  if (!y || !m) return month;
+  const suffix =
+    month === monthKey(0, now)
+      ? ' (이번 달)'
+      : month === monthKey(-1, now)
+        ? ' (지난달)'
+        : '';
+  return `${y}년 ${m}월${suffix}`;
+};
+
+// 드롭다운에 채울 달 목록(최신순). since가 있으면 그 달까지만 내려간다
+// (계약 시작 전 달을 골라 봐야 빈 표만 나온다). 없으면 최근 12개월.
+export const monthOptions = (
+  since?: string | null,
+  now: Date = new Date(),
+  max = 24,
+): string[] => {
+  const start = since ? since.slice(0, 7) : null;
+  const months: string[] = [];
+  for (let i = 0; i < (start ? max : 12); i++) {
+    const key = monthKey(-i, now);
+    months.push(key);
+    if (start && key <= start) break;
+  }
+  return months;
+};
+
+// 그 달의 조회 구간. 이번 달은 아직 안 지난 날까지 물어볼 필요가 없어 오늘까지만.
+export const monthRange = (
+  month: string,
+  now: Date = new Date(),
+): { from: string; to: string } => {
+  const [y, m] = month.split('-').map(Number);
+  const iso = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+      d.getDate(),
+    ).padStart(2, '0')}`;
+  const first = new Date(y, m - 1, 1);
+  const last = new Date(y, m, 0);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return { from: iso(first), to: iso(last > today ? today : last) };
+};
+
+// 월 선택 드롭다운. 낭독기 사용자가 주 사용자층이라 커스텀 목록 대신 네이티브
+// <select>를 쓴다 — 키보드·낭독기 동작을 브라우저가 그대로 준다.
+export const MonthSelect: React.FC<{
+  value: string;
+  months: string[];
+  onChange: (month: string) => void;
+  label?: string;
+  className?: string;
+  // 달 목록 뒤에 붙일 항목 — 계정 상세의 "직접 지정"(시작일·종료일)처럼.
+  extraOptions?: { value: string; label: string }[];
+}> = ({
+  value,
+  months,
+  onChange,
+  label = '조회할 달',
+  className = '',
+  extraOptions = [],
+}) => (
+  <select
+    aria-label={label}
+    value={value}
+    onChange={(e) => onChange(e.target.value)}
+    className={`h-[28px] rounded-[7px] border border-[#e2e8f0] bg-white px-2 text-[11.5px] font-bold text-gray-700 outline-none transition-colors hover:border-[#5b8ce6]/50 focus:border-[#5b8ce6] ${className}`}
+  >
+    {months.map((m) => (
+      <option key={m} value={m}>
+        {monthLabel(m)}
+      </option>
+    ))}
+    {extraOptions.map((o) => (
+      <option key={o.value} value={o.value}>
+        {o.label}
+      </option>
+    ))}
+  </select>
+);
+
+// 시작일·종료일 직접 지정. 낭독기·키보드 동작을 그대로 쓰려고 네이티브 date 입력이다.
+export const DateRangeInput: React.FC<{
+  from: string;
+  to: string;
+  max?: string;
+  onChange: (range: { from: string; to: string }) => void;
+}> = ({ from, to, max, onChange }) => (
+  <div className="flex items-center gap-1.5">
+    <input
+      type="date"
+      value={from}
+      max={to || max}
+      aria-label="시작일"
+      onChange={(e) => onChange({ from: e.target.value, to })}
+      className={DATE_INPUT_CLS}
+    />
+    <span className="text-[11px] text-gray-400" aria-hidden>
+      ~
+    </span>
+    <input
+      type="date"
+      value={to}
+      min={from}
+      max={max}
+      aria-label="종료일"
+      onChange={(e) => onChange({ from, to: e.target.value })}
+      className={DATE_INPUT_CLS}
+    />
+  </div>
+);
+
+const DATE_INPUT_CLS =
+  'h-[28px] rounded-[7px] border border-[#e2e8f0] bg-white px-2 text-[11.5px] text-gray-700 outline-none transition-colors hover:border-[#5b8ce6]/50 focus:border-[#5b8ce6]';
+
+// 오늘 'YYYY-MM-DD' — 날짜 입력의 상한(미래는 볼 것이 없다).
+export const todayIso = (now: Date = new Date()): string =>
+  `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+    now.getDate(),
+  ).padStart(2, '0')}`;
+
 // 남은 크레딧이 최근 사용 속도로 언제 바닥나는지 — "9월 중순 소진 예상".
 // 서버는 계산해 주지 않는다(명세: FE 계산). 근거가 부족하면 빈 문자열.
 export const depletionLabel = (

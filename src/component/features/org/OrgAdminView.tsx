@@ -557,6 +557,7 @@ const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
           alias={detailTarget.alias}
           orgName={dashboard?.orgName ?? ''}
           orgAllocated={dashboard?.creditAllocated ?? null}
+          usageSince={usageSince ?? dashboard?.contractStartedAt}
           onClose={() => setDetailTarget(null)}
           onAliasSaved={(loginId, nextAlias) => {
             setAccounts((prev) =>

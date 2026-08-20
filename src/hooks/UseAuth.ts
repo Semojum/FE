@@ -31,6 +31,18 @@ const SESSION_PROBE_INTERVAL_MS = 60_000;
 // 창을 자주 오갈 때 포커스마다 두드리지 않도록 하는 최소 간격.
 const SESSION_PROBE_MIN_GAP_MS = 10_000;
 
+// 확인은 60초마다 하지만 accessToken을 그때마다 갈아 끼우면 안 된다 —
+// token을 의존성으로 쓰는 화면들이 통째로 다시 불러오고, 변환 중이던 SSE 스트림도
+// 매분 끊겼다 붙는다(2026-08-20 "서버 오류" 토스트가 계속 뜨던 원인).
+// 그래서 만료가 가까울 때만 새 토큰으로 바꾼다.
+const RENEW_BEFORE_MS = 5 * 60_000;
+
+const needsRenewal = (token: string | null): boolean => {
+  const payload = decodeJwt(token);
+  if (!payload?.exp) return true;
+  return payload.exp * 1000 - Date.now() <= RENEW_BEFORE_MS;
+};
+
 // 서버가 "이 세션은 끝났다"고 답한 경우만 로그아웃한다.
 // 네트워크 단절·5xx로 작업 중인 사용자를 쫓아내면 안 된다.
 const isSessionRejected = (err: unknown): boolean =>
@@ -159,7 +171,8 @@ export const useAuth = () => {
     lastProbeAtRef.current = Date.now();
     try {
       const res = await apiRefresh(refreshToken);
-      applyToken(res.accessToken);
+      // 세션이 살아 있다는 것만 확인되면 된다. 토큰 교체는 만료가 가까울 때만.
+      if (needsRenewal(tokenRef.current)) applyToken(res.accessToken);
     } catch (err) {
       if (isSessionRejected(err)) {
         const evicted = err instanceof ApiError && err.code === 'AUTH4003';

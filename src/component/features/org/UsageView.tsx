@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { getUsageSummary, listUsageJobs } from '../../../api/UsageService';
 import { toUserMessage } from '../../../api/errorMessages';
@@ -12,13 +12,15 @@ import {
 } from '../../../utils/brailleDefaults';
 import { FOOTER_TEXT_MAX_LENGTH } from '../../../utils/fileValidation';
 import { ROWS_PER_PAGE, CELLS_PER_ROW } from '../../../utils/brailleLayout';
-import { rangeOf } from './AccountDetailPanel';
 import {
   DASH,
   EmptyRow,
   formatNumber,
   JobStatusPill,
   monthKey,
+  monthOptions,
+  monthRange,
+  MonthSelect,
   orDash,
   percentOf,
   Panel,
@@ -45,15 +47,6 @@ interface Props {
   onToast: (message: string) => void;
 }
 
-type MonthTab = 'this' | 'last';
-type RangeKey = 'recent30' | 'thisMonth' | 'lastMonth';
-
-const RANGE_LABEL: Record<RangeKey, string> = {
-  recent30: '최근 30일',
-  thisMonth: '이번 달',
-  lastMonth: '지난달',
-};
-
 const UsageView: React.FC<Props> = ({
   token,
   loginId,
@@ -61,9 +54,10 @@ const UsageView: React.FC<Props> = ({
   onOpenJob,
   onToast,
 }) => {
-  const [monthTab, setMonthTab] = useState<MonthTab>('this');
+  // 기본은 이번 달. 드롭다운으로 지난 달들을 골라 본다(요약·작업 목록이 함께 움직인다).
+  const [month, setMonth] = useState(() => monthKey());
+  const months = useMemo(() => monthOptions(), []);
   const [summary, setSummary] = useState<UsageSummary | null>(null);
-  const [range, setRange] = useState<RangeKey>('recent30');
   const [jobs, setJobs] = useState<UsageJobs | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [defaults, setDefaults] = useState<BrailleDefaults>(() =>
@@ -74,8 +68,8 @@ const UsageView: React.FC<Props> = ({
   useEffect(() => {
     let alive = true;
     setIsLoading(true);
-    // '이번 달'은 month를 비워 서버(KST)가 정하게 둔다.
-    getUsageSummary(token, monthTab === 'last' ? monthKey(-1) : undefined)
+    // 이번 달은 month를 비워 서버(KST)가 정하게 둔다 — 자정 근처 경계는 서버가 옳다.
+    getUsageSummary(token, month === monthKey() ? undefined : month)
       .then((res) => {
         if (alive) setSummary(res);
       })
@@ -88,11 +82,11 @@ const UsageView: React.FC<Props> = ({
     return () => {
       alive = false;
     };
-  }, [token, monthTab, onToast]);
+  }, [token, month, onToast]);
 
   useEffect(() => {
     let alive = true;
-    listUsageJobs(token, rangeOf(range))
+    listUsageJobs(token, monthRange(month))
       .then((res) => {
         if (alive) setJobs(res);
       })
@@ -102,7 +96,7 @@ const UsageView: React.FC<Props> = ({
     return () => {
       alive = false;
     };
-  }, [token, range, onToast]);
+  }, [token, month, onToast]);
 
   const saveDefaults = useCallback(() => {
     saveBrailleDefaults(defaults);
@@ -132,29 +126,13 @@ const UsageView: React.FC<Props> = ({
           <Loader2 size={16} className="animate-spin text-gray-400" />
         )}
 
-        {/* 이번 달 / 지난달 */}
-        <div
-          role="tablist"
-          aria-label="조회할 달"
-          className="ml-auto flex gap-0.5 rounded-[7px] bg-[#f0f4f8] p-[3px]"
-        >
-          {(['this', 'last'] as MonthTab[]).map((t) => (
-            <button
-              key={t}
-              type="button"
-              role="tab"
-              aria-selected={monthTab === t}
-              onClick={() => setMonthTab(t)}
-              className={`rounded-[5px] px-[11px] py-1 text-[11px] font-bold transition-colors ${
-                monthTab === t
-                  ? 'bg-white text-[#5b8ce6]'
-                  : 'text-gray-500 hover:text-[#5b8ce6]'
-              }`}
-            >
-              {t === 'this' ? '이번 달' : '지난달'}
-            </button>
-          ))}
-        </div>
+        {/* 월 선택 — 요약과 작업 목록이 같은 달을 본다 */}
+        <MonthSelect
+          className="ml-auto"
+          value={month}
+          months={months}
+          onChange={setMonth}
+        />
       </div>
 
       {/* 내가 쓴 크레딧 · 우리 기관 남은 크레딧 */}
@@ -204,18 +182,11 @@ const UsageView: React.FC<Props> = ({
         className="mt-3"
         title="내 작업별 크레딧"
         right={
-          <select
-            value={range}
-            onChange={(e) => setRange(e.target.value as RangeKey)}
-            aria-label="조회 기간"
-            className="rounded-[6px] border border-[#e2e8f0] bg-white px-[10px] py-[5px] text-[11px] text-gray-700 outline-none focus:border-[#5b8ce6]"
-          >
-            {(Object.keys(RANGE_LABEL) as RangeKey[]).map((k) => (
-              <option key={k} value={k}>
-                {RANGE_LABEL[k]}
-              </option>
-            ))}
-          </select>
+          jobs && (
+            <span className="text-[10.5px] text-gray-500">
+              {jobs.from} ~ {jobs.to}
+            </span>
+          )
         }
       >
         <Table

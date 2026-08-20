@@ -300,8 +300,40 @@ describe('useAuth', () => {
       expect(result.current.sessionEndedReason).toBe('evicted');
     });
 
-    it('세션이 살아 있으면 새 accessToken을 받아 두고 로그인을 유지한다', async () => {
+    // 60초마다 토큰을 갈아 끼우면 token을 의존성으로 쓰는 화면·SSE 스트림이
+    // 매분 다시 붙는다(2026-08-20 "서버 오류" 토스트의 원인). 확인만 하고 둔다.
+    it('세션이 살아 있으면 토큰을 그대로 두고 로그인을 유지한다', async () => {
       const result = await loginAndRun();
+      const before = result.current.token;
+
+      vi.mocked(apiRefresh).mockResolvedValue({
+        accessToken: encodeMockJwt({
+          sub: '00000000-0000-4000-8000-000000000001',
+          exp: Math.floor(Date.now() / 1000) + 3600,
+        }),
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+
+      expect(apiRefresh).toHaveBeenCalled();
+      expect(result.current.isAuthenticated).toBe(true);
+      expect(result.current.token).toBe(before);
+    });
+
+    it('만료가 가까우면 확인하는 김에 새 토큰으로 바꾼다', async () => {
+      vi.mocked(apiLogin).mockResolvedValue({
+        // 4분 뒤 만료 — 다음 확인 때 교체 대상이다.
+        accessToken: encodeMockJwt({
+          sub: 'cc6c7a9d-c40e-484a-b48e-fcc527b92fbd',
+          exp: Math.floor(Date.now() / 1000) + 240,
+        }),
+        refreshToken: 'ref',
+      });
+      const { result } = renderHook(() => useAuth());
+      await act(async () => {
+        await result.current.login('kblib01', 'pw');
+      });
       const before = result.current.token;
 
       const renewed = encodeMockJwt({
@@ -313,7 +345,6 @@ describe('useAuth', () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
 
-      expect(result.current.isAuthenticated).toBe(true);
       expect(result.current.token).toBe(renewed);
       expect(result.current.token).not.toBe(before);
     });
