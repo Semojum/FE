@@ -2,18 +2,18 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
 import { BlockDraft, ConversionTab, TABS } from '../../../types';
-import { previewRows, toCells } from '../../../utils/brailleGrid';
+import { toCells, wrapRows } from '../../../utils/brailleGrid';
 
 // 대체 텍스트 선택 — 기획 정본 "모눈종이 뷰" S4·S5.
 //
 // 안을 목록으로 늘어놓지 않고 방식(라벨)을 탭으로 세우고 한 안을 크게 보여 준다.
 // 안이 표·그림을 어떻게 풀었는지는 통째로 봐야 판단이 되기 때문이다.
 //  - OCR 변환(a)     : 묵자(텍스트)만
-//  - 점역·통합(b·c)  : 묵자 원문 + 점자 미리보기(앞 몇 줄, 판면과 같은 32칸 규칙)
+//  - 점역·통합(b·c)  : 묵자 원문 + 점자 전문(판면과 같은 32칸 규칙)
 // 지금 쓰는 안에는 ● 를 붙이고, 열 때 그 탭부터 보여 준다.
-
-// 미리보기로 보여 줄 점자 줄 수 (기획 §2 "모드별 — 앞 3~4줄")
-const PREVIEW_ROWS = 4;
+//
+// 점자는 앞 4줄만 잘라 보여 줬는데, 표·그림 대체 텍스트는 그보다 길어서
+// 뒷부분을 볼 방법이 없었다(2026-08-20 QA). 이제 전부 그리고 세로로 스크롤한다.
 
 interface CandidateModalProps {
   isOpen: boolean;
@@ -32,7 +32,7 @@ interface CandidateModalProps {
 
 const BraillePreview: React.FC<{ text: string }> = ({ text }) => (
   <div className="w-max rounded-lg border border-[#e4ebf5] bg-white p-1.5">
-    {previewRows(text, PREVIEW_ROWS).map((row, i) => (
+    {wrapRows(text).map((row, i) => (
       <div key={i} className="flex">
         {toCells(row).map((ch, j) => (
           <span
@@ -191,7 +191,8 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
                     <p className="mb-1 mt-3 text-[11px] font-semibold text-gray-400">
                       점자
                     </p>
-                    <div className="overflow-x-auto">
+                    {/* 길면 잘라 내지 않고 스크롤한다 — 가로는 32칸, 세로는 줄 수만큼. */}
+                    <div className="custom-scrollbar max-h-[34vh] overflow-auto">
                       <BraillePreview text={brailleText} />
                     </div>
                   </>

@@ -13,14 +13,10 @@ export const toCells = (text: string, cells = CELLS_PER_ROW): string[] => {
   return [...chars, ...Array(Math.max(0, cells - chars.length)).fill('')];
 };
 
-// 통 문자열을 판면과 같은 규칙(32칸에서 그대로 자름 · \n은 무조건 개행)으로 접어
-// 앞쪽 몇 줄만 돌려준다. 대체 텍스트 피커의 점자 미리보기용 — 판면 배치를 대신하지
-// 않는다(최종 조판은 braille-assist가 한다).
-export const previewRows = (
-  text: string,
-  maxRows: number,
-  cells = CELLS_PER_ROW,
-): string[] => {
+// 통 문자열을 판면과 같은 규칙(32칸에서 그대로 자름 · \n은 무조건 개행)으로 접는다.
+// 잘라 내지 않는다 — 대체 텍스트 창처럼 전문을 보여 주는 곳에서 쓴다.
+// 판면 배치를 대신하지는 않는다(최종 조판은 braille-assist가 한다).
+export const wrapRows = (text: string, cells = CELLS_PER_ROW): string[] => {
   const rows: string[] = [];
   for (const line of text.split('\n')) {
     const chars = [...line];
@@ -29,10 +25,16 @@ export const previewRows = (
     for (let i = 0; i < chars.length; i += cells) {
       rows.push(chars.slice(i, i + cells).join(''));
     }
-    if (rows.length >= maxRows) break;
   }
-  return rows.slice(0, maxRows);
+  return rows;
 };
+
+// 앞 maxRows 줄만 — 좁은 자리에 맛보기로 걸 때.
+export const previewRows = (
+  text: string,
+  maxRows: number,
+  cells = CELLS_PER_ROW,
+): string[] => wrapRows(text, cells).slice(0, maxRows);
 
 // 격자 편집은 "밀어쓰기"다 — 커서 칸에 글자를 끼워 넣고 뒤쪽 글자는 오른쪽으로 밀린다.
 // 그 결과 행이 32칸을 넘으면 조판이 다음 행으로 접는다.

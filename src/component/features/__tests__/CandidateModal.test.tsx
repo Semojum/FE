@@ -63,6 +63,28 @@ describe('CandidateModal', () => {
     expect(screen.getByText('매질 굴절률')).toBeInTheDocument();
   });
 
+  // 표·그림 대체 텍스트는 4줄을 넘는 일이 잦은데 앞 4줄만 그려서 뒷부분을 볼 방법이
+  // 없었다(2026-08-20 QA). 이제 전부 그리고 상자가 스크롤한다.
+  it('긴 점자도 자르지 않고 모두 그린다 (상자가 스크롤)', () => {
+    const long = Array.from({ length: 12 }, (_, i) => `⠁⠃${i}`).join('\n');
+    const { container } = render(
+      <CandidateModal
+        isOpen
+        onClose={vi.fn()}
+        candidates={[]}
+        drafts={[{ label: '격자형', printText: '긴 표', content: long }]}
+        mode={TABS.BRAILLE}
+        currentText=""
+        onSelect={vi.fn()}
+      />,
+    );
+
+    const box = container.querySelector('.overflow-auto');
+    expect(box).toBeTruthy();
+    // 12줄이 그대로 살아 있다(각 줄은 32칸짜리 한 덩어리).
+    expect(box?.querySelectorAll('.flex').length).toBe(12);
+  });
+
   it('OCR 모드는 묵자(텍스트)만 보여 준다 — 점자 미리보기 없음', () => {
     render(
       <CandidateModal
