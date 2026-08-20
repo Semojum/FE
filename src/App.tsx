@@ -377,6 +377,11 @@ const Semojum: React.FC = () => {
     setPageStatuses({});
     setOriginalFileName(null);
     setOriginalLoadError(null);
+    // 커서는 줄 번호(rowIndex)로만 가리킨다 — 다른 작업물로 갈아타면 그 번호가
+    // 새 문서의 엉뚱한 줄을 가리켜, 아무것도 누르지 않았는데 블록 도구(대체 텍스트
+    // 포함)가 켜져 있었다(2026-08-20 QA).
+    setCaret(null);
+    setScrollToRow(null);
   }, [resetFile, resetAllBlocks, resetUpload, editor]);
 
   const handleReset = useCallback(() => {
@@ -434,6 +439,9 @@ const Semojum: React.FC = () => {
       editor.registerServerBlocks(Object.values(saved.blocksByPage).flat());
       setPageStatuses(saved.pageStatuses ?? {});
       setOriginalFileName(saved.originalFileName ?? null);
+      // 탭마다 판면이 다르므로 줄 번호로 잡아 둔 커서는 넘겨받지 않는다.
+      setCaret(null);
+      setScrollToRow(null);
       // 복원된 파일은 이미 변환됐으므로 재업로드 트리거를 막는다.
       lastUploadedFileRef.current = saved.fileState.file;
 
@@ -724,6 +732,14 @@ const Semojum: React.FC = () => {
     },
     [gridRows],
   );
+
+  // 새 작업이 붙으면 판면이 통째로 바뀐다 — 줄 번호로만 잡아 둔 커서는 무효다.
+  // 남겨 두면 변환이 끝나자마자 엉뚱한 줄이 "선택된" 상태가 되어, 아무것도 누르지
+  // 않았는데 블록 도구(대체 텍스트 포함)가 켜져 있었다(2026-08-20 QA).
+  useEffect(() => {
+    setCaret(null);
+    setScrollToRow(null);
+  }, [jobId]);
 
   // 같은 줄을 다시 골라도 스크롤이 걸리도록 값을 곧 비운다(격자는 값이 바뀔 때 움직인다).
   useEffect(() => {
@@ -1783,9 +1799,11 @@ const Semojum: React.FC = () => {
                       type="button"
                       disabled={!caretSource?.hasDrafts}
                       title={
-                        caretSource?.hasDrafts
-                          ? 'AI가 만든 다른 표현(대체 텍스트)을 골라 넣습니다'
-                          : '이 블록에는 대체 텍스트가 없습니다'
+                        !caretSource
+                          ? '판면에서 줄을 먼저 선택해 주세요'
+                          : caretSource.hasDrafts
+                            ? 'AI가 만든 다른 표현(대체 텍스트)을 골라 넣습니다'
+                            : '이 블록에는 대체 텍스트가 없습니다'
                       }
                       onClick={() =>
                         caretSource &&
