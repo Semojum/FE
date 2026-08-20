@@ -54,6 +54,7 @@ import BrailleGrid, {
 } from './component/features/conversion/BrailleGrid';
 import ContextMenu from './component/shared/ContextMenu';
 import CandidateModal from './component/features/conversion/CandidateModal';
+import LatexRenderer from './component/features/conversion/LatexRenderer';
 import LoginScreen from './component/features/auth/LoginScreen';
 import MyPage from './component/features/mypage/MyPage';
 import InquiryFab from './component/features/support/InquiryFab';
@@ -84,6 +85,7 @@ import { toUserMessage } from './api/errorMessages';
 import { ApiError } from './api/apiClient';
 import { mapPageResult } from './utils/mapPageResult';
 import { needsStreamResume, receivedPages } from './utils/tabResume';
+import { hasMath } from './utils/mathText';
 import { saveBlob } from './utils/download';
 import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
 import { onAppClose } from './utils/appLifecycle';
@@ -691,6 +693,14 @@ const Semojum: React.FC = () => {
   const caretBlockIndex = caretSource
     ? caretBlocks.findIndex((b) => b.id === caretSource.blockId)
     : -1;
+
+  // 모드 a(묵자 초안)는 수식이 LaTeX 표기 그대로 판면에 실린다 — 32칸 격자에
+  // 한 글자씩 흩뿌려져 눈으로 읽기 어렵다. 본문은 그대로 두고(점역·다운로드가
+  // 이 표기를 쓴다) 커서가 놓인 블록만 아래에 렌더해 보여 준다.
+  const caretBlockText =
+    caretBlockIndex >= 0 ? caretBlocks[caretBlockIndex].currentText : null;
+  const showMathPreview =
+    activeTab === TABS.OCR && hasMath(caretBlockText) && !!caretBlockText;
 
   // 커서가 놓인 줄의 블록을 원본 대조 선택으로도 반영한다(좌측 원본이 같이 강조됨).
   const handleCaretChange = useCallback(
@@ -1895,6 +1905,25 @@ const Semojum: React.FC = () => {
                     </div>
                   )}
                 </div>
+
+                {/* 수식 미리보기 — 커서가 놓인 블록에 LaTeX가 있을 때만 뜬다.
+                    읽기 전용이다: 고치는 곳은 위 판면 격자 하나뿐이어야 한다. */}
+                {showMathPreview && (
+                  <section
+                    aria-label="수식 미리보기"
+                    className="mt-2 shrink-0 rounded-[10px] border border-[#e2e8f0] bg-white px-3 py-2"
+                  >
+                    <p className="mb-1 text-[10.5px] font-bold text-gray-400">
+                      수식 미리보기 · 커서가 있는 블록
+                    </p>
+                    <div className="custom-scrollbar max-h-[140px] overflow-auto text-[13px] leading-relaxed text-gray-700">
+                      <LatexRenderer
+                        text={caretBlockText as string}
+                        className="whitespace-pre-wrap"
+                      />
+                    </div>
+                  </section>
+                )}
               </motion.div>
             </section>
           )}
