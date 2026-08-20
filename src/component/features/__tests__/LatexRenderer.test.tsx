@@ -31,6 +31,23 @@ describe('LatexRenderer', () => {
     expect(container.querySelector('.katex-display')).toBeTruthy();
   });
 
+  // OCR 초안은 수식 안에 한글이 그대로 들어온다("$속도 = \\frac{거리}{시간}$").
+  // KaTeX 기본(strict) 설정은 이걸 오류로 보고 수식 전체를 붉은 원문으로 떨어뜨려,
+  // 화면에서는 "어떤 수식은 뜨고 어떤 수식은 안 뜨는" 것으로 보였다(2026-08-20 QA).
+  it('수식 안에 한글이 섞여도 그린다', () => {
+    const { container } = render(
+      <LatexRenderer text={'$속도 = \\frac{거리}{시간}$'} />,
+    );
+    expect(container.querySelector('.katex')).toBeTruthy();
+  });
+
+  it('여러 줄 환경(\\begin{align})도 그린다', () => {
+    const { container } = render(
+      <LatexRenderer text={'\\begin{align}a &= b \\\\ c &= d\\end{align}'} />,
+    );
+    expect(container.querySelector('.katex')).toBeTruthy();
+  });
+
   it('returns null for empty input', () => {
     const { container } = render(<LatexRenderer text="" />);
     // Wrapper div renders but is empty
