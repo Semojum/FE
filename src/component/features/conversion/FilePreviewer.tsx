@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import {
   BoundingBox,
@@ -46,18 +46,29 @@ const FilePreviewer: React.FC<Props> = memo(
     // PDF 페이지 폭은 패널 폭에 맞춘다. 예전에는 500px 고정이라 패널이 그보다 좁으면
     // 가운데 정렬된 페이지의 좌우가 잘려 나갔다(문제 번호가 안 보였다 — QA "mode A 좌측
     // 원본 잘려서 보임"). 넓을 때는 여백을 남기지 않고 더 크게 그린다.
-    const viewportRef = useRef<HTMLDivElement>(null);
     const [pageWidth, setPageWidth] = useState(0);
+    const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
-    useEffect(() => {
-      const el = viewportRef.current;
+    // 콜백 ref로 "지금 붙어 있는 노드"를 관찰한다.
+    // 예전에는 effect가 [previewUrl, fileType]에 걸려 있었는데, 미리보기 칸은
+    // previewUrl이 없으면 통째로 언마운트된다(탭 전환·작업 복원). 그래서 관찰 대상이
+    // 이미 떨어져 나간 옛 노드로 남고, 그 사이에 잰 폭(패널이 아직 좁던 순간의 값)이
+    // 그대로 굳어 원본 PDF가 손바닥만 하게 그려졌다 — 다른 탭에 갔다 mode a로
+    // 돌아오면 원본이 깨져 보이던 원인(2026-08-17 QA 영상).
+    const viewportRef = useCallback((el: HTMLDivElement | null) => {
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
       if (!el) return;
       const measure = () => setPageWidth(el.clientWidth);
       measure();
+      // 붙자마자 잰 값은 레이아웃이 끝나기 전일 수 있다 — 다음 프레임에 한 번 더 잰다.
+      requestAnimationFrame(measure);
       const ro = new ResizeObserver(measure);
       ro.observe(el);
-      return () => ro.disconnect();
-    }, [previewUrl, fileType]);
+      resizeObserverRef.current = ro;
+    }, []);
+
+    useEffect(() => () => resizeObserverRef.current?.disconnect(), []);
 
     // 선택된 텍스트 블록으로 스크롤 이동
     useEffect(() => {
