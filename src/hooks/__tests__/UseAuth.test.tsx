@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useAuth } from '../UseAuth';
 import { encodeMockJwt } from '../../utils/jwt';
@@ -222,7 +222,31 @@ describe('useAuth', () => {
     expect(result.current.sessionEndedReason).toBe('evicted');
   });
 
-  it('그 밖의 재발급 실패는 expired 사유로 끊는다', async () => {
+  it('그 밖의 인증 거절은 expired 사유로 끊는다', async () => {
+    vi.mocked(apiLogin).mockResolvedValue({
+      accessToken: tokenFor('kblib01'),
+      refreshToken: 'ref',
+    });
+    vi.mocked(apiRefresh).mockRejectedValue(
+      new ApiError('인증이 필요합니다.', 'COMMON4001', 401),
+    );
+
+    const { result } = renderHook(() => useAuth());
+    await act(async () => {
+      await result.current.login('kblib01', 'pw');
+    });
+    await act(async () => {
+      await result.current.refreshSession(result.current.token);
+    });
+
+    expect(result.current.sessionEndedReason).toBe('expired');
+
+    act(() => result.current.acknowledgeSessionEnded());
+    expect(result.current.sessionEndedReason).toBeNull();
+  });
+
+  // 지하철·절전 등으로 잠깐 끊긴 것을 세션 종료로 오인하면 작업 중인 화면이 날아간다.
+  it('네트워크 오류로는 세션을 끊지 않는다', async () => {
     vi.mocked(apiLogin).mockResolvedValue({
       accessToken: tokenFor('kblib01'),
       refreshToken: 'ref',
@@ -237,9 +261,75 @@ describe('useAuth', () => {
       await result.current.refreshSession(result.current.token);
     });
 
-    expect(result.current.sessionEndedReason).toBe('expired');
-
-    act(() => result.current.acknowledgeSessionEnded());
+    expect(result.current.isAuthenticated).toBe(true);
     expect(result.current.sessionEndedReason).toBeNull();
+  });
+
+  // 실서버 실측(2026-08-20): 다른 기기에서 로그인해도 밀려난 세션의 accessToken은
+  // 만료(1시간) 전까지 200을 준다 — 요청이 401을 받길 기다리면 로그아웃되지 않는다.
+  // 그래서 리프레시를 주기적으로 두드려 스스로 알아채야 한다.
+  describe('중복 로그인 감지', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    const loginAndRun = async () => {
+      vi.mocked(apiLogin).mockResolvedValue({
+        accessToken: tokenFor('kblib01'),
+        refreshToken: 'ref',
+      });
+      const { result } = renderHook(() => useAuth());
+      await act(async () => {
+        await result.current.login('kblib01', 'pw');
+      });
+      return result;
+    };
+
+    it('주기적으로 세션을 확인하다가 AUTH4003이면 evicted로 끊는다', async () => {
+      const result = await loginAndRun();
+      expect(result.current.isAuthenticated).toBe(true);
+
+      vi.mocked(apiRefresh).mockRejectedValue(
+        new ApiError('만료되었거나 유효하지 않습니다.', 'AUTH4003', 401),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+
+      expect(apiRefresh).toHaveBeenCalledWith('ref');
+      expect(result.current.isAuthenticated).toBe(false);
+      expect(result.current.sessionEndedReason).toBe('evicted');
+    });
+
+    it('세션이 살아 있으면 새 accessToken을 받아 두고 로그인을 유지한다', async () => {
+      const result = await loginAndRun();
+      const before = result.current.token;
+
+      const renewed = encodeMockJwt({
+        sub: '00000000-0000-4000-8000-000000000001',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      });
+      vi.mocked(apiRefresh).mockResolvedValue({ accessToken: renewed });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+
+      expect(result.current.isAuthenticated).toBe(true);
+      expect(result.current.token).toBe(renewed);
+      expect(result.current.token).not.toBe(before);
+    });
+
+    it('로그아웃한 뒤에는 더 이상 확인하지 않는다', async () => {
+      const result = await loginAndRun();
+      vi.mocked(apiLogout).mockResolvedValue(null);
+      await act(async () => {
+        await result.current.logout();
+      });
+
+      vi.mocked(apiRefresh).mockClear();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(180_000);
+      });
+      expect(apiRefresh).not.toHaveBeenCalled();
+    });
   });
 });

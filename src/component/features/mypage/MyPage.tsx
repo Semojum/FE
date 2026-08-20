@@ -47,6 +47,7 @@ import RecentStrip from './RecentStrip';
 import ContextMenu, { MenuItem } from '../../shared/ContextMenu';
 import TrashView from './TrashView';
 import OrgAdminView from '../org/OrgAdminView';
+import ErrorBoundary from '../../shared/ErrorBoundary';
 import UsageView from '../org/UsageView';
 import {
   DeleteConfirmModal,
@@ -349,6 +350,25 @@ const MyPage: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
+  // 기관 관리(V3-06 T2)는 마이페이지 껍데기(돌아가기·탭·계정 표시) 없이 단독 화면으로
+  // 띄운다 — 담당자 업무(계약·계정·주문)가 내 파일 목록 위에 얹힌 패널처럼 보이면 안 된다.
+  // 돌아갈 길은 화면 자체의 "← 마이페이지" 버튼이다.
+  if (subView === 'org') {
+    return (
+      <div className="fixed inset-0 z-50 overflow-hidden bg-[#f8f9fa]">
+        <div className="mx-auto flex h-full w-full max-w-6xl flex-col">
+          <ErrorBoundary label="기관 관리" onReset={() => setSubView(null)}>
+            <OrgAdminView
+              token={token}
+              onBack={() => setSubView(null)}
+              onToast={onToast}
+            />
+          </ErrorBoundary>
+        </div>
+      </div>
+    );
+  }
+
   // 최근 작업 스트립은 첫 화면(S1)에만 있다. 아래 목록이 비어 있어도(폴더 안에만
   // 작업이 있는 경우) 최근 작업은 보여 준다.
   const showRecentStrip = isMainScreen && recent.length > 0;
@@ -405,19 +425,16 @@ const MyPage: React.FC<Props> = ({
         <div className="mx-6 border-b border-gray-200" />
 
         {subView === 'usage' ? (
-          <UsageView
-            token={token}
-            loginId={user?.loginId}
-            onBack={() => setSubView(null)}
-            onOpenJob={handleOpenUsageJob}
-            onToast={onToast}
-          />
-        ) : subView === 'org' ? (
-          <OrgAdminView
-            token={token}
-            onBack={() => setSubView(null)}
-            onToast={onToast}
-          />
+          // 하위 화면은 각각 경계를 둔다 — 한 화면이 죽어도 마이페이지로 돌아올 수 있다.
+          <ErrorBoundary label="사용량" onReset={() => setSubView(null)}>
+            <UsageView
+              token={token}
+              loginId={user?.loginId}
+              onBack={() => setSubView(null)}
+              onOpenJob={handleOpenUsageJob}
+              onToast={onToast}
+            />
+          </ErrorBoundary>
         ) : view === 'trash' ? (
           <div className="custom-scrollbar flex-1 overflow-y-auto">
             <TrashView

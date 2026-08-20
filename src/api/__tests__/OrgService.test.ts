@@ -53,14 +53,75 @@ describe('OrgService', () => {
     );
   });
 
-  it('소속 계정 조회는 month를 지정할 때만 쿼리에 붙인다', async () => {
+  it('소속 계정 조회는 파라미터 없이 부른다 (사용량은 계약 시작일 이후 누적)', async () => {
     await listOrgAccounts('tk');
     expect(lastCall().url).toBe(`${API_BASE_URL}/api/org/accounts`);
+  });
 
-    await listOrgAccounts('tk', '2026-07');
-    expect(lastCall().url).toBe(
-      `${API_BASE_URL}/api/org/accounts?month=2026-07`,
+  // 2026-08-20 명세 정정으로 필드 이름이 셋 바뀌었다(monthCredits→usedCredits 등).
+  // 옛 이름을 주는 배포본이 남아 있어도 숫자 칸이 undefined가 되어 화면이 죽으면 안 된다.
+  it('소속 계정 응답은 신·구 필드 이름을 모두 흡수한다', async () => {
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(
+        jsonResponse(
+          envelope({
+            month: '2026-08',
+            items: [
+              {
+                loginId: 'kblib01',
+                alias: null,
+                status: 'ACTIVE',
+                role: 'ROLE_ORG_ADMIN',
+                lastLoginAt: null,
+                monthCredits: 820,
+                self: true,
+              },
+            ],
+          }),
+        ),
+      ),
     );
+
+    const old = await listOrgAccounts('tk');
+    expect(old.items[0].usedCredits).toBe(820);
+    expect(old.items[0].isSelf).toBe(true);
+    expect(old.usageSince).toBeNull();
+
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(
+        jsonResponse(
+          envelope({
+            usageSince: '2026-02-24',
+            items: [
+              {
+                loginId: 'kblib01',
+                alias: '관리자',
+                status: 'ACTIVE',
+                role: 'ROLE_ORG_ADMIN',
+                lastLoginAt: '2026-08-20T00:12:00Z',
+                usedCredits: 820,
+                isSelf: true,
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    const now = await listOrgAccounts('tk');
+    expect(now.usageSince).toBe('2026-02-24');
+    expect(now.items[0].usedCredits).toBe(820);
+    expect(now.items[0].isSelf).toBe(true);
+  });
+
+  it('items가 없어도 빈 목록으로 떨어뜨린다', async () => {
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(jsonResponse(envelope({}))),
+    );
+    await expect(listOrgAccounts('tk')).resolves.toEqual({
+      usageSince: null,
+      items: [],
+    });
   });
 
   it('계정 작업 조회는 from·to를 그대로 넘긴다', async () => {

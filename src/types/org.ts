@@ -12,9 +12,17 @@ import { JobStatus } from './mypage';
 
 // ─── 기관 대시보드 (GET /api/org/dashboard) ──────────────────────────
 
-export type ContractType = 'PAID' | 'TRIAL' | 'INTERNAL';
+// 서버가 쓰는 값은 명세에 열거돼 있지 않다 — 실서버는 'BASIC'을 준다(2026-08-20 실측).
+// 모르는 값이 와도 화면은 코드 그대로 보여 주므로 유니온을 열어 둔다.
+export type ContractType =
+  | 'BASIC'
+  | 'PAID'
+  | 'TRIAL'
+  | 'INTERNAL'
+  | (string & {});
 
-export const CONTRACT_TYPE_LABEL: Record<ContractType, string> = {
+export const CONTRACT_TYPE_LABEL: Record<string, string> = {
+  BASIC: '기본',
   PAID: '유료',
   TRIAL: '체험',
   INTERNAL: '내부',
@@ -49,12 +57,13 @@ export interface OrgAccount {
   status: OrgAccountStatus; // INACTIVE = 잠김
   role: string; // 'ROLE_USER' | 'ROLE_ORG_ADMIN'
   lastLoginAt: string | null;
-  monthCredits: number; // 조회한 달(month)의 사용 크레딧
-  self: boolean; // 본인 행은 잠글 수 없다
+  // 계약 시작일 이후 "누적" 사용 크레딧. 월 단위가 아니다(기획 정정 2026-08-20).
+  usedCredits: number;
+  isSelf: boolean; // 본인 행은 잠글 수 없다
 }
 
 export interface OrgAccountList {
-  month: string; // 'YYYY-MM'
+  usageSince: string | null; // 누적 집계 시작일(=계약 시작일) 'YYYY-MM-DD'
   items: OrgAccount[];
 }
 
@@ -212,11 +221,7 @@ export interface UsageJobs {
 
 // ─── 로그인 화면 공지 (GET /api/public/notices) ──────────────────────
 //
-// ⚠️ 2026-08-19 기준 서버에 아직 없는 엔드포인트다(404 COMMON4004). 공지 읽기는
-// ROLE_ORG_ADMIN 전용인 /api/org/notices 하나뿐이라 로그인 전에는 부를 수 없다.
-// 화면은 미리 만들어 두고, 서버가 이 경로를 열면 그대로 뜨게 한다.
-//
-// 기대 계약 (BE 요청안):
+// 2026-08-20 실측: 서버가 이 경로를 열었다(08-19에는 404 COMMON4004였다).
 //   GET /api/public/notices  · 인증 불필요 · 노출 기간(KST 오늘) 안의 scope=ALL 공지만
 //   result: [{ id, title, body, startsOn, endsOn, createdAt }]
 export interface PublicNotice {

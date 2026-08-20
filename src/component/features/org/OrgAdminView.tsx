@@ -40,6 +40,7 @@ import {
   formatNumber,
   lastLoginLabel,
   LinkButton,
+  orDash,
   Panel,
   Pill,
   ProgressBar,
@@ -78,6 +79,8 @@ const REQUEST_PLACEHOLDER: Record<OrgRequestType, string> = {
 const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
   const [dashboard, setDashboard] = useState<OrgDashboard | null>(null);
   const [accounts, setAccounts] = useState<OrgAccount[]>([]);
+  // 계정 표의 "사용"이 언제부터 쌓인 값인지(=계약 시작일). 서버가 함께 준다.
+  const [usageSince, setUsageSince] = useState<string | null>(null);
   const [notices, setNotices] = useState<OrgNotice[]>([]);
   const [orders, setOrders] = useState<OrgOrders | null>(null);
   const [requests, setRequests] = useState<OrgRequest[]>([]);
@@ -98,7 +101,8 @@ const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
       listOrgAccounts(token),
       listOrgRequests(token).catch(() => [] as OrgRequest[]),
     ]);
-    setAccounts(list.items ?? []);
+    setAccounts(list.items);
+    setUsageSince(list.usageSince);
     setRequests(reqs ?? []);
   }, [token]);
 
@@ -120,7 +124,9 @@ const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
 
     void listOrgAccounts(token)
       .then((list) => {
-        if (alive) setAccounts(list.items ?? []);
+        if (!alive) return;
+        setAccounts(list.items);
+        setUsageSince(list.usageSince);
       })
       .catch(() => undefined);
     void listOrgNotices(token)
@@ -239,7 +245,10 @@ const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
   const remaining = dashboard?.creditRemaining ?? 0;
   const allocated = dashboard?.creditAllocated ?? 0;
   const used = dashboard?.creditUsed ?? 0;
-  const contractLeft = dashboard ? daysUntil(dashboard.contractExpiresAt) : NaN;
+  const monthlyUsage = dashboard?.monthlyUsage ?? [];
+  const contractLeft = dashboard?.contractExpiresAt
+    ? daysUntil(dashboard.contractExpiresAt)
+    : NaN;
 
   return (
     <div className="custom-scrollbar flex-1 overflow-y-auto px-6 pb-8">
@@ -286,9 +295,7 @@ const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
         <StatCard label="남은 크레딧">
           <StatValue>{formatNumber(remaining)}</StatValue>
           <p className="text-[11px] text-gray-500">
-            {dashboard
-              ? depletionLabel(remaining, dashboard.monthlyUsage) || ' '
-              : ' '}
+            {dashboard ? depletionLabel(remaining, monthlyUsage) || ' ' : ' '}
           </p>
           <SmallButton
             variant="accent"
@@ -303,7 +310,7 @@ const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
           <p className="text-[17px] font-bold text-gray-700">
             {dashboard?.contractExpiresAt ?? DASH}
           </p>
-          {dashboard && (
+          {dashboard?.contractExpiresAt && (
             <p
               className={`text-[11px] font-bold ${
                 contractLeft <= 30 ? 'text-[#ef4444]' : 'text-gray-500'
@@ -321,8 +328,8 @@ const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
       {/* 월별 사용 추이 · 공지 */}
       <div className="mt-3 flex flex-col gap-3 lg:flex-row">
         <Panel title="월별 사용 추이" className="flex-1">
-          {dashboard && dashboard.monthlyUsage.length > 0 ? (
-            <UsageChart points={dashboard.monthlyUsage} />
+          {monthlyUsage.length > 0 ? (
+            <UsageChart points={monthlyUsage} />
           ) : (
             <p className="py-6 text-center text-[11.5px] text-gray-400">
               아직 사용 기록이 없습니다.
@@ -370,6 +377,11 @@ const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
         title="소속 계정"
         right={
           <>
+            {usageSince && (
+              <span className="text-[10.5px] text-gray-500">
+                {usageSince}부터 누적
+              </span>
+            )}
             {pendingAccountRequests.length > 0 && (
               <span className="text-[10.5px] text-gray-500">
                 발급 요청 {pendingAccountRequests.length}건 처리 중
@@ -389,7 +401,7 @@ const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
               <Th>별칭</Th>
               <Th>상태</Th>
               <Th>마지막 로그인</Th>
-              <Th align="right">사용</Th>
+              <Th align="right">사용(누적)</Th>
               <Th>제어</Th>
             </tr>
           }
@@ -405,7 +417,7 @@ const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
                       <LinkButton onClick={() => setDetailTarget(a)}>
                         {a.loginId}
                       </LinkButton>
-                      {a.self && (
+                      {a.isSelf && (
                         <span className="text-[10.5px] text-gray-500">
                           본인
                         </span>
@@ -421,9 +433,9 @@ const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
                     )}
                   </Td>
                   <Td>{lastLoginLabel(a.lastLoginAt)}</Td>
-                  <Td align="right">{formatNumber(a.monthCredits)}</Td>
+                  <Td align="right">{orDash(a.usedCredits)}</Td>
                   <Td>
-                    {a.self ? (
+                    {a.isSelf ? (
                       DASH
                     ) : a.status === 'ACTIVE' ? (
                       <SmallButton onClick={() => setLockTarget(a)}>
@@ -483,7 +495,7 @@ const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
             </tr>
           }
         >
-          {!orders || orders.items.length === 0 ? (
+          {!orders?.items?.length ? (
             <EmptyRow colSpan={6}>주문 내역이 없습니다.</EmptyRow>
           ) : (
             orders.items.map((o) => (

@@ -51,7 +51,7 @@ const dashboard = {
 };
 
 const accounts = {
-  month: '2026-08',
+  usageSince: '2026-02-24',
   items: [
     {
       loginId: 'kblib01',
@@ -59,8 +59,8 @@ const accounts = {
       status: 'ACTIVE' as const,
       role: 'ROLE_ORG_ADMIN',
       lastLoginAt: '2026-08-19T09:12:00',
-      monthCredits: 820,
-      self: true,
+      usedCredits: 820,
+      isSelf: true,
     },
     {
       loginId: 'kblib02',
@@ -68,8 +68,8 @@ const accounts = {
       status: 'ACTIVE' as const,
       role: 'ROLE_USER',
       lastLoginAt: '2026-08-18T09:12:00',
-      monthCredits: 1140,
-      self: false,
+      usedCredits: 1140,
+      isSelf: false,
     },
     {
       loginId: 'kblib03',
@@ -77,8 +77,8 @@ const accounts = {
       status: 'INACTIVE' as const,
       role: 'ROLE_USER',
       lastLoginAt: '2026-07-22T09:12:00',
-      monthCredits: 0,
-      self: false,
+      usedCredits: 0,
+      isSelf: false,
     },
   ],
 };
@@ -151,6 +151,98 @@ const renderView = () =>
   render(<OrgAdminView token="tk" onBack={vi.fn()} onToast={vi.fn()} />);
 
 describe('기관 관리 (V3-06 T2)', () => {
+  // 2026-08-20: /api/org/accounts의 monthCredits가 usedCredits로 바뀌자
+  // formatNumber(undefined)가 던져 화면 전체가 하얘졌다. 필드가 비어도 버틴다.
+  it('응답에 필드가 비어 있어도 화면이 죽지 않는다', async () => {
+    vi.mocked(getOrgDashboard).mockResolvedValue({
+      ...dashboard,
+      contractExpiresAt: null,
+      monthlyUsage: undefined,
+    } as unknown as typeof dashboard);
+    vi.mocked(listOrgAccounts).mockResolvedValue({
+      usageSince: null,
+      items: [
+        {
+          loginId: 'kblib09',
+          alias: null,
+          status: 'ACTIVE' as const,
+          role: 'ROLE_USER',
+          lastLoginAt: null,
+          usedCredits: undefined,
+          isSelf: false,
+        },
+      ],
+    } as unknown as Awaited<ReturnType<typeof listOrgAccounts>>);
+    vi.mocked(listOrgOrders).mockResolvedValue({
+      receiptEmail: null,
+    } as unknown as typeof orders);
+
+    renderView();
+
+    expect(await screen.findByText('kblib09')).toBeTruthy();
+    expect(screen.getByText('아직 사용 기록이 없습니다.')).toBeTruthy();
+    expect(screen.getByText('주문 내역이 없습니다.')).toBeTruthy();
+  });
+
+  // 2026-08-20 운영 서버(계정 org0105 · ROLE_ORG_ADMIN)에서 그대로 받아 온 응답.
+  // 배포본은 usedCredits(신)와 self(구)를 섞어 주고 contractType도 명세에 없는 BASIC이다.
+  it('실서버 응답(2026-08-20 실측)을 그대로 그린다', async () => {
+    vi.mocked(getOrgDashboard).mockResolvedValue({
+      orgName: '검증용기관',
+      orgCode: 'org01',
+      contractType: 'BASIC',
+      contractStartedAt: '2026-08-01',
+      contractExpiresAt: '2027-12-31',
+      creditAllocated: 10000,
+      creditUsed: 63,
+      creditRemaining: 9937,
+      monthlyUsage: [
+        { month: '2026-07', credits: 0 },
+        { month: '2026-08', credits: 64 },
+      ],
+    });
+    // 서비스가 흡수한 뒤의 형태 — self(구) → isSelf.
+    vi.mocked(listOrgAccounts).mockResolvedValue({
+      usageSince: '2026-08-01',
+      items: [
+        {
+          loginId: 'org0103',
+          alias: '국어 담당',
+          status: 'ACTIVE' as const,
+          role: 'ROLE_USER',
+          lastLoginAt: '2026-08-20T04:49:48.652265Z',
+          usedCredits: 8,
+          isSelf: false,
+        },
+        {
+          loginId: 'org0105',
+          alias: null,
+          status: 'ACTIVE' as const,
+          role: 'ROLE_ORG_ADMIN',
+          lastLoginAt: '2026-08-20T06:43:40.107565Z',
+          usedCredits: 0,
+          isSelf: true,
+        },
+      ],
+    });
+
+    renderView();
+
+    expect(await screen.findByText('검증용기관 · org01 · 기본')).toBeTruthy();
+    expect(screen.getByText('9,937')).toBeTruthy();
+    const adminRow = (await screen.findByText('org0105')).closest('tr');
+    expect(within(adminRow as HTMLElement).getByText('본인')).toBeTruthy();
+    expect(within(adminRow as HTMLElement).queryByText('잠금')).toBeNull();
+    expect(screen.getByText('2026-08-01부터 누적')).toBeTruthy();
+  });
+
+  it('사용 열은 계약 시작일 이후 누적임을 밝힌다 (기획 정정 2026-08-20)', async () => {
+    renderView();
+    expect(await screen.findByText('2026-02-24부터 누적')).toBeTruthy();
+    expect(screen.getByText('사용(누적)')).toBeTruthy();
+    expect(screen.getByText('820')).toBeTruthy();
+  });
+
   it('계약·크레딧 요약과 소속 계정을 보여 준다', async () => {
     renderView();
 

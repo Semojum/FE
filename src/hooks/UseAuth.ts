@@ -19,6 +19,24 @@ import { saveLastLoginId } from '../utils/lastLoginId';
 //  'expired': 리프레시 토큰 만료 등 그 밖의 사유
 export type SessionEndedReason = 'evicted' | 'expired';
 
+// 밀려난 세션을 스스로 알아채기 위한 확인 주기.
+//
+// 근거 (2026-08-20 운영 서버 실측): 다른 기기에서 같은 계정으로 로그인하면 서버는
+// 이전 세션의 **refreshToken만** revoke한다. 이미 발급된 accessToken은 만료(1시간)
+// 전까지 그대로 200을 준다 — 즉 밀려난 쪽은 아무 요청도 401을 받지 않는다.
+// "401이 나면 그때 리프레시하고 실패로 알아챈다"는 방식으로는 최대 한 시간이 걸리고,
+// 사용자가 화면만 띄워 두고 아무 요청도 하지 않으면 영영 로그아웃되지 않는다.
+// 세션 생사를 가리는 수단은 리프레시뿐이라, 주기적으로 두드려 확인한다.
+const SESSION_PROBE_INTERVAL_MS = 60_000;
+// 창을 자주 오갈 때 포커스마다 두드리지 않도록 하는 최소 간격.
+const SESSION_PROBE_MIN_GAP_MS = 10_000;
+
+// 서버가 "이 세션은 끝났다"고 답한 경우만 로그아웃한다.
+// 네트워크 단절·5xx로 작업 중인 사용자를 쫓아내면 안 된다.
+const isSessionRejected = (err: unknown): boolean =>
+  err instanceof ApiError &&
+  (err.status === 401 || err.code === 'AUTH4003' || err.code === 'COMMON4001');
+
 // 토큰이 아직 살아 있는지만 확인한다.
 //
 // 표시용 loginId는 토큰에서 뽑지 않는다 — 운영 서버의 accessToken payload는
@@ -40,6 +58,10 @@ export const useAuth = () => {
   const refreshTokenRef = useRef<string | null>(null);
   // apiClient의 리프레셔 콜백에서 최신 accessToken을 읽기 위한 미러.
   const tokenRef = useRef<string | null>(null);
+
+  // 세션 확인(리프레시 두드리기)이 마지막으로 나간 시각 · 중복 실행 방지 플래그.
+  const lastProbeAtRef = useRef(0);
+  const probingRef = useRef(false);
 
   // 로그인한 계정의 loginId. 재발급으로 토큰이 바뀌어도 세션 내내 유지된다.
   const loginIdRef = useRef<string | null>(null);
@@ -76,6 +98,8 @@ export const useAuth = () => {
         roleRef.current = res.role;
         // 다음 실행 때 로그인 화면에 미리 채워 넣는다(아이디만 — 비밀번호는 저장하지 않는다).
         saveLastLoginId(loginId);
+        // 방금 받은 세션이니 곧바로 확인할 필요가 없다.
+        lastProbeAtRef.current = Date.now();
         setSessionEndedReason(null);
         applyToken(res.accessToken);
       } finally {
@@ -109,8 +133,11 @@ export const useAuth = () => {
       } catch (err) {
         // AUTH4003 = 밀려난 세션(다른 곳에서 로그인) 또는 리프레시 토큰 만료·무효.
         // 중복 로그인 금지 정책상 전자가 대부분이므로 안내 문구를 구분해 보여준다.
-        const evicted = err instanceof ApiError && err.code === 'AUTH4003';
-        clearSession(evicted ? 'evicted' : 'expired');
+        // 네트워크 단절·5xx는 세션이 끝났다는 뜻이 아니므로 로그인 상태를 유지한다.
+        if (isSessionRejected(err)) {
+          const evicted = err instanceof ApiError && err.code === 'AUTH4003';
+          clearSession(evicted ? 'evicted' : 'expired');
+        }
         return null;
       }
     },
@@ -122,6 +149,52 @@ export const useAuth = () => {
     setTokenRefresher(refreshSession);
     return () => setTokenRefresher(null);
   }, [refreshSession]);
+
+  // 세션이 아직 내 것인지 서버에 확인한다(중복 로그인 감지).
+  // 성공하면 새 accessToken을 받아 두므로 세션 유지도 겸한다.
+  const probeSession = useCallback(async () => {
+    const refreshToken = refreshTokenRef.current;
+    if (!refreshToken || probingRef.current) return;
+    probingRef.current = true;
+    lastProbeAtRef.current = Date.now();
+    try {
+      const res = await apiRefresh(refreshToken);
+      applyToken(res.accessToken);
+    } catch (err) {
+      if (isSessionRejected(err)) {
+        const evicted = err instanceof ApiError && err.code === 'AUTH4003';
+        clearSession(evicted ? 'evicted' : 'expired');
+      }
+      // 그 밖의 실패(네트워크·5xx)는 다음 주기에 다시 확인한다.
+    } finally {
+      probingRef.current = false;
+    }
+  }, [applyToken, clearSession]);
+
+  // 로그인해 있는 동안만 돈다. token 값이 바뀌어도 재등록되지 않도록 불린으로 받는다.
+  const isSignedIn = !!token;
+  useEffect(() => {
+    if (!isSignedIn) return;
+    const timer = window.setInterval(
+      () => void probeSession(),
+      SESSION_PROBE_INTERVAL_MS,
+    );
+    // 다른 기기에서 로그인한 뒤 이 창으로 돌아오는 순간이 가장 흔한 상황이라,
+    // 주기를 기다리지 않고 포커스가 돌아올 때 바로 확인한다.
+    const probeIfStale = () => {
+      if (document.visibilityState === 'hidden') return;
+      if (Date.now() - lastProbeAtRef.current < SESSION_PROBE_MIN_GAP_MS)
+        return;
+      void probeSession();
+    };
+    window.addEventListener('focus', probeIfStale);
+    document.addEventListener('visibilitychange', probeIfStale);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', probeIfStale);
+      document.removeEventListener('visibilitychange', probeIfStale);
+    };
+  }, [isSignedIn, probeSession]);
 
   // 서버 로그아웃(리프레시 토큰 revoke) 후 로컬 세션을 정리한다.
   // 명세상 이미 발급된 accessToken은 만료 전까지 유효하므로 로컬 삭제가 핵심이다.

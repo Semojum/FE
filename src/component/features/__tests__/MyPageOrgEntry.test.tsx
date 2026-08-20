@@ -22,11 +22,33 @@ vi.mock('../../../api/UsageService', () => ({
   getUsageSummary: vi.fn(),
   listUsageJobs: vi.fn(),
 }));
+vi.mock('../../../api/OrgService', () => ({
+  getOrgDashboard: vi.fn(),
+  listOrgAccounts: vi.fn(),
+  listOrgNotices: vi.fn(),
+  listOrgOrders: vi.fn(),
+  listOrgRequests: vi.fn(),
+  setAccountLock: vi.fn(),
+  createOrgRequest: vi.fn(),
+  cancelOrgRequest: vi.fn(),
+  updateReceiptEmail: vi.fn(),
+  getOrderReceipt: vi.fn(),
+  fetchReceiptBlob: vi.fn(),
+  listOrgAccountJobs: vi.fn(),
+  updateAccountAlias: vi.fn(),
+}));
 
 import MyPage from '../mypage/MyPage';
 import { listJobs, listRecentJobs } from '../../../api/HistoryService';
 import { getFolderContents, getFolderTree } from '../../../api/FolderService';
 import { getUsageSummary, listUsageJobs } from '../../../api/UsageService';
+import {
+  getOrgDashboard,
+  listOrgAccounts,
+  listOrgNotices,
+  listOrgOrders,
+  listOrgRequests,
+} from '../../../api/OrgService';
 import { User } from '../../../types/auth';
 
 const emptyContents = {
@@ -57,6 +79,24 @@ beforeEach(() => {
     items: [],
     totalCredits: 0,
   });
+  vi.mocked(getOrgDashboard).mockResolvedValue({
+    orgName: '검증용기관',
+    orgCode: 'org01',
+    contractType: 'BASIC',
+    contractStartedAt: '2026-08-01',
+    contractExpiresAt: '2027-12-31',
+    creditAllocated: 10000,
+    creditUsed: 63,
+    creditRemaining: 9937,
+    monthlyUsage: [{ month: '2026-08', credits: 64 }],
+  });
+  vi.mocked(listOrgAccounts).mockResolvedValue({
+    usageSince: '2026-08-01',
+    items: [],
+  });
+  vi.mocked(listOrgNotices).mockResolvedValue([]);
+  vi.mocked(listOrgOrders).mockResolvedValue({ receiptEmail: null, items: [] });
+  vi.mocked(listOrgRequests).mockResolvedValue([]);
 });
 
 const renderMyPage = (user: User) =>
@@ -80,6 +120,24 @@ describe('마이페이지 → V3-06 진입', () => {
 
     renderMyPage({ loginId: 'kblib01', role: 'ROLE_ORG_ADMIN' });
     expect(screen.getByText('기관 관리')).toBeTruthy();
+  });
+
+  // 기관 담당자 업무가 내 파일 목록 위에 얹힌 패널처럼 보이면 안 된다 — 단독 화면.
+  it('기관 관리는 마이페이지 껍데기 없이 단독 화면으로 열린다', async () => {
+    renderMyPage({ loginId: 'org0105', role: 'ROLE_ORG_ADMIN' });
+
+    await userEvent.click(screen.getByText('기관 관리'));
+
+    expect(
+      await screen.findByRole('heading', { name: '기관 관리' }),
+    ).toBeTruthy();
+    // 마이페이지 헤더(돌아가기 · 사용량 · 계정 표시)는 함께 뜨지 않는다.
+    expect(screen.queryByText('돌아가기')).toBeNull();
+    expect(screen.queryByText('사용량')).toBeNull();
+    expect(screen.queryByText('org0105')).toBeNull();
+    // 돌아갈 길은 화면 자체의 "← 마이페이지" 버튼뿐이다.
+    await userEvent.click(screen.getByText('마이페이지'));
+    expect(screen.getByText('돌아가기')).toBeTruthy();
   });
 
   it('사용량을 누르면 사용량 화면이 열린다', async () => {

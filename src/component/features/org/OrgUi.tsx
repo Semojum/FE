@@ -197,10 +197,15 @@ export const EmptyRow: React.FC<{ colSpan: number; children: string }> = ({
 
 // ─── 표시 형식 ──────────────────────────────────────────────────────
 
-export const formatNumber = (n: number): string => n.toLocaleString('ko-KR');
-
 // 값이 아직 없는 칸은 디자인대로 —(em dash)로 채운다.
 export const DASH = '—';
+
+// 명세가 바뀌어 필드 이름이 어긋나면(2026-08-20 org/accounts 전례) 여기로 undefined가
+// 들어온다. 숫자 한 칸 때문에 화면 전체가 죽지 않도록 —로 떨어뜨린다.
+export const formatNumber = (n: number | null | undefined): string =>
+  typeof n === 'number' && Number.isFinite(n)
+    ? n.toLocaleString('ko-KR')
+    : DASH;
 
 export const orDash = (n: number | null | undefined): string =>
   n == null ? DASH : formatNumber(n);

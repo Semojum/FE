@@ -1,6 +1,7 @@
 import { apiRequest } from './apiClient';
 import { httpFetch } from './httpFetch';
 import {
+  OrgAccount,
   OrgAccountJobs,
   OrgAccountList,
   OrgDashboard,
@@ -31,13 +32,57 @@ const query = (params: Record<string, string | undefined>): string => {
 export const getOrgDashboard = (token: string): Promise<OrgDashboard> =>
   apiRequest<OrgDashboard>('/api/org/dashboard', { token });
 
-// GET /api/org/accounts?month=YYYY-MM — 정렬은 loginId(발급 순서).
-// month는 "사용" 열의 집계 기간이며, 미지정 시 이번 달(KST).
-export const listOrgAccounts = (
-  token: string,
-  month?: string,
-): Promise<OrgAccountList> =>
-  apiRequest<OrgAccountList>(`/api/org/accounts${query({ month })}`, { token });
+// GET /api/org/accounts — 정렬은 loginId(발급 순서). 파라미터 없음.
+//
+// ⚠️ 2026-08-20 명세 정정: "사용"이 월 단위에서 **계약 시작일 이후 누적**으로 바뀌면서
+// 응답 필드 이름이 셋 바뀌었다(month→usageSince, monthCredits→usedCredits, self→isSelf).
+// 옛 이름으로 주는 배포본이 남아 있어도 화면이 깨지지 않도록 양쪽을 흡수한다
+// (목록 응답이 명세와 어긋났던 전례 — FolderService·NoticeService 주석 참고).
+interface RawOrgAccount {
+  loginId: string;
+  alias: string | null;
+  status: OrgAccount['status'];
+  role: string;
+  lastLoginAt: string | null;
+  usedCredits?: number | null;
+  monthCredits?: number | null; // 구 명세
+  isSelf?: boolean;
+  self?: boolean; // 구 명세
+}
+
+interface RawOrgAccountList {
+  usageSince?: string | null;
+  month?: string | null; // 구 명세
+  items?: RawOrgAccount[] | null;
+}
+
+export const normalizeOrgAccounts = (
+  raw: RawOrgAccountList | RawOrgAccount[] | null,
+): OrgAccountList => {
+  const list: RawOrgAccountList = Array.isArray(raw)
+    ? { items: raw }
+    : (raw ?? {});
+  return {
+    usageSince: list.usageSince ?? null,
+    items: (list.items ?? []).map((a) => ({
+      loginId: a.loginId,
+      alias: a.alias ?? null,
+      status: a.status,
+      role: a.role,
+      lastLoginAt: a.lastLoginAt ?? null,
+      usedCredits: a.usedCredits ?? a.monthCredits ?? 0,
+      isSelf: a.isSelf ?? a.self ?? false,
+    })),
+  };
+};
+
+export const listOrgAccounts = async (token: string): Promise<OrgAccountList> =>
+  normalizeOrgAccounts(
+    await apiRequest<RawOrgAccountList | RawOrgAccount[] | null>(
+      '/api/org/accounts',
+      { token },
+    ),
+  );
 
 // PATCH /api/org/accounts/{loginId}/alias — 빈 값이면 별칭 제거.
 // 실명 대신 역할명을 권장한다(기획 명시). 50자 초과는 COMMON4000.
