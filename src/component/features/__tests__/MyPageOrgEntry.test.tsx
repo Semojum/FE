@@ -105,6 +105,7 @@ const renderMyPage = (user: User, initialSubView: 'org' | null = null) =>
       isOpen
       initialSubView={initialSubView}
       onClose={vi.fn()}
+      onLogout={vi.fn()}
       token="tk"
       user={user}
       onSelect={vi.fn()}
@@ -132,13 +133,11 @@ describe('마이페이지 → V3-06 진입', () => {
     expect(
       await screen.findByRole('heading', { name: '기관 관리' }),
     ).toBeTruthy();
-    // 마이페이지 헤더(돌아가기 · 사용량 · 계정 표시)는 함께 뜨지 않는다.
+    // 마이페이지 헤더(돌아가기 · 사용량 탭)는 함께 뜨지 않는다.
     expect(screen.queryByText('돌아가기')).toBeNull();
     expect(screen.queryByText('사용량')).toBeNull();
-    expect(screen.queryByText('org0105')).toBeNull();
-    // 돌아갈 길은 화면 자체의 "← 마이페이지" 버튼뿐이다.
-    await userEvent.click(screen.getByText('마이페이지'));
-    expect(screen.getByText('돌아가기')).toBeTruthy();
+    // 마이페이지로 나가는 길도 없다 — 기관 담당자에게는 이 화면이 홈이다.
+    expect(screen.queryByText('마이페이지')).toBeNull();
   });
 
   // 기관 담당자는 점역 작업자가 아니라 관리자다 — 로그인 직후 착지 화면이 기관 관리다.

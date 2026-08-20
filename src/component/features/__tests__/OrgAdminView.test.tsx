@@ -147,10 +147,31 @@ beforeEach(() => {
   });
 });
 
+const onLogout = vi.fn();
+
 const renderView = () =>
-  render(<OrgAdminView token="tk" onBack={vi.fn()} onToast={vi.fn()} />);
+  render(
+    <OrgAdminView
+      token="tk"
+      loginId="kbadmin"
+      onLogout={onLogout}
+      onToast={vi.fn()}
+    />,
+  );
 
 describe('기관 관리 (V3-06 T2)', () => {
+  // 기관 담당자에게는 이 화면이 홈이다 — 마이페이지로 나가는 길은 없고,
+  // 대신 계정을 바꿀 수 있도록 로그아웃이 여기 있다(없으면 갇힌다).
+  it('마이페이지로 나가는 버튼은 없고 로그아웃이 있다', async () => {
+    renderView();
+
+    expect(await screen.findByText('kbadmin')).toBeTruthy();
+    expect(screen.queryByText('마이페이지')).toBeNull();
+
+    await userEvent.click(screen.getByText('로그아웃'));
+    expect(onLogout).toHaveBeenCalledTimes(1);
+  });
+
   // 2026-08-20: /api/org/accounts의 monthCredits가 usedCredits로 바뀌자
   // formatNumber(undefined)가 던져 화면 전체가 하얘졌다. 필드가 비어도 버틴다.
   it('응답에 필드가 비어 있어도 화면이 죽지 않는다', async () => {

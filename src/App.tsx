@@ -2063,6 +2063,7 @@ const Semojum: React.FC = () => {
           isOpen={isMyPageOpen}
           initialSubView={isOrgAdmin(auth.user) ? 'org' : null}
           onClose={() => setIsMyPageOpen(false)}
+          onLogout={() => void auth.logout()}
           // 변환 중이면 그 작업이 목록에 뜨도록 열려 있는 동안 목록을 갱신한다.
           isConverting={isConverting}
           token={auth.token}

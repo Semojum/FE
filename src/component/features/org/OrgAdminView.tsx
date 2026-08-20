@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import Modal, { ModalButton } from '../../shared/Modal';
 import { toUserMessage } from '../../../api/errorMessages';
 import {
@@ -62,7 +62,10 @@ import {
 
 interface Props {
   token: string;
-  onBack: () => void;
+  // 기관 담당자는 이 화면이 곧 홈이다 — 마이페이지로 나가는 길은 두지 않는다.
+  // 대신 계정을 바꿀 수 있게 로그아웃은 여기에 둔다(없으면 갇힌다).
+  loginId?: string;
+  onLogout: () => void;
   onToast: (message: string) => void;
 }
 
@@ -76,7 +79,12 @@ const REQUEST_PLACEHOLDER: Record<OrgRequestType, string> = {
   ACCOUNT_ISSUE: '예) 국어 담당 계정 1개 발급 부탁드립니다.',
 };
 
-const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
+const OrgAdminView: React.FC<Props> = ({
+  token,
+  loginId,
+  onLogout,
+  onToast,
+}) => {
   const [dashboard, setDashboard] = useState<OrgDashboard | null>(null);
   const [accounts, setAccounts] = useState<OrgAccount[]>([]);
   // 계정 표의 "사용"이 언제부터 쌓인 값인지(=계약 시작일). 서버가 함께 준다.
@@ -253,14 +261,6 @@ const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
   return (
     <div className="custom-scrollbar flex-1 overflow-y-auto px-6 pb-8">
       <div className="flex items-center gap-3 py-4">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-200/70 hover:text-[#5b8ce6]"
-        >
-          <ArrowLeft size={18} />
-          <span>마이페이지</span>
-        </button>
         <h2 className="text-[17px] font-bold text-gray-700">기관 관리</h2>
         {dashboard && (
           <p className="text-[11.5px] text-gray-500">
@@ -272,6 +272,13 @@ const OrgAdminView: React.FC<Props> = ({ token, onBack, onToast }) => {
         {isLoading && (
           <Loader2 size={16} className="animate-spin text-gray-400" />
         )}
+
+        <div className="ml-auto flex items-center gap-2">
+          {loginId && (
+            <span className="text-[12px] text-gray-500">{loginId}</span>
+          )}
+          <SmallButton onClick={onLogout}>로그아웃</SmallButton>
+        </div>
       </div>
 
       {loadError && (

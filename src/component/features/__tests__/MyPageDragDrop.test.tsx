@@ -65,6 +65,7 @@ const renderMyPage = () =>
     <MyPage
       isOpen
       onClose={() => undefined}
+      onLogout={() => undefined}
       token="tk"
       user={{ loginId: 'org0102' } as never}
       onSelect={() => undefined}

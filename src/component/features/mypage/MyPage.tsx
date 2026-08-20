@@ -65,6 +65,8 @@ interface Props {
   // 변환 화면이 아니라 기관 관리부터 보인다(마운트 시 한 번만 쓰인다).
   initialSubView?: 'org' | 'usage' | null;
   onClose: () => void;
+  // 기관 관리 화면은 마이페이지로 나가지 않으므로 로그아웃을 그 화면에 둔다.
+  onLogout: () => void;
   token: string;
   user?: User | null;
   // 에디터에서 변환이 돌고 있는지 — 그 작업이 목록에 뜨도록 열린 동안 갱신한다.
@@ -103,6 +105,7 @@ const MyPage: React.FC<Props> = ({
   isOpen,
   initialSubView = null,
   onClose,
+  onLogout,
   token,
   user,
   isConverting,
@@ -366,7 +369,8 @@ const MyPage: React.FC<Props> = ({
           <ErrorBoundary label="기관 관리" onReset={() => setSubView(null)}>
             <OrgAdminView
               token={token}
-              onBack={() => setSubView(null)}
+              loginId={user?.loginId}
+              onLogout={onLogout}
               onToast={onToast}
             />
           </ErrorBoundary>
