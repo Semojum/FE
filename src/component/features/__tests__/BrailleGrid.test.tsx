@@ -428,3 +428,32 @@ describe('BrailleGrid', () => {
     expect(screen.getAllByRole('gridcell')[1].textContent).toBe('');
   });
 });
+
+// 페이지를 넘기면 결과 격자가 그 페이지의 첫 줄로 옮겨 간다. 그 줄이 화면 한가운데
+// 놓이면 위 절반이 앞 페이지 끝자락이라, 정작 볼 본문이 아래 절반에만 걸린다(QA).
+describe('페이지 이동 스크롤', () => {
+  it('맞춰 갈 줄을 화면 맨 위에 붙인다', () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    render(
+      <BrailleGrid
+        pages={buildLayout(blocks, false)}
+        mode={TABS.BRAILLE}
+        caret={null}
+        highlightBlockId={null}
+        onCaretChange={() => undefined}
+        onEditRow={() => undefined}
+        onContextMenu={() => undefined}
+        scrollToRow={1}
+      />,
+    );
+
+    expect(scrollIntoView).toHaveBeenCalledWith(
+      expect.objectContaining({ block: 'start' }),
+    );
+  });
+});

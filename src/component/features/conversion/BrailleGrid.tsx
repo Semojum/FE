@@ -177,11 +177,14 @@ const BrailleGrid: React.FC<Props> = ({
   }, [caret]);
 
   // 원본 페이지를 넘기면 결과 격자도 그 지점으로 옮겨 대조를 유지한다.
+  // 그 줄을 화면 한가운데가 아니라 **맨 위**에 붙인다 — 페이지의 첫 줄이므로
+  // 위쪽은 앞 페이지의 끝자락이고, 정작 봐야 할 그 페이지 본문이 아래 절반에만
+  // 걸쳐 보였다(2026-08-20 QA).
   useEffect(() => {
     if (scrollToRow == null) return;
     rowRefs.current[scrollToRow]?.scrollIntoView({
       behavior: 'smooth',
-      block: 'center',
+      block: 'start',
     });
   }, [scrollToRow]);
 
