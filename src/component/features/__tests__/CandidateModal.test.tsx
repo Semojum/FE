@@ -67,7 +67,7 @@ describe('CandidateModal', () => {
   // 없었다(2026-08-20 QA). 이제 전부 그리고 상자가 스크롤한다.
   it('긴 점자도 자르지 않고 모두 그린다 (상자가 스크롤)', () => {
     const long = Array.from({ length: 12 }, (_, i) => `⠁⠃${i}`).join('\n');
-    const { container } = render(
+    render(
       <CandidateModal
         isOpen
         onClose={vi.fn()}
@@ -79,7 +79,10 @@ describe('CandidateModal', () => {
       />,
     );
 
-    const box = container.querySelector('.overflow-auto');
+    // 묵자 칸도 스크롤 상자라, 점자 쪽만 집어 본다.
+    const box = screen
+      .getByText('점자')
+      .parentElement?.querySelector('.overflow-auto');
     expect(box).toBeTruthy();
     // 12줄이 그대로 살아 있다(각 줄은 32칸짜리 한 덩어리).
     expect(box?.querySelectorAll('.flex').length).toBe(12);

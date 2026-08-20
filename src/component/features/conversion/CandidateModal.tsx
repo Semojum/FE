@@ -9,7 +9,7 @@ import { toCells, wrapRows } from '../../../utils/brailleGrid';
 // 안을 목록으로 늘어놓지 않고 방식(라벨)을 탭으로 세우고 한 안을 크게 보여 준다.
 // 안이 표·그림을 어떻게 풀었는지는 통째로 봐야 판단이 되기 때문이다.
 //  - OCR 변환(a)     : 묵자(텍스트)만
-//  - 점역·통합(b·c)  : 묵자 원문 + 점자 전문(판면과 같은 32칸 규칙)
+//  - 점역·통합(b·c)  : 묵자 원문과 점자 전문(32칸 규칙)을 좌우로 나란히
 // 지금 쓰는 안에는 ● 를 붙이고, 열 때 그 탭부터 보여 준다.
 //
 // 점자는 앞 4줄만 잘라 보여 줬는데, 표·그림 대체 텍스트는 그보다 길어서
@@ -121,7 +121,9 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
           initial={{ opacity: 0, scale: 0.95, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 10 }}
-          className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-xl"
+          className={`relative w-full overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-xl ${
+            isBraille ? 'max-w-4xl' : 'max-w-xl'
+          }`}
         >
           <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/50 p-4">
             <h3 className="font-semibold text-gray-700">대체 텍스트 선택</h3>
@@ -171,31 +173,34 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
                 ))}
               </div>
 
+              {/* 묵자와 점자를 좌우로 나란히 둔다 — 같은 내용을 두 표기로 견주는
+                  화면이라 위아래로 쌓으면 눈이 오르내려야 한다. 길면 각 칸이
+                  따로 스크롤한다(창이 좁으면 예전처럼 위아래로 쌓인다). */}
               <div
                 role="tabpanel"
-                className="max-h-[52vh] overflow-y-auto px-4 py-3"
+                className="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-start"
               >
                 {printText && (
-                  <>
+                  <div className="min-w-0 flex-1">
                     <p className="mb-1 text-[11px] font-semibold text-gray-400">
                       {isBraille ? '묵자' : '텍스트'}
                     </p>
-                    <p className="whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-2.5 text-[13px] leading-relaxed text-gray-700">
+                    <p className="custom-scrollbar max-h-[52vh] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-2.5 text-[13px] leading-relaxed text-gray-700">
                       {printText}
                     </p>
-                  </>
+                  </div>
                 )}
 
                 {brailleText && (
-                  <>
-                    <p className="mb-1 mt-3 text-[11px] font-semibold text-gray-400">
+                  <div className="min-w-0 md:w-[512px] md:shrink-0">
+                    <p className="mb-1 text-[11px] font-semibold text-gray-400">
                       점자
                     </p>
                     {/* 길면 잘라 내지 않고 스크롤한다 — 가로는 32칸, 세로는 줄 수만큼. */}
-                    <div className="custom-scrollbar max-h-[34vh] overflow-auto">
+                    <div className="custom-scrollbar max-h-[52vh] overflow-auto">
                       <BraillePreview text={brailleText} />
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
 
