@@ -42,6 +42,21 @@ export const createJob = async (
   });
 };
 
+// POST /api/jobs/{jobId}/cancel — 변환 중단.
+// 즉시 멈추는 게 아니라 "수렴"이다(명세): 대기 큐를 비워 남은 페이지를 스케줄러에서
+// 빼고, 이미 AI에 들어간 페이지는 마무리해 저장한다. 완료된 마지막 페이지까지만
+// 남기고 totalPages도 그만큼으로 줄인다. 2026-08-20 실서버 확인.
+export const cancelJob = (
+  jobId: string,
+  token: string,
+): Promise<{
+  jobId: string;
+  canceled: boolean;
+  status: string;
+  totalPages: number;
+  inFlightPages: number;
+}> => apiRequest(`/api/jobs/${jobId}/cancel`, { method: 'POST', token });
+
 // GET /api/jobs/{jobId}/status — SSE의 폴링 대체/보조용
 export const getJobStatus = (
   jobId: string,

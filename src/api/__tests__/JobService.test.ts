@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  cancelJob,
   createJob,
   getJobStatus,
   moveJobs,
@@ -384,3 +385,38 @@ describe('JobService 목록 조작 (이동 · 삭제 · 이름 · 즐겨찾기)'
 });
 
 // 점역으로 보내기는 전용 API 없이 FE가 병합해 재업로드한다 — utils/__tests__/mergePages.test.ts 참고.
+
+// 변환 중 X(작업 비우기)는 화면만 비우면 안 된다 — 서버는 계속 분석하고 크레딧도
+// 그만큼 나간다. 명세의 취소 API를 불러 남은 페이지를 큐에서 뺀다(2026-08-20 실측).
+describe('JobService.cancelJob', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      makeJsonResponse(
+        200,
+        envelope({
+          jobId: 'job_1',
+          canceled: true,
+          status: 'IN_PROGRESS',
+          totalPages: 1,
+          inFlightPages: 1,
+        }),
+      ),
+    );
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('POST /api/jobs/{jobId}/cancel 에 토큰을 붙여 부른다', async () => {
+    const res = await cancelJob('job_1', 'tk');
+
+    const [url, init] = fetchSpy.mock.calls.at(-1) as [string, RequestInit];
+    expect(url).toBe(`${API_BASE_URL}/api/jobs/job_1/cancel`);
+    expect(init.method).toBe('POST');
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      'Bearer tk',
+    );
+    expect(res.canceled).toBe(true);
+  });
+});

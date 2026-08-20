@@ -80,7 +80,12 @@ import {
   TAB_ALLOWED_FILE_LABEL,
 } from './utils/fileValidation';
 import { httpFetch } from './api/httpFetch';
-import { downloadJobResult, ElementType, selectDraft } from './api/JobService';
+import {
+  cancelJob,
+  downloadJobResult,
+  ElementType,
+  selectDraft,
+} from './api/JobService';
 import { toUserMessage } from './api/errorMessages';
 import { ApiError } from './api/apiClient';
 import { mapPageResult } from './utils/mapPageResult';
@@ -398,11 +403,21 @@ const Semojum: React.FC = () => {
   // 없이 변환이 끝났다"로 보였다 (QA 2026-08-09).
   // (isStreaming은 아래에서 만들어지므로 호출 시점에 읽는 일반 함수로 둔다)
   const handleResetRequest = () => {
-    if (isUploading || isStreaming) {
+    const converting = isUploading || isStreaming;
+    if (converting) {
       const ok = window.confirm(
-        '변환이 아직 진행 중입니다.\n지금 비우면 진행 중인 변환 결과를 더 이상 받지 않습니다. 비울까요?',
+        '변환이 아직 진행 중입니다.\n지금 비우면 변환을 중단합니다. 비울까요?',
       );
       if (!ok) return;
+    }
+    // 화면만 비우면 서버는 계속 분석한다 — 크레딧도 그만큼 나간다.
+    // 명세대로 취소 API를 불러 남은 페이지를 큐에서 뺀다(이미 AI에 들어간 페이지는
+    // 마무리되고, 거기까지가 결과로 남는다). 실패해도 화면은 비운다.
+    const runningJobId = jobId;
+    if (converting && runningJobId && auth.token) {
+      void cancelJob(runningJobId, auth.token).catch((err) =>
+        setToast(toUserMessage(err, '변환을 중단하지 못했습니다.')),
+      );
     }
     handleReset();
   };
