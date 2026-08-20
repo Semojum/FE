@@ -29,6 +29,26 @@ describe('splitMath', () => {
     expect(splitMath(text)[1]).toEqual({ kind: 'inline', body: 'a +\nb' });
   });
 
+  // 2026-08-20 실서버 실측: 독립 수식 요소(type=formula)는 $ 없이 ``` 펜스로 온다.
+  // 글 안의 $…$만 렌더되고 이 블록은 안 그려져서 "어떤 수식은 안 뜬다"로 보였다.
+  it('``` 펜스로 오는 독립 수식도 잡는다 (실서버 응답 그대로)', () => {
+    const real =
+      '```\nb_{k+i} = \\frac{1}{a_{i}} - 1 \\quad (i = 1, 2, 3)\n```';
+    expect(hasMath(real)).toBe(true);
+    expect(splitMath(real)).toEqual([
+      {
+        kind: 'block',
+        body: 'b_{k+i} = \\frac{1}{a_{i}} - 1 \\quad (i = 1, 2, 3)',
+      },
+    ]);
+  });
+
+  it('펜스 안이 수식이 아니면 본문 그대로 둔다', () => {
+    const code = '```\n안내 문구입니다\n```';
+    expect(hasMath(code)).toBe(false);
+    expect(splitMath(code)).toEqual([{ kind: 'text', body: code }]);
+  });
+
   it('$$가 $보다 먼저다', () => {
     expect(splitMath('$$a$$')[0].kind).toBe('block');
   });
