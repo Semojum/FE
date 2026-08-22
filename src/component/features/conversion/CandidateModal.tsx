@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
 import { BlockDraft, ConversionTab, TABS } from '../../../types';
+import { RuleTrail } from '../../../types/apiTypes';
 import { toCells, wrapRows } from '../../../utils/brailleGrid';
 
 // 대체 텍스트 선택 — 기획 정본 "모눈종이 뷰" S4·S5.
@@ -28,6 +29,12 @@ interface CandidateModalProps {
   currentText: string;
   // 이 블록을 이미 손으로 고쳤는지 — 안을 적용하면 그 편집이 사라지므로 한 번 확인한다.
   isEdited?: boolean;
+  // 판단 근거 (기능정의서 "대체 초안 / 후보 선택" 3항 · D-2):
+  //  · tnText    = 시각 요소 설명(점역자 주) — 그림·표를 글로 푼 내용
+  //  · ruleTrail = 이 블록에 적용된 점역 규정 목록
+  // 근거 없는 선택지를 주지 않는다는 것이 이 화면의 원칙이라, 후보와 함께 보여 준다.
+  tnText?: string;
+  ruleTrail?: RuleTrail[];
 }
 
 const BraillePreview: React.FC<{ text: string }> = ({ text }) => (
@@ -56,6 +63,8 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
   onSelect,
   currentText,
   isEdited,
+  tnText,
+  ruleTrail,
 }) => {
   // drafts(라벨/묵자 포함)가 오면 우선 사용하고, 아니면 문자열 후보로 폴백.
   const entries: BlockDraft[] = useMemo(
@@ -172,6 +181,59 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
                   </button>
                 ))}
               </div>
+
+              {(tnText || (ruleTrail && ruleTrail.length > 0)) && (
+                <div className="border-b border-gray-100 bg-[#fbfcfe] px-4 py-3">
+                  {tnText && (
+                    <>
+                      <p className="mb-1 text-[11px] font-semibold text-gray-400">
+                        시각 요소 설명 (점역자 주)
+                      </p>
+                      <p className="whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-gray-700">
+                        {tnText}
+                      </p>
+                    </>
+                  )}
+
+                  {ruleTrail && ruleTrail.length > 0 && (
+                    <>
+                      <p className="mb-1 mt-3 text-[11px] font-semibold text-gray-400">
+                        적용 규정
+                      </p>
+                      <ul className="custom-scrollbar max-h-[120px] space-y-1.5 overflow-y-auto">
+                        {ruleTrail.map((rule, i) => (
+                          <li
+                            key={`${rule.rule_id}-${i}`}
+                            className="rounded-[8px] bg-white px-2.5 py-2 text-[12px] leading-relaxed text-gray-600 shadow-[0_1px_2px_0_rgba(23,43,77,0.06)]"
+                          >
+                            <span className="font-semibold text-gray-700">
+                              {[rule.section, rule.title]
+                                .filter(Boolean)
+                                .join(' ')}
+                            </span>
+                            {rule.priority === 'secondary' && (
+                              <span className="ml-1 text-[10.5px] text-gray-400">
+                                (보조)
+                              </span>
+                            )}
+                            {rule.excerpt && (
+                              <span className="block text-gray-500">
+                                {rule.excerpt}
+                              </span>
+                            )}
+                            {rule.source && (
+                              <span className="block text-[10.5px] text-gray-400">
+                                {rule.source}
+                                {rule.rule_id ? ` · ${rule.rule_id}` : ''}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* 묵자와 점자를 좌우로 나란히 둔다 — 같은 내용을 두 표기로 견주는
                   화면이라 위아래로 쌓으면 눈이 오르내려야 한다. 길면 각 칸이

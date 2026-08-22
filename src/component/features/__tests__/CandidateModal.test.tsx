@@ -88,6 +88,57 @@ describe('CandidateModal', () => {
     expect(box?.querySelectorAll('.flex').length).toBe(12);
   });
 
+  // 기능정의서 "대체 초안 / 후보 선택" 3항·D-2: 근거 없는 선택지를 주지 않는다 —
+  // 시각 요소 설명(점역자 주)과 적용 규정을 후보와 함께 보여 준다.
+  it('시각 요소 설명과 적용 규정을 함께 보여 준다', () => {
+    render(
+      <CandidateModal
+        isOpen
+        onClose={vi.fn()}
+        candidates={[]}
+        drafts={drafts}
+        mode={TABS.BRAILLE}
+        currentText=""
+        tnText="막대그래프. 가로축은 연도, 세로축은 판매량."
+        ruleTrail={[
+          {
+            rule_id: '§2.2',
+            source: '한국점자규정',
+            section: '제2장',
+            title: '수의 표기',
+            excerpt: '숫자 앞에는 수표를 적는다.',
+            priority: 'primary',
+          },
+        ]}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('시각 요소 설명 (점역자 주)')).toBeInTheDocument();
+    expect(
+      screen.getByText('막대그래프. 가로축은 연도, 세로축은 판매량.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('적용 규정')).toBeInTheDocument();
+    expect(screen.getByText('제2장 수의 표기')).toBeInTheDocument();
+    expect(screen.getByText('숫자 앞에는 수표를 적는다.')).toBeInTheDocument();
+  });
+
+  it('근거가 없으면 그 자리를 아예 두지 않는다', () => {
+    render(
+      <CandidateModal
+        isOpen
+        onClose={vi.fn()}
+        candidates={[]}
+        drafts={drafts}
+        mode={TABS.BRAILLE}
+        currentText=""
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText('적용 규정')).toBeNull();
+    expect(screen.queryByText('시각 요소 설명 (점역자 주)')).toBeNull();
+  });
+
   it('OCR 모드는 묵자(텍스트)만 보여 준다 — 점자 미리보기 없음', () => {
     render(
       <CandidateModal

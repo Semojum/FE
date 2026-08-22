@@ -54,7 +54,6 @@ import BrailleGrid, {
 } from './component/features/conversion/BrailleGrid';
 import ContextMenu from './component/shared/ContextMenu';
 import CandidateModal from './component/features/conversion/CandidateModal';
-import LatexRenderer from './component/features/conversion/LatexRenderer';
 import LoginScreen from './component/features/auth/LoginScreen';
 import MyPage from './component/features/mypage/MyPage';
 import InquiryFab from './component/features/support/InquiryFab';
@@ -90,7 +89,6 @@ import { toUserMessage } from './api/errorMessages';
 import { ApiError } from './api/apiClient';
 import { mapPageResult } from './utils/mapPageResult';
 import { needsStreamResume, receivedPages } from './utils/tabResume';
-import { hasMath } from './utils/mathText';
 import { saveBlob } from './utils/download';
 import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
 import { onAppClose } from './utils/appLifecycle';
@@ -709,14 +707,6 @@ const Semojum: React.FC = () => {
     ? caretBlocks.findIndex((b) => b.id === caretSource.blockId)
     : -1;
 
-  // 모드 a(묵자 초안)는 수식이 LaTeX 표기 그대로 판면에 실린다 — 32칸 격자에
-  // 한 글자씩 흩뿌려져 눈으로 읽기 어렵다. 본문은 그대로 두고(점역·다운로드가
-  // 이 표기를 쓴다) 커서가 놓인 블록만 아래에 렌더해 보여 준다.
-  const caretBlockText =
-    caretBlockIndex >= 0 ? caretBlocks[caretBlockIndex].currentText : null;
-  const showMathPreview =
-    activeTab === TABS.OCR && hasMath(caretBlockText) && !!caretBlockText;
-
   // 커서가 놓인 줄의 블록을 원본 대조 선택으로도 반영한다(좌측 원본이 같이 강조됨).
   const handleCaretChange = useCallback(
     (next: GridCaret) => {
@@ -940,6 +930,13 @@ const Semojum: React.FC = () => {
     token: auth.token,
     onPageReceived: handlePageReceived,
     onJobDone: handleJobDone,
+    // 스트림이 끊기면 화면은 "분석 중"에서 멈춘 것처럼 보인다 — 기능정의서
+    // "변환 결과 실시간 표시" D-1대로 실패를 알린다. 복구는 재시작·재접속과 같은
+    // 절차(작업 목록 → 상태 조회 → 스트림 재연결)를 따르므로 안내도 그렇게 준다.
+    onError: () =>
+      setToast(
+        '변환 결과 연결이 끊겼습니다. 마이페이지에서 해당 작업을 다시 열면 이어서 받습니다.',
+      ),
   });
 
   // 처리가 끝난(성공이든 실패든) 페이지 수. 전체 진행률 프로그레스바(V3)와
@@ -1920,25 +1917,6 @@ const Semojum: React.FC = () => {
                     </div>
                   )}
                 </div>
-
-                {/* 수식 미리보기 — 커서가 놓인 블록에 LaTeX가 있을 때만 뜬다.
-                    읽기 전용이다: 고치는 곳은 위 판면 격자 하나뿐이어야 한다. */}
-                {showMathPreview && (
-                  <section
-                    aria-label="수식 미리보기"
-                    className="mt-2 shrink-0 rounded-[10px] border border-[#e2e8f0] bg-white px-3 py-2"
-                  >
-                    <p className="mb-1 text-[10.5px] font-bold text-gray-400">
-                      수식 미리보기 · 커서가 있는 블록
-                    </p>
-                    <div className="custom-scrollbar max-h-[140px] overflow-auto text-[13px] leading-relaxed text-gray-700">
-                      <LatexRenderer
-                        text={caretBlockText as string}
-                        className="whitespace-pre-wrap"
-                      />
-                    </div>
-                  </section>
-                )}
               </motion.div>
             </section>
           )}
@@ -2043,6 +2021,8 @@ const Semojum: React.FC = () => {
           drafts={draftBlock.block.drafts}
           mode={activeTab}
           currentText={draftBlock.block.currentText}
+          tnText={draftBlock.block.tnText}
+          ruleTrail={draftBlock.block.ruleTrail}
           isEdited={editedBlocks.has(
             `${draftBlock.pageNo}:${draftBlock.block.id}`,
           )}

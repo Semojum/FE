@@ -59,23 +59,42 @@ const unwrap = (raw: string): string => {
   return raw; // \begin{…}\end{…}는 통째로 넘긴다
 };
 
-export const splitMath = (text: string): MathSegment[] => {
-  const segments: MathSegment[] = [];
-  let last = 0;
+// 수식 한 건이 원문의 어디에 있었는지까지 돌려준다 — 판면 격자에 밑줄을 치려면
+// 표기 기호를 포함한 원문 구간([start, end))을 알아야 한다.
+export interface MathMatch {
+  start: number;
+  end: number;
+  kind: 'inline' | 'block';
+  body: string; // 감싼 기호를 벗긴 알맹이(KaTeX에 넘길 값)
+}
+
+export const findMath = (text: string): MathMatch[] => {
+  const found: MathMatch[] = [];
   // 전역 정규식은 lastIndex를 들고 다니므로 호출마다 새로 만든다.
   const re = new RegExp(MATH_PATTERN.source, 'g');
   for (let m = re.exec(text); m; m = re.exec(text)) {
-    if (m.index > last) {
-      segments.push({ kind: 'text', body: text.slice(last, m.index) });
-    }
     const body = unwrap(m[0]);
     // 수식으로 보이지 않는 펜스는 본문 그대로 둔다.
-    if (m[0].startsWith('```') && !LOOKS_LIKE_LATEX.test(body)) {
-      segments.push({ kind: 'text', body: m[0] });
-    } else {
-      segments.push({ kind: isBlockMath(m[0]) ? 'block' : 'inline', body });
+    if (m[0].startsWith('```') && !LOOKS_LIKE_LATEX.test(body)) continue;
+    found.push({
+      start: m.index,
+      end: m.index + m[0].length,
+      kind: isBlockMath(m[0]) ? 'block' : 'inline',
+      body,
+    });
+  }
+  return found;
+};
+
+export const splitMath = (text: string): MathSegment[] => {
+  const segments: MathSegment[] = [];
+  let last = 0;
+  for (const m of findMath(text)) {
+    if (m.start > last) {
+      segments.push({ kind: 'text', body: text.slice(last, m.start) });
     }
-    last = m.index + m[0].length;
+    segments.push({ kind: m.kind, body: m.body });
+    last = m.end;
   }
   if (last < text.length) {
     segments.push({ kind: 'text', body: text.slice(last) });

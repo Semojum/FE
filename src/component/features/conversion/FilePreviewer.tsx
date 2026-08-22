@@ -1,5 +1,7 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
+import LatexRenderer from './LatexRenderer';
+import { hasMath, splitMath } from '../../../utils/mathText';
 import {
   BoundingBox,
   FileState,
@@ -110,8 +112,35 @@ const FilePreviewer: React.FC<Props> = memo(
                     }`}
                   >
                     <p className="leading-relaxed whitespace-pre-wrap text-sm md:text-base font-medium">
-                      {block.content}
+                      {splitMath(block.content).map((seg, i) =>
+                        seg.kind === 'text' ? (
+                          <span key={i}>{seg.body}</span>
+                        ) : (
+                          // 수식 구간에는 밑줄 — 아래에 조판된 모양을 함께 보여 준다
+                          // (기능정의서 "결과 렌더링" D-2: 모드 b의 좌측).
+                          <span
+                            key={i}
+                            className="underline decoration-[#5b8ce6] decoration-2 underline-offset-2"
+                          >
+                            {seg.body}
+                          </span>
+                        ),
+                      )}
                     </p>
+                    {hasMath(block.content) && (
+                      <div className="mt-1.5 flex items-start gap-2 rounded-[8px] bg-[#fbfcfe] px-2 py-1.5">
+                        <span
+                          aria-hidden
+                          className="shrink-0 text-[9.5px] font-bold text-[#5b8ce6]"
+                        >
+                          수식
+                        </span>
+                        <LatexRenderer
+                          text={block.content}
+                          className="min-w-0 text-[13px] text-gray-700"
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })}

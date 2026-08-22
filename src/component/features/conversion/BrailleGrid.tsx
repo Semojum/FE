@@ -6,6 +6,8 @@ import React, {
   useState,
 } from 'react';
 import { ConversionTab, TABS } from '../../../types';
+import { annotateMath } from '../../../utils/mathAnnotate';
+import LatexRenderer from './LatexRenderer';
 import {
   deleteAt,
   deleteBefore,
@@ -146,6 +148,14 @@ const BrailleGrid: React.FC<Props> = ({
   const rows = useMemo(() => flattenRows(pages), [pages]);
   // 점역자주 태그가 놓인 칸 — 회색으로 흐리게 그린다.
   const tagMask = useMemo(() => buildTagMask(rows), [rows]);
+
+  // 수식 표시 — 기능정의서 "결과 렌더링" D-2: 수식 구간에 밑줄을 치고 그 아래에
+  // LaTeX로 렌더링한 수식을 함께 보여 준다. 점자 판면(b·c)의 본문은 이미 점자라
+  // 대상이 아니고, 묵자 초안(a)의 결과에만 적용한다.
+  const math = useMemo(
+    () => (mode === TABS.OCR ? annotateMath(rows) : null),
+    [mode, rows],
+  );
   // 각 면의 첫 행이 전체에서 몇 번째인지 — 행 번호와 커서는 전체 기준으로 센다.
   const pageStarts = useMemo(() => {
     let acc = 0;
@@ -490,6 +500,8 @@ const BrailleGrid: React.FC<Props> = ({
                 !!highlightBlockId && row.source?.blockId === highlightBlockId;
               const cells = toCells(row.text);
               const dimMaskRow = tagMask[rowIndex] ?? [];
+              const mathCells = math?.underline.get(rowIndex);
+              const formulas = math?.formulasAfterRow.get(rowIndex);
               // 검토 필요(review) 블록은 디자인대로 주황 테두리로 감싼다 —
               // 배경색만으로 알리는 선택(대조) 상태와 섞이지 않게 하는 구분이기도 하다.
               // 한 블록이 여러 줄이면 줄마다 그리지 않고 한 덩어리로 두른다.
@@ -515,7 +527,7 @@ const BrailleGrid: React.FC<Props> = ({
                     }
                   : { x: 'border-x-2 border-transparent', t: '', b: '' };
 
-              return (
+              const rowNode = (
                 <div
                   key={rowIndex}
                   ref={(el) => {
@@ -558,18 +570,43 @@ const BrailleGrid: React.FC<Props> = ({
                         moveCaret(rowIndex, cellIdx);
                         onContextMenu(rowIndex, e.clientX, e.clientY);
                       }}
-                      className={cellCls(
+                      className={`${cellCls(
                         row,
                         isSelected,
                         isSelected && caret?.cell === cellIdx,
                         isHighlighted,
                         dimMaskRow[cellIdx] === true,
-                      )}
+                      )}${
+                        mathCells?.has(cellIdx)
+                          ? ' underline decoration-[#5b8ce6] decoration-2 underline-offset-2'
+                          : ''
+                      }`}
                     >
                       {ch}
                     </div>
                   ))}
                 </div>
+              );
+
+              // 수식이 끝나는 줄 바로 아래에 조판된 모양으로 한 번 더 보여 준다.
+              if (!formulas?.length) return rowNode;
+              return (
+                <React.Fragment key={rowIndex}>
+                  {rowNode}
+                  <div className="flex w-full items-start gap-2 border-t border-[#eef2f7] bg-[#fbfcfe] px-2 py-1.5">
+                    <span
+                      aria-hidden
+                      className="shrink-0 text-[9.5px] font-bold text-[#5b8ce6]"
+                    >
+                      수식
+                    </span>
+                    <div className="min-w-0 text-[13px] text-gray-700">
+                      {formulas.map((formula: string, i: number) => (
+                        <LatexRenderer key={i} text={`$${formula}$`} />
+                      ))}
+                    </div>
+                  </div>
+                </React.Fragment>
               );
             })}
           </div>
