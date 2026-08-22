@@ -1,7 +1,7 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import LatexRenderer from './LatexRenderer';
-import { hasMath, splitMath } from '../../../utils/mathText';
+import { findMath, splitMath } from '../../../utils/mathText';
 import {
   BoundingBox,
   FileState,
@@ -127,7 +127,7 @@ const FilePreviewer: React.FC<Props> = memo(
                         ),
                       )}
                     </p>
-                    {hasMath(block.content) && (
+                    {findMath(block.content).length > 0 && (
                       <div className="mt-1.5 flex items-start gap-2 rounded-[8px] bg-[#fbfcfe] px-2 py-1.5">
                         <span
                           aria-hidden
@@ -135,10 +135,13 @@ const FilePreviewer: React.FC<Props> = memo(
                         >
                           수식
                         </span>
-                        <LatexRenderer
-                          text={block.content}
-                          className="min-w-0 text-[13px] text-gray-700"
-                        />
+                        {/* 밑줄 친 구간만 조판해 보여 준다 — 문장까지 다시 그리면
+                            같은 글이 두 번 보여 오히려 읽기 어렵다. */}
+                        <div className="min-w-0 text-[13px] text-gray-700">
+                          {findMath(block.content).map((m, i) => (
+                            <LatexRenderer key={i} text={`$${m.body}$`} />
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>

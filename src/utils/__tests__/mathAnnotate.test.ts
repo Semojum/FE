@@ -33,6 +33,25 @@ describe('annotateMath', () => {
     expect(formulasAfterRow.has(0)).toBe(false);
   });
 
+  // 독립 수식 요소는 ``` 펜스로 오고, 펜스는 여는 줄·본문·닫는 줄 3개의 논리 줄에
+  // 걸쳐 있다. 논리 줄 하나씩만 보면 짝이 맞지 않아 통째로 놓친다(2026-08-22 확인).
+  it('여러 논리 줄에 걸친 ``` 펜스 수식도 찾는다', () => {
+    const rows = [
+      body('```', 0, 0),
+      body('b_{k+i} = \\frac{1}{a_{i}} - 1', 0, 1),
+      body('```', 0, 2),
+    ];
+    const { underline, formulasAfterRow } = annotateMath(rows);
+
+    // 밑줄은 본문 줄에만 — ```만 있는 줄은 표기 기호라 긋지 않는다.
+    expect(underline.has(0)).toBe(false);
+    expect(underline.get(1)?.size).toBe(29); // 본문 줄 전체
+    expect(underline.has(2)).toBe(false);
+    // 렌더는 구간이 끝나는 줄 아래에 한 번.
+    expect(formulasAfterRow.get(2)).toEqual(['b_{k+i} = \\frac{1}{a_{i}} - 1']);
+    expect(formulasAfterRow.has(0)).toBe(false);
+  });
+
   it('수식이 없으면 아무것도 표시하지 않는다', () => {
     const { underline, formulasAfterRow } = annotateMath([
       body('1. 다음 물음에 답하시오.', 0),

@@ -21,43 +21,85 @@ const EMPTY: MathAnnotation = {
   formulasAfterRow: new Map(),
 };
 
-// 같은 논리 줄(blockId + lineIndex)에 속한 행들을 순서대로 묶는다.
-const groupLines = (rows: LayoutRow[]): number[][] => {
-  const groups = new Map<string, number[]>();
+// 한 블록(blockId)에 속한 행들을 논리 줄별로 묶는다.
+// 수식은 여러 논리 줄에 걸치기도 한다(```로 감싼 독립 수식이 그렇다). 그래서 논리
+// 줄 하나씩 보지 않고 블록 본문을 통째로 이어 붙여 찾은 뒤 행·칸으로 되돌린다.
+interface BlockRows {
+  // lineIndex 오름차순, 각 줄은 offset 오름차순 행 목록
+  lines: { lineIndex: number; rowIndices: number[] }[];
+}
+
+const groupBlocks = (rows: LayoutRow[]): BlockRows[] => {
+  const blocks = new Map<string, Map<number, number[]>>();
   rows.forEach((row, index) => {
     const src = row.source;
     if (!src || row.kind !== 'body') return;
-    const key = `${src.pageNo}:${src.blockId}:${src.lineIndex}`;
-    const list = groups.get(key);
-    if (list) list.push(index);
-    else groups.set(key, [index]);
+    const key = `${src.pageNo}:${src.blockId}`;
+    const lines = blocks.get(key) ?? new Map<number, number[]>();
+    const list = lines.get(src.lineIndex) ?? [];
+    list.push(index);
+    lines.set(src.lineIndex, list);
+    blocks.set(key, lines);
   });
-  return [...groups.values()];
+
+  return [...blocks.values()].map((lines) => ({
+    lines: [...lines.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([lineIndex, rowIndices]) => ({ lineIndex, rowIndices })),
+  }));
 };
 
 export const annotateMath = (rows: LayoutRow[]): MathAnnotation => {
-  const groups = groupLines(rows);
-  if (groups.length === 0) return EMPTY;
+  const blocks = groupBlocks(rows);
+  if (blocks.length === 0) return EMPTY;
 
   const underline = new Map<number, Set<number>>();
   const formulasAfterRow = new Map<number, string[]>();
 
-  for (const indices of groups) {
-    // 행들을 이어 붙여 논리 줄을 되살린다(행은 그 줄의 32칸 조각이다).
-    const ordered = [...indices].sort(
-      (a, b) => (rows[a].source?.offset ?? 0) - (rows[b].source?.offset ?? 0),
-    );
-    const line = ordered.map((i) => rows[i].text).join('');
-    const matches = findMath(line);
+  for (const block of blocks) {
+    // 행 → 논리 줄 → 블록 본문 순으로 되살린다(행은 그 줄의 32칸 조각이다).
+    const lines = block.lines.map(({ rowIndices }) => {
+      const ordered = [...rowIndices].sort(
+        (a, b) => (rows[a].source?.offset ?? 0) - (rows[b].source?.offset ?? 0),
+      );
+      return { ordered, text: ordered.map((i) => rows[i].text).join('') };
+    });
+    const blockText = lines.map((l) => l.text).join('\n');
+    const matches = findMath(blockText);
     if (matches.length === 0) continue;
 
-    const lastRow = ordered[ordered.length - 1];
+    // 각 논리 줄이 블록 본문에서 시작하는 위치(줄바꿈 한 글자를 포함해 센다).
+    const lineStarts: number[] = [];
+    let at = 0;
+    for (const line of lines) {
+      lineStarts.push(at);
+      at += [...line.text].length + 1;
+    }
+
     for (const m of matches) {
-      // 밑줄은 사람이 본 그대로(감싼 기호 포함) 친다.
-      markRange(underline, rows, ordered, m.start, m.end);
-      const list = formulasAfterRow.get(lastRow) ?? [];
+      let lastTouchedRow = -1;
+      lines.forEach((line, i) => {
+        const lineStart = lineStarts[i];
+        const lineEnd = lineStart + [...line.text].length;
+        const from = Math.max(m.start, lineStart);
+        const to = Math.min(m.end, lineEnd);
+        if (to <= from) return;
+        lastTouchedRow = line.ordered[line.ordered.length - 1];
+        // 밑줄은 사람이 본 그대로(감싼 기호 포함) 친다. 다만 ```만 있는 줄은
+        // 표기 기호일 뿐이라 밑줄을 치면 판면만 어지럽다.
+        if (line.text.trim() === '```') return;
+        markRange(
+          underline,
+          rows,
+          line.ordered,
+          from - lineStart,
+          to - lineStart,
+        );
+      });
+      if (lastTouchedRow < 0) continue;
+      const list = formulasAfterRow.get(lastTouchedRow) ?? [];
       list.push(m.body);
-      formulasAfterRow.set(lastRow, list);
+      formulasAfterRow.set(lastTouchedRow, list);
     }
   }
 
