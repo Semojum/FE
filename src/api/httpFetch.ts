@@ -53,11 +53,37 @@ const withClientOs = (input: string, init?: RequestInit): RequestInit => {
   };
 };
 
+// 파일을 실어 보내는 요청인지 — FormData·Blob·ArrayBuffer 같은 바이너리 본문.
+const hasBinaryBody = (body: BodyInit | null | undefined): boolean =>
+  body instanceof FormData ||
+  body instanceof Blob ||
+  body instanceof ArrayBuffer ||
+  ArrayBuffer.isView(body);
+
 // 표준 fetch와 동일한 시그니처. 환경에 맞는 구현으로 위임한다.
+//
+// 파일 업로드만은 데스크톱에서도 웹뷰 fetch로 보낸다. tauri-plugin-http은 본문을
+// 네이티브로 넘기기 전에 Array.from(new Uint8Array(body))로 숫자 배열을 만들고
+// 그걸 JSON으로 직렬화한다(플러그인 2.5.9 dist-js/index.js:68). 22MB PDF 하나가
+// 2,200만 개짜리 배열과 77MB JSON 문자열이 되어, 보내기도 전에 화면이 몇 초씩
+// 멈춘다 — 사용자에게는 "파일 넣으면 렉 걸린다"로 보였다(2026-08-25 QA).
+// 서버가 웹뷰 origin(http://tauri.localhost)을 허용하므로(preflight 실측:
+// allow-origin·allow-headers 모두 통과) 이 경로는 그냥 웹뷰가 스트리밍해 보낸다.
+// 혹시 CORS가 막히면 예전 경로로 한 번 더 — 느려도 올라가는 편이 낫다.
 export const httpFetch = async (
   input: string,
   init?: RequestInit,
 ): Promise<Response> => {
+  const options = withClientOs(input, init);
+
+  if (isTauri() && hasBinaryBody(init?.body)) {
+    try {
+      return await fetch(input, options);
+    } catch (err) {
+      console.warn('[upload] 웹뷰 fetch가 막혀 플러그인 경로로 재시도', err);
+    }
+  }
+
   const fetchFn = await loadFetch();
-  return fetchFn(input, withClientOs(input, init));
+  return fetchFn(input, options);
 };
