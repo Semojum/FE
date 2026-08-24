@@ -477,13 +477,30 @@ const Semojum: React.FC = () => {
     // 2) 들어가는 탭의 작업물을 복원(없으면 빈 화면)
     const saved = tabSnapshots[tab];
     if (saved) {
-      restoreState(saved.fileState);
+      // 마이페이지에서 복원한 작업은 원본 File이 없고 페이지별 원본을 그때그때
+      // 내려받아 blob으로 만든다. 그 blob은 탭을 떠날 때 revoke되므로, 스냅샷에
+      // 남아 있는 주소는 이미 죽은 값이다 — 그대로 되살리면 PDF 뷰어가
+      // "Failed to load PDF file"을 띄운다(2026-08-24 QA).
+      // 그래서 죽은 주소는 지우고 다시 받아 오게 한 뒤, 받아올 때까지 진행 표시를 둔다.
+      const needsOriginalRefetch =
+        !saved.fileState.file && !!saved.savedOriginalsByPage;
+      restoreState(
+        needsOriginalRefetch
+          ? { ...saved.fileState, previewUrl: null }
+          : saved.fileState,
+      );
       setAllBlocks(saved.blocksByPage);
       setBboxDataByPage(saved.bboxDataByPage);
       setOriginalTextsByPage(saved.originalTextsByPage);
       setImgResolution(saved.imgResolution);
       setSelectedBlockId(saved.selectedBlockId);
       setSavedOriginalsByPage(saved.savedOriginalsByPage);
+      if (needsOriginalRefetch) {
+        setOriginalLoadError(null);
+        setIsRestoringJob(true);
+        // 같은 값을 다시 넣는 것만으로는 원본 조회 effect가 돌지 않는다(의존성이 그대로다).
+        setOriginalReloadToken((v) => v + 1);
+      }
       setWorkingJobId(saved.jobId);
       setInsertPageNumber(saved.insertPageNumber ?? false);
       setFooterText(saved.footerText ?? '');
@@ -1361,7 +1378,13 @@ const Semojum: React.FC = () => {
   useEffect(() => {
     if (!savedOriginalsByPage) return;
     const cached = savedOriginalsByPage[currentPage];
-    if (!cached?.url) return;
+    // 이 페이지의 원본 주소를 아직 모르면 작업 조회로 받아 온다. 둘 다 없으면
+    // 기다릴 것이 없으니 진행 표시를 내린다(그대로 두면 화면이 갇힌다).
+    const canRefetch = !!workingJobId && !!auth.token;
+    if (!cached?.url && !canRefetch) {
+      setIsRestoringJob(false);
+      return;
+    }
 
     let cancelled = false;
     setOriginalLoadError(null);
@@ -1370,7 +1393,7 @@ const Semojum: React.FC = () => {
       try {
         // 만료됐을 수 있는 캐시 URL 대신 지금 발급된 URL을 쓴다.
         let orig = cached;
-        if (workingJobId && auth.token) {
+        if (canRefetch && auth.token && workingJobId) {
           try {
             const fresh = await getJobPage(
               auth.token,
@@ -1383,6 +1406,7 @@ const Semojum: React.FC = () => {
           }
         }
         if (cancelled) return;
+        if (!orig?.url) throw new Error('원본 주소를 받지 못했습니다.');
 
         if (orig.type === 'image') {
           setRestoredPreview({
