@@ -1,41 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import {
-  cellToDots,
-  dotsToCell,
+  BRAILLE_DOT_MAP,
+  codesToCell,
   isBrailleText,
-  isDotKey,
-  toggleDot,
+  isDotCode,
 } from '../brailleInput';
 
-// 찾기 창의 "점자로 입력" — 로컬에 묵자→점자 번역기가 없어 점형을 직접 찍는다.
-// F D S = 1·2·3점, J K L = 4·5·6점 (점자 타자기 배열).
+// 판면 격자와 찾기·바꾸기 입력칸이 같은 규칙을 쓴다(입력 방법이 두 가지면 안 된다).
 
 describe('6점 입력', () => {
-  it('키를 점 번호로 읽는다', () => {
-    expect(isDotKey('f')).toBe(true);
-    expect(isDotKey('L')).toBe(true);
-    expect(isDotKey('a')).toBe(false);
+  it('키는 자판 배열과 무관하게 e.code로 본다', () => {
+    expect(isDotCode('KeyF')).toBe(true);
+    expect(isDotCode('KeyL')).toBe(true);
+    expect(isDotCode('KeyG')).toBe(false);
+    // 1~6점이 각각 비트 하나씩
+    expect(Object.values(BRAILLE_DOT_MAP)).toEqual([1, 2, 4, 8, 16, 32]);
   });
 
-  it('같은 키를 다시 누르면 그 점을 지운다', () => {
-    let dots = toggleDot(new Set(), 'f');
-    expect([...dots]).toEqual([1]);
-    dots = toggleDot(dots, 'f');
-    expect([...dots]).toEqual([]);
-  });
-
-  it('찍은 점을 한 칸으로 만든다', () => {
-    // 1·2·4점 = ⠋ (U+280B)
-    expect(dotsToCell(new Set([1, 2, 4]))).toBe('⠋');
-    // 아무 점도 없으면 빈 칸
-    expect(dotsToCell(new Set())).toBe('⠀');
+  it('함께 누른 키들을 점형 한 글자로 합친다', () => {
+    // 1·2·4점 = ⠋
+    expect(codesToCell(['KeyF', 'KeyD', 'KeyJ'])).toBe('⠋');
     // 여섯 점 모두 = ⠿
-    expect(dotsToCell(new Set([1, 2, 3, 4, 5, 6]))).toBe('⠿');
-  });
-
-  it('칸에서 점 번호를 되읽는다 (붙여넣은 점자 이어 고치기)', () => {
-    expect([...cellToDots('⠋')].sort()).toEqual([1, 2, 4]);
-    expect([...cellToDots('가')]).toEqual([]);
+    expect(codesToCell(['KeyF', 'KeyD', 'KeyS', 'KeyJ', 'KeyK', 'KeyL'])).toBe(
+      '⠿',
+    );
+    // 아무 점도 없으면 빈 칸
+    expect(codesToCell([])).toBe('⠀');
+    // 모르는 키는 무시한다
+    expect(codesToCell(['KeyF', 'KeyG'])).toBe('⠁');
   });
 
   it('점자 문자인지 가린다', () => {

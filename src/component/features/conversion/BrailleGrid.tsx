@@ -7,6 +7,7 @@ import React, {
 } from 'react';
 import { ConversionTab, TABS } from '../../../types';
 import { annotateMath } from '../../../utils/mathAnnotate';
+import { codesToCell, isDotCode } from '../../../utils/brailleInput';
 import {
   deleteAt,
   deleteBefore,
@@ -31,15 +32,6 @@ import {
 // 한 줄이 32칸을 넘으면 다음 행으로 접힌다 — 다운로드 파일과 같은 자리에서 나뉜다.
 
 // 점자 직접 입력 (표준 Perkins 6점: SDF JKL). 물리 키 기준이라 한/영 상태와 무관하다.
-const BRAILLE_DOT_MAP: Record<string, number> = {
-  KeyF: 1, // 1점
-  KeyD: 2, // 2점
-  KeyS: 4, // 3점
-  KeyJ: 8, // 4점
-  KeyK: 16, // 5점
-  KeyL: 32, // 6점
-};
-
 export interface GridCaret {
   rowIndex: number;
   cell: number;
@@ -286,7 +278,7 @@ const BrailleGrid: React.FC<Props> = ({
     if (!caret || !caretRow) return;
 
     // 점자 모드: SDF JKL 조합은 기본 문자 입력을 막고 점형으로 만든다.
-    if (isBraille && BRAILLE_DOT_MAP[e.code]) {
+    if (isBraille && isDotCode(e.code)) {
       e.preventDefault();
       pressedDots.current.add(e.code);
       return;
@@ -364,20 +356,15 @@ const BrailleGrid: React.FC<Props> = ({
   };
 
   const handleKeyUp = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!isBraille || !BRAILLE_DOT_MAP[e.code] || !caret || !caretRow) return;
+    if (!isBraille || !isDotCode(e.code) || !caret || !caretRow) return;
     e.preventDefault();
     if (pressedDots.current.size === 0) return;
 
-    // 눌린 점을 합쳐 유니코드 점형 한 글자(U+2800 + 점 조합)로 만든다.
-    let dots = 0;
-    pressedDots.current.forEach((code) => {
-      dots += BRAILLE_DOT_MAP[code];
-    });
+    // 눌린 점을 합쳐 유니코드 점형 한 글자로 만든다(규칙은 utils/brailleInput).
+    const cell = codesToCell(pressedDots.current);
     pressedDots.current.clear();
 
-    applyText(
-      insertAt(caretRow.text, caret.cell, String.fromCharCode(0x2800 + dots)),
-    );
+    applyText(insertAt(caretRow.text, caret.cell, cell));
     moveCaret(caret.rowIndex, caret.cell + 1);
   };
 

@@ -1,16 +1,18 @@
-import React, { useEffect, useRef, useState } from 'react';
-import {
-  cellToDots,
-  dotsToCell,
-  isDotKey,
-  toggleDot,
-} from '../../../utils/brailleInput';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { codesToCell, isDotCode } from '../../../utils/brailleInput';
 
 // 찾기·바꾸기 입력칸. "점자로 입력"을 켜면 6점 입력으로 바뀐다.
 //
 // 로컬에는 묵자→점자 번역기가 없다(조판 라이브러리는 번역을 하지 않는다). 그래서
-// 점자를 찾거나 점자로 바꾸려면 점형을 직접 찍어야 한다 — 점역사 표준 배열을 쓴다.
-//   F D S = 1·2·3점 · J K L = 4·5·6점 · 스페이스 한 칸 확정 · 백스페이스 되돌리기
+// 점자를 찾거나 점자로 바꾸려면 점형을 직접 찍어야 한다.
+//
+// 입력 방식은 판면 격자(출력란)와 똑같이 맞춘다 — 같은 앱에서 점자를 넣는 방법이
+// 두 가지면 안 된다. 격자 규칙(BrailleGrid):
+//  · F D S · J K L 을 화음처럼 함께 누르고 **떼는 순간** 점형 한 글자가 들어간다
+//  · 키는 자판 배열과 무관하게 e.code로 본다(한글 자판에서도 같은 자리)
+//  · 스페이스는 빈 칸을 넣고, 그 밖의 문자키는 삼킨다(A·G·H 오타가 찍히지 않게)
+//  · 글자는 **커서 자리**에 끼워 넣고 뒤쪽을 오른쪽으로 민다
+//    (예전에는 스페이스로 확정하고 늘 끝에만 붙어, 커서를 옮겨도 소용이 없었다)
 
 interface Props {
   value: string;
@@ -51,23 +53,13 @@ const DotInput: React.FC<Props> = ({
     }
   }, [value]);
 
-  const emit = (next: string) => {
-    emitted.current = next;
-    setDraft(next);
-    onChange(next);
-  };
-  // 점역 타자는 여섯 손가락을 화음처럼 거의 동시에 누른다. 상태만 쓰면 같은 틱에
-  // 들어온 키들이 렌더 전의 옛 값을 보고 서로를 덮어써, 확정할 때 점이 비어 버린다.
-  // 그래서 값은 ref가 들고, 상태는 화면 표시용으로만 따라간다.
-  const dotsRef = useRef<Set<number>>(new Set());
-  const [pendingDots, setPendingDots] = useState<Set<number>>(new Set());
+  // 함께 누른 점들 — 격자와 같이 키를 떼는 순간 한 글자로 합친다.
+  const pressedDots = useRef<Set<string>>(new Set());
+  // 끼워 넣은 뒤 커서를 놓을 자리. 제어 입력이라 값이 다시 그려지면 커서가 끝으로
+  // 튀므로, 렌더가 끝난 뒤(useLayoutEffect)에 제자리로 돌려놓는다.
+  const pendingCaret = useRef<number | null>(null);
   // 한글 조합 중에는 Enter를 넘기지 않는다(조합 확정과 겹친다).
   const composing = useRef(false);
-
-  const setDots = (next: Set<number>) => {
-    dotsRef.current = next;
-    setPendingDots(next);
-  };
 
   useEffect(() => {
     if (!autoFocus && focusToken === undefined) return;
@@ -75,8 +67,28 @@ const DotInput: React.FC<Props> = ({
     inputRef.current?.select();
   }, [autoFocus, focusToken]);
 
-  // 입력 방식을 바꾸면 찍다 만 점은 버린다.
-  useEffect(() => setDots(new Set()), [brailleInput]);
+  // 입력 방식을 바꾸면 누르고 있던 점은 버린다.
+  useEffect(() => pressedDots.current.clear(), [brailleInput]);
+
+  // 커서 자리에 끼워 넣고, 커서를 그 글자 뒤로 옮긴다(격자의 밀어쓰기와 같다).
+  const insertAtCaret = (text: string) => {
+    const el = inputRef.current;
+    const chars = [...draft];
+    const start = el?.selectionStart ?? chars.length;
+    const end = el?.selectionEnd ?? start;
+    const next = [...chars.slice(0, start), text, ...chars.slice(end)].join('');
+    emitted.current = next;
+    pendingCaret.current = start + [...text].length;
+    setDraft(next);
+    onChange(next);
+  };
+
+  useLayoutEffect(() => {
+    const caret = pendingCaret.current;
+    if (caret == null) return;
+    pendingCaret.current = null;
+    inputRef.current?.setSelectionRange(caret, caret);
+  }, [draft]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
@@ -91,67 +103,64 @@ const DotInput: React.FC<Props> = ({
     }
     if (!brailleInput) return;
 
-    if (isDotKey(e.key)) {
+    // 점자 모드: 6점 키는 눌린 것만 모아 두고, 떼는 순간 한 글자로 만든다.
+    if (isDotCode(e.code)) {
       e.preventDefault();
-      setDots(toggleDot(dotsRef.current, e.key));
+      pressedDots.current.add(e.code);
       return;
     }
-    if (e.key === ' ') {
-      e.preventDefault();
-      // 찍어 둔 점이 없으면 빈 칸(⠀)을 넣는다 — 점자에서 칸 띄우기는 글자다.
-      emit(draft + dotsToCell(dotsRef.current));
-      setDots(new Set());
+    // 지우기·이동은 입력칸에 맡긴다(커서를 옮겨 고칠 수 있어야 한다).
+    if (
+      e.key === 'Backspace' ||
+      e.key === 'Delete' ||
+      e.key.startsWith('Arrow') ||
+      e.key === 'Home' ||
+      e.key === 'End'
+    ) {
       return;
     }
-    if (e.key === 'Backspace') {
+    // 점자 모드에서 받는 문자는 6점 조합과 빈 칸뿐이다 — 나머지 문자키는 삼킨다.
+    // (퍼킨스 타법에서 S·D·F·J·K·L 옆의 A·G·H를 잘못 눌러도 찍히지 않게)
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && [...e.key].length === 1) {
       e.preventDefault();
-      if (dotsRef.current.size > 0) {
-        setDots(new Set());
-        return;
-      }
-      const cells = [...draft];
-      // 마지막 칸을 지우되, 점을 찍다 만 것처럼 이어서 고칠 수 있게 되살린다.
-      const last = cells.pop();
-      emit(cells.join(''));
-      if (last) setDots(cellToDots(last));
-      return;
+      if (e.key === ' ') insertAtCaret(' ');
     }
-    // 그 밖의 글자는 점자 모드에서 무시한다(붙여넣기는 onChange가 받는다).
-    if (e.key.length === 1) e.preventDefault();
+  };
+
+  const handleKeyUp = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!brailleInput || !isDotCode(e.code)) return;
+    e.preventDefault();
+    if (pressedDots.current.size === 0) return;
+
+    const cell = codesToCell(pressedDots.current);
+    pressedDots.current.clear();
+    insertAtCaret(cell);
   };
 
   return (
-    <span className="flex items-center gap-1">
-      <input
-        ref={inputRef}
-        value={draft}
-        aria-label={label}
-        placeholder={brailleInput ? 'F D S · J K L 로 점 찍기' : placeholder}
-        onChange={(e) => emit(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onCompositionStart={() => {
-          composing.current = true;
-        }}
-        onCompositionEnd={() => {
-          composing.current = false;
-        }}
-        className={`h-[26px] rounded-[6px] border border-[#e2e8f0] px-2 text-[12px] text-gray-700 outline-none focus:border-[#5b8ce6] ${className}`}
-      />
-      {/* 찍고 있는 점 — 아직 확정 전이라 옅게 보여 준다 */}
-      {brailleInput && (
-        <span
-          aria-live="polite"
-          aria-label={
-            pendingDots.size > 0
-              ? `찍은 점 ${[...pendingDots].sort().join('·')}`
-              : '찍은 점 없음'
-          }
-          className="w-[16px] text-center text-[15px] text-gray-400"
-        >
-          {pendingDots.size > 0 ? dotsToCell(pendingDots) : '·'}
-        </span>
-      )}
-    </span>
+    <input
+      ref={inputRef}
+      value={draft}
+      aria-label={label}
+      placeholder={
+        brailleInput ? 'F D S · J K L 함께 눌러 점 찍기' : placeholder
+      }
+      onChange={(e) => {
+        // 점자 모드에서 값이 바뀌는 경로는 붙여넣기·지우기뿐이다(문자키는 위에서 막았다).
+        emitted.current = e.target.value;
+        setDraft(e.target.value);
+        onChange(e.target.value);
+      }}
+      onKeyDown={handleKeyDown}
+      onKeyUp={handleKeyUp}
+      onCompositionStart={() => {
+        composing.current = true;
+      }}
+      onCompositionEnd={() => {
+        composing.current = false;
+      }}
+      className={`h-[26px] rounded-[6px] border border-[#e2e8f0] px-2 text-[12px] text-gray-700 outline-none focus:border-[#5b8ce6] ${className}`}
+    />
   );
 };
 

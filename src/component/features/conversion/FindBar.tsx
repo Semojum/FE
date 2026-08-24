@@ -8,7 +8,8 @@ import DotInput from './DotInput';
 //  · 바꾸기는 **결과(출력)에만** 걸린다 — 원본 패널은 읽기 전용 미리보기라
 //    고칠 대상이 아니다. 그래서 범위가 '원본만'이면 바꾸기를 잠근다.
 //  · "점자로 입력": 로컬에 묵자→점자 번역기가 없어(조판 라이브러리는 번역을 하지 않는다)
-//    점형을 직접 찍는다(DotInput). 찾을 말과 바꿀 말 양쪽에 적용된다.
+//    점형을 직접 찍는다(DotInput). 방식은 판면 격자와 같다 — F D S · J K L 을 함께
+//    누르고 떼면 한 글자가 커서 자리에 들어간다. 찾을 말·바꿀 말 양쪽에 적용된다.
 
 export type FindScope = 'all' | 'original' | 'result';
 
@@ -136,7 +137,7 @@ const FindBar: React.FC<Props> = ({
         </div>
 
         <label
-          title="점자를 직접 찍어 찾습니다 (F D S · J K L, 스페이스로 한 칸 확정)"
+          title="점자를 직접 찍어 찾습니다 — 판면과 같은 방식(F D S · J K L 함께 누르고 떼기)"
           className="flex cursor-pointer items-center gap-1 text-[11px] font-bold text-gray-500"
         >
           <input

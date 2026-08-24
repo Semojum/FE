@@ -58,42 +58,49 @@ describe('FindBar', () => {
     expect(props.onScopeChange).toHaveBeenCalledWith('original');
   });
 
-  // 로컬에 묵자→점자 번역기가 없어 점형을 직접 찍는다.
-  it('점자 입력: F D J로 점을 찍고 스페이스로 한 칸 확정한다', async () => {
+  // 입력 방식은 판면 격자(출력란)와 같다 — 함께 누르고 **떼는 순간** 한 글자가 들어간다.
+  // 예전에는 스페이스로 확정하고 늘 끝에만 붙어, 커서를 옮겨도 소용이 없었다.
+  it('점자 입력: 함께 누르고 떼면 점형 한 글자가 들어간다', () => {
     const props = setup({ brailleInput: true });
     const input = screen.getByLabelText('찾을 점자');
 
-    // 1·2·4점 = ⠋
-    await userEvent.type(input, 'fdj ');
+    // 1·2·4점 = ⠋ (자판 배열과 무관하게 e.code로 본다)
+    fireEvent.keyDown(input, { code: 'KeyF' });
+    fireEvent.keyDown(input, { code: 'KeyD' });
+    fireEvent.keyDown(input, { code: 'KeyJ' });
+    fireEvent.keyUp(input, { code: 'KeyF' });
+
     expect(props.onQueryChange).toHaveBeenLastCalledWith('⠋');
   });
 
-  it('점자 입력: 같은 키를 다시 누르면 그 점이 지워진다', async () => {
-    const props = setup({ brailleInput: true });
-    const input = screen.getByLabelText('찾을 점자');
+  it('점자 입력: 스페이스는 커서 자리에 빈 칸을 넣는다', () => {
+    const props = setup({ brailleInput: true, query: '⠋' });
+    const input = screen.getByLabelText('찾을 점자') as HTMLInputElement;
+    // 열 때 전체 선택되므로(브라우저 찾기와 같은 습관) 커서를 끝으로 옮겨 둔다.
+    input.setSelectionRange(1, 1);
 
-    // f(1점) → f(취소) → d(2점) → 확정 = ⠂
-    await userEvent.type(input, 'ffd ');
-    expect(props.onQueryChange).toHaveBeenLastCalledWith('⠂');
-  });
-
-  // 점역 타자는 여섯 손가락을 화음처럼 거의 동시에 누른다 — 같은 틱에 들어와도
-  // 점이 서로를 덮어쓰면 안 된다(상태 대신 ref로 들고 있는 이유).
-  it('점을 한꺼번에 눌러도(같은 틱) 다 모인다', () => {
-    const props = setup({ brailleInput: true });
-    const input = screen.getByLabelText('찾을 점자');
-
-    fireEvent.keyDown(input, { key: 'f' });
-    fireEvent.keyDown(input, { key: 'd' });
-    fireEvent.keyDown(input, { key: 'j' });
     fireEvent.keyDown(input, { key: ' ' });
-
-    expect(props.onQueryChange).toHaveBeenLastCalledWith('⠋');
+    expect(props.onQueryChange).toHaveBeenLastCalledWith('⠋ ');
   });
 
-  it('점자 입력에서는 일반 글자가 들어가지 않는다', async () => {
+  it('점자 입력: 커서 자리에 끼워 넣는다 (끝에만 붙지 않는다)', () => {
+    const props = setup({ brailleInput: true, query: '⠈⠪' });
+    const input = screen.getByLabelText('찾을 점자') as HTMLInputElement;
+    input.setSelectionRange(1, 1); // 두 칸 사이
+
+    fireEvent.keyDown(input, { code: 'KeyF' });
+    fireEvent.keyUp(input, { code: 'KeyF' });
+
+    expect(props.onQueryChange).toHaveBeenLastCalledWith('⠈⠁⠪');
+  });
+
+  it('점자 입력에서는 6점 키가 아닌 문자키를 삼킨다', () => {
     const props = setup({ brailleInput: true });
-    await userEvent.type(screen.getByLabelText('찾을 점자'), 'g');
+    // 퍼킨스 타법에서 S·D·F·J·K·L 옆의 A·G·H를 잘못 눌러도 찍히지 않아야 한다.
+    fireEvent.keyDown(screen.getByLabelText('찾을 점자'), {
+      key: 'g',
+      code: 'KeyG',
+    });
     expect(props.onQueryChange).not.toHaveBeenCalled();
   });
 
@@ -125,10 +132,10 @@ describe('FindBar', () => {
     await userEvent.click(screen.getByLabelText('바꾸기 펼치기'));
 
     const field = screen.getByLabelText('바꿀 점자');
-    fireEvent.keyDown(field, { key: 'f' });
-    fireEvent.keyDown(field, { key: 'd' });
-    fireEvent.keyDown(field, { key: 'j' });
-    fireEvent.keyDown(field, { key: ' ' });
+    fireEvent.keyDown(field, { code: 'KeyF' });
+    fireEvent.keyDown(field, { code: 'KeyD' });
+    fireEvent.keyDown(field, { code: 'KeyJ' });
+    fireEvent.keyUp(field, { code: 'KeyF' });
     expect(props.onReplacementChange).toHaveBeenLastCalledWith('⠋');
   });
 });

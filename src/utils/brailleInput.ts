@@ -1,56 +1,30 @@
-// 6점 입력 — 점역사가 쓰는 표준 방식(F D S · J K L)으로 점형을 직접 찍는다.
+// 6점 입력 — 점역사가 쓰는 표준 방식(퍼킨스 타법)으로 점형을 직접 찍는다.
 //
-// 로컬에는 묵자→점자 번역기가 없다(vendor/braille-assist는 조판만 한다). 그래서
-// 찾기 창에서 점자를 찾으려면 점형을 그대로 받아야 하는데, 붙여넣기만으로는
-// 앱 안에서 점형을 만들 방법이 없다. 여섯 손가락 자리로 점을 찍어 한 칸씩 확정한다.
-//
-// 유니코드 점자는 ⠀(U+2800)에 점 번호별 비트를 더한 값이다.
-//   1점 1 · 2점 2 · 3점 4 · 4점 8 · 5점 16 · 6점 32
+// 앱 안에서 점자를 넣는 방법은 하나여야 한다. 판면 격자(출력란)와 찾기·바꾸기
+// 입력칸이 같은 규칙을 쓰도록 여기 한 곳에 둔다.
+//  · 키는 자판 배열과 무관하게 e.code로 본다 — 한글 자판에서도 손 위치가 같다
+//  · 여러 점을 화음처럼 함께 누르고 **떼는 순간** 한 글자로 합친다
+//  · 유니코드 점자는 ⠀(U+2800)에 점 비트를 더한 값이다
 
-const BRAILLE_BASE = 0x2800;
+export const BRAILLE_BASE = 0x2800;
 
-// 왼손 F D S = 1·2·3점, 오른손 J K L = 4·5·6점 (점자 타자기 배열).
-export const DOT_KEYS: Record<string, number> = {
-  f: 1,
-  d: 2,
-  s: 3,
-  j: 4,
-  k: 5,
-  l: 6,
+// e.code → 점 비트
+export const BRAILLE_DOT_MAP: Record<string, number> = {
+  KeyF: 1, // 1점
+  KeyD: 2, // 2점
+  KeyS: 4, // 3점
+  KeyJ: 8, // 4점
+  KeyK: 16, // 5점
+  KeyL: 32, // 6점
 };
 
-export const isDotKey = (key: string): boolean => key.toLowerCase() in DOT_KEYS;
+export const isDotCode = (code: string): boolean => code in BRAILLE_DOT_MAP;
 
-export const toggleDot = (dots: Set<number>, key: string): Set<number> => {
-  const dot = DOT_KEYS[key.toLowerCase()];
-  if (!dot) return dots;
-  const next = new Set(dots);
-  if (next.has(dot)) next.delete(dot);
-  else next.add(dot);
-  return next;
-};
-
-// 찍어 둔 점들을 한 칸(유니코드 점자 문자)으로 만든다. 아무 점도 없으면 빈 칸(⠀).
-export const dotsToCell = (dots: Set<number>): string => {
+// 함께 눌린 키들을 점형 한 글자로. 아무 점도 없으면 빈 칸(⠀).
+export const codesToCell = (codes: Iterable<string>): string => {
   let bits = 0;
-  dots.forEach((dot) => {
-    if (dot >= 1 && dot <= 6) bits |= 1 << (dot - 1);
-  });
+  for (const code of codes) bits += BRAILLE_DOT_MAP[code] ?? 0;
   return String.fromCharCode(BRAILLE_BASE + bits);
-};
-
-// 한 칸을 다시 점 번호로 — 붙여넣은 점자를 이어서 고칠 때 쓴다.
-export const cellToDots = (cell: string): Set<number> => {
-  const code = cell.codePointAt(0);
-  if (code == null || code < BRAILLE_BASE || code > BRAILLE_BASE + 0xff) {
-    return new Set();
-  }
-  const bits = code - BRAILLE_BASE;
-  const dots = new Set<number>();
-  for (let dot = 1; dot <= 6; dot++) {
-    if (bits & (1 << (dot - 1))) dots.add(dot);
-  }
-  return dots;
 };
 
 export const isBrailleText = (text: string): boolean =>
