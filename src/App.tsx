@@ -269,6 +269,10 @@ const Semojum: React.FC = () => {
   const [findIndex, setFindIndex] = useState(0);
   // Ctrl+F를 다시 누르면 열려 있어도 입력창으로 돌아오게 하는 신호.
   const [findFocusToken, setFindFocusToken] = useState(0);
+  // 찾기 동작은 applyAction보다 아래에서 만들어지므로 ref를 거쳐 부른다.
+  const stepFindRef = useRef<((delta: 1 | -1) => void) | null>(null);
+  const replaceCurrentRef = useRef<(() => void) | null>(null);
+  const replaceAllRef = useRef<(() => void) | null>(null);
   // 손으로 고친 블록(`페이지:블록id`) — 대체 텍스트 적용 전 확인 여부를 가른다.
   const [editedBlocks, setEditedBlocks] = useState<Set<string>>(new Set());
   // 대체 초안 피커를 연 블록 — 어느 페이지의 블록인지까지 들고 있는다.
@@ -827,6 +831,12 @@ const Semojum: React.FC = () => {
     [findTotal],
   );
 
+  useEffect(() => {
+    stepFindRef.current = stepFind;
+    replaceCurrentRef.current = replaceCurrent;
+    replaceAllRef.current = replaceAll;
+  }, [stepFind, replaceCurrent, replaceAll]);
+
   const caretSource = caret ? (gridRows[caret.rowIndex]?.source ?? null) : null;
   const caretBlocks = caretSource
     ? (blocksByPage[caretSource.pageNo] ?? [])
@@ -939,6 +949,24 @@ const Semojum: React.FC = () => {
           break;
         case 'selectDraft':
           handleSelectDraft(action.page, action.id, action.idx);
+          break;
+        case 'find': {
+          const patch = action.patch;
+          if (patch.open !== undefined) setIsFindOpen(patch.open);
+          if (patch.query !== undefined) setFindQuery(patch.query);
+          if (patch.scope !== undefined) setFindScope(patch.scope);
+          if (patch.brailleInput !== undefined)
+            setFindBrailleInput(patch.brailleInput);
+          if (patch.index !== undefined) setFindIndex(patch.index);
+          if (patch.replacement !== undefined)
+            setFindReplacement(patch.replacement);
+          break;
+        }
+        case 'findStep':
+          stepFindRef.current?.(action.delta);
+          break;
+        case 'findReplace':
+          (action.all ? replaceAllRef : replaceCurrentRef).current?.();
           break;
         case 'removeBlock':
           handleRemoveBlock(action.page, action.id);
@@ -1109,6 +1137,14 @@ const Semojum: React.FC = () => {
       uploadError,
       pageSaveStates: editor.saveStates,
       pageStatuses,
+      find: {
+        open: isFindOpen,
+        query: findQuery,
+        scope: findScope,
+        brailleInput: findBrailleInput,
+        index: findIndex,
+        replacement: findReplacement,
+      },
     }),
     [
       activeTab,
@@ -1124,6 +1160,12 @@ const Semojum: React.FC = () => {
       uploadError,
       editor.saveStates,
       pageStatuses,
+      isFindOpen,
+      findQuery,
+      findScope,
+      findBrailleInput,
+      findIndex,
+      findReplacement,
     ],
   );
 
@@ -1138,6 +1180,15 @@ const Semojum: React.FC = () => {
       setPage(s.currentPage);
       setTotalPages(s.totalPages);
       setPageStatuses(s.pageStatuses ?? {});
+      // 찾기 상태는 메인 창이 소유한다 — 팝업은 받은 값을 그대로 비춘다.
+      if (s.find) {
+        setIsFindOpen(s.find.open);
+        setFindQuery(s.find.query);
+        setFindScope(s.find.scope);
+        setFindBrailleInput(s.find.brailleInput);
+        setFindIndex(s.find.index);
+        setFindReplacement(s.find.replacement);
+      }
     },
     [setAllBlocks, setPage, setTotalPages],
   );
@@ -1381,9 +1432,10 @@ const Semojum: React.FC = () => {
         e.preventDefault();
         dispatchAction({ type: 'savePage', page: currentPageRef.current });
       } else if (key === 'f') {
-        // 브라우저 찾기 대신 문서 안에서 찾는다.
+        // 브라우저 찾기 대신 문서 안에서 찾는다. 결과 전용 창에서 눌러도
+        // 상태는 메인 창이 바꾸고 스냅샷으로 두 창에 함께 반영된다.
         e.preventDefault();
-        setIsFindOpen(true);
+        dispatchAction({ type: 'find', patch: { open: true } });
         setFindFocusToken((v) => v + 1);
       }
     };
@@ -2237,28 +2289,44 @@ const Semojum: React.FC = () => {
         />
       )}
 
-      {/* 문서에서 찾기 — Ctrl+F. 두 패널 위에 떠 있고 범위로 어디를 훑을지 고른다. */}
-      {isFindOpen && !isPopup && (
+      {/* 문서에서 찾기 — Ctrl+F. 결과 전용 창에서도 같은 줄이 뜬다.
+          상태는 메인 창이 들고, 팝업의 조작은 액션으로 건너가 스냅샷으로 돌아온다.
+          걸린 자리는 두 창이 같은 블록을 보고 있으므로 각자 계산한다. */}
+      {isFindOpen && (
         <div className="fixed left-1/2 top-3 z-[45] -translate-x-1/2">
           <FindBar
             query={findQuery}
-            onQueryChange={setFindQuery}
+            onQueryChange={(query) =>
+              dispatchAction({ type: 'find', patch: { query } })
+            }
             scope={findScope}
-            onScopeChange={setFindScope}
+            onScopeChange={(scope) =>
+              dispatchAction({ type: 'find', patch: { scope } })
+            }
             brailleInput={findBrailleInput}
-            onBrailleInputChange={setFindBrailleInput}
+            onBrailleInputChange={(brailleInput) =>
+              dispatchAction({ type: 'find', patch: { brailleInput } })
+            }
             total={findTotal}
             current={findIndex}
-            onStep={stepFind}
+            onStep={(delta) => dispatchAction({ type: 'findStep', delta })}
             focusToken={findFocusToken}
             replacement={findReplacement}
-            onReplacementChange={setFindReplacement}
-            onReplace={replaceCurrent}
-            onReplaceAll={replaceAll}
-            onClose={() => {
-              setIsFindOpen(false);
-              setFindQuery('');
-            }}
+            onReplacementChange={(replacement) =>
+              dispatchAction({ type: 'find', patch: { replacement } })
+            }
+            onReplace={() =>
+              dispatchAction({ type: 'findReplace', all: false })
+            }
+            onReplaceAll={() =>
+              dispatchAction({ type: 'findReplace', all: true })
+            }
+            onClose={() =>
+              dispatchAction({
+                type: 'find',
+                patch: { open: false, query: '' },
+              })
+            }
           />
         </div>
       )}

@@ -39,6 +39,23 @@ const DotInput: React.FC<Props> = ({
   onEscape,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
+  // 값은 로컬이 먼저 받는다 — 결과 전용 창에서는 이 값이 메인 창을 한 번 돌아
+  // 돌아오므로(스냅샷), 그 왕복을 기다리면 빠르게 칠 때 글자가 흘린다.
+  // 밖에서 바뀐 값(다른 창의 조작·닫기)은 그대로 받아들인다.
+  const [draft, setDraft] = useState(value);
+  const emitted = useRef(value);
+  useEffect(() => {
+    if (value !== emitted.current) {
+      emitted.current = value;
+      setDraft(value);
+    }
+  }, [value]);
+
+  const emit = (next: string) => {
+    emitted.current = next;
+    setDraft(next);
+    onChange(next);
+  };
   // 점역 타자는 여섯 손가락을 화음처럼 거의 동시에 누른다. 상태만 쓰면 같은 틱에
   // 들어온 키들이 렌더 전의 옛 값을 보고 서로를 덮어써, 확정할 때 점이 비어 버린다.
   // 그래서 값은 ref가 들고, 상태는 화면 표시용으로만 따라간다.
@@ -82,7 +99,7 @@ const DotInput: React.FC<Props> = ({
     if (e.key === ' ') {
       e.preventDefault();
       // 찍어 둔 점이 없으면 빈 칸(⠀)을 넣는다 — 점자에서 칸 띄우기는 글자다.
-      onChange(value + dotsToCell(dotsRef.current));
+      emit(draft + dotsToCell(dotsRef.current));
       setDots(new Set());
       return;
     }
@@ -92,10 +109,10 @@ const DotInput: React.FC<Props> = ({
         setDots(new Set());
         return;
       }
-      const cells = [...value];
+      const cells = [...draft];
       // 마지막 칸을 지우되, 점을 찍다 만 것처럼 이어서 고칠 수 있게 되살린다.
       const last = cells.pop();
-      onChange(cells.join(''));
+      emit(cells.join(''));
       if (last) setDots(cellToDots(last));
       return;
     }
@@ -107,10 +124,10 @@ const DotInput: React.FC<Props> = ({
     <span className="flex items-center gap-1">
       <input
         ref={inputRef}
-        value={value}
+        value={draft}
         aria-label={label}
         placeholder={brailleInput ? 'F D S · J K L 로 점 찍기' : placeholder}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => emit(e.target.value)}
         onKeyDown={handleKeyDown}
         onCompositionStart={() => {
           composing.current = true;

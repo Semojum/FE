@@ -32,7 +32,22 @@ export type SyncAction =
   | { type: 'savePage'; page: number }
   | { type: 'undo'; page: number }
   | { type: 'redo'; page: number }
+  // 문서에서 찾기·바꾸기 — 상태는 메인 창이 들고, 팝업은 조작만 보낸다.
+  // 두 창이 같은 블록을 보고 있으므로 걸린 자리는 각 창이 스스로 계산한다.
+  | { type: 'find'; patch: Partial<FindSyncState> }
+  | { type: 'findStep'; delta: -1 | 1 }
+  | { type: 'findReplace'; all: boolean }
   | { type: 'reset' };
+
+// 두 창이 함께 보는 찾기 상태.
+export interface FindSyncState {
+  open: boolean;
+  query: string;
+  scope: 'all' | 'original' | 'result';
+  brailleInput: boolean;
+  index: number;
+  replacement: string;
+}
 
 export interface SyncSnapshot {
   activeTab: ConversionTab;
@@ -50,6 +65,8 @@ export interface SyncSnapshot {
   pageSaveStates: Record<number, PageSaveState>;
   // 페이지별 변환 상태 — 팝업도 BLOCKED 페이지 안내를 동일하게 보여준다
   pageStatuses: Record<number, PageEventStatus>;
+  // 찾기·바꾸기 상태 (메인 창이 소유)
+  find: FindSyncState;
 }
 
 type SyncMessage =
