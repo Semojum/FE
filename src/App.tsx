@@ -257,6 +257,12 @@ const Semojum: React.FC = () => {
   } | null>(null);
   const [visibleOutputPage, setVisibleOutputPage] = useState(1);
   const [scrollToRow, setScrollToRow] = useState<number | null>(null);
+  // 취소 처리 — "전송 중"(업로드 응답 전)에 X를 누르면 아직 jobId가 없어 취소 API를
+  // 부를 수가 없다. 그래서 업로드마다 세대 번호를 매기고, 취소하면 세대를 넘긴다.
+  // 응답이 돌아왔을 때 세대가 바뀌어 있으면 붙이지 않고 그 자리에서 취소한다.
+  const uploadEpochRef = useRef(0);
+  // 취소한 Job — 탭을 갔다 와도 스트림을 다시 붙이지 않는다.
+  const canceledJobsRef = useRef<Set<string>>(new Set());
 
   // ─── 문서에서 찾기 (Ctrl+F) ────────────────────────────────────────
   // 인덱스를 두지 않는다 — 열려 있는 작업 하나만 메모리에 있고 본문이 1MB 남짓이라
@@ -429,11 +435,19 @@ const Semojum: React.FC = () => {
     // 화면만 비우면 서버는 계속 분석한다 — 크레딧도 그만큼 나간다.
     // 명세대로 취소 API를 불러 남은 페이지를 큐에서 뺀다(이미 AI에 들어간 페이지는
     // 마무리되고, 거기까지가 결과로 남는다). 실패해도 화면은 비운다.
+    //
+    // 업로드 응답이 아직 안 온 구간("전송 중")에는 jobId를 모른다. 세대를 넘겨
+    // 두면 응답이 도착할 때 위 업로드 트리거가 그 jobId로 취소를 부른다.
+    if (converting) uploadEpochRef.current += 1;
     const runningJobId = jobId;
-    if (converting && runningJobId && auth.token) {
-      void cancelJob(runningJobId, auth.token).catch((err) =>
-        setToast(toUserMessage(err, '변환을 중단하지 못했습니다.')),
-      );
+    if (converting && runningJobId) {
+      // 탭을 갔다 와도 이 Job의 스트림을 다시 붙이지 않는다.
+      canceledJobsRef.current.add(runningJobId);
+      if (auth.token) {
+        void cancelJob(runningJobId, auth.token).catch((err) =>
+          setToast(toUserMessage(err, '변환을 중단하지 못했습니다.')),
+        );
+      }
     }
     handleReset();
   };
@@ -485,6 +499,9 @@ const Semojum: React.FC = () => {
       const have = receivedPages(saved.blocksByPage, saved.pageStatuses);
       if (
         saved.jobId &&
+        // 사용자가 취소한 Job은 되살리지 않는다 — 예전에는 탭을 갔다 오면
+        // 취소했던 변환이 다시 붙어 "취소가 안 된다"로 보였다.
+        !canceledJobsRef.current.has(saved.jobId) &&
         needsStreamResume(saved.jobId, saved.fileState.totalPages, have)
       ) {
         attachJob(saved.jobId, tab);
@@ -1021,13 +1038,25 @@ const Semojum: React.FC = () => {
     // 이미 업로드한 그 File이면(탭 복원 등으로 다시 마운트된 경우 포함) 재업로드하지 않는다.
     if (fileState.file === lastUploadedFileRef.current) return;
     lastUploadedFileRef.current = fileState.file;
-    uploadFile(
+    const epoch = (uploadEpochRef.current += 1);
+    const stillMine = () => uploadEpochRef.current === epoch;
+    void uploadFile(
       fileState.file,
       activeTab,
       auth.token,
       insertPageNumber,
       footerText,
-    );
+      { shouldAttach: stillMine },
+    ).then((data) => {
+      // 올리는 동안 취소했으면 이제서야 알게 된 jobId로 서버 작업을 중단시킨다.
+      if (!data || stillMine()) return;
+      canceledJobsRef.current.add(data.jobId);
+      if (auth.token) {
+        void cancelJob(data.jobId, auth.token).catch((err) =>
+          console.warn('취소하지 못했습니다', err),
+        );
+      }
+    });
   }, [
     isPopup,
     fileState.file,
@@ -1464,9 +1493,14 @@ const Semojum: React.FC = () => {
     (async () => {
       try {
         const active = await listActiveJobs(auth.token as string);
-        if (cancelled || active.length === 0) return;
+        // 이 세션에서 취소한 작업은 되살리지 않는다 — 취소는 "수렴"이라 서버 목록에
+        // 잠깐 더 남아 있을 수 있다(명세: 진행 중이던 페이지는 마무리된다).
+        const resumable = active.filter(
+          (job) => !canceledJobsRef.current.has(job.jobId),
+        );
+        if (cancelled || resumable.length === 0) return;
         // 응답은 lastModifiedAt 최신순이지만, 순서에 기대지 않고 직접 고른다.
-        const latest = active.reduce((a, b) =>
+        const latest = resumable.reduce((a, b) =>
           new Date(b.lastModifiedAt) > new Date(a.lastModifiedAt) ? b : a,
         );
         setActiveTab(modeToTab(latest.mode));

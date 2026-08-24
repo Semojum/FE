@@ -27,6 +27,31 @@ const jobResult = (over: Record<string, unknown> = {}) => ({
 });
 
 describe('useJobUpload', () => {
+  // "전송 중"에 X를 누르면 아직 jobId를 모른다. 응답이 오더라도 붙이지 않아야
+  // 하고(붙으면 취소했는데 스트림이 이어진다), 호출부가 그 jobId로 취소를 부른다.
+  it('업로드 중 취소했으면 응답이 와도 Job을 붙이지 않고 값만 돌려준다', async () => {
+    createJobMock.mockResolvedValue(jobResult({ jobId: 'job-canceled' }));
+    const { result } = renderHook(() => useJobUpload());
+
+    const returned: { jobId?: string } = {};
+    await act(async () => {
+      const data = await result.current.uploadFile(
+        fakeFile(),
+        TABS.OCR,
+        'tk',
+        false,
+        '',
+        { shouldAttach: () => false },
+      );
+      returned.jobId = data?.jobId;
+    });
+
+    expect(returned.jobId).toBe('job-canceled');
+    // 붙이지 않았으므로 스트림 대상이 되지 않는다.
+    expect(result.current.jobId).toBeNull();
+    expect(result.current.jobTab).toBeNull();
+  });
+
   it('starts in idle state', () => {
     const { result } = renderHook(() => useJobUpload());
     expect(result.current.isUploading).toBe(false);
