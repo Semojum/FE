@@ -459,8 +459,12 @@ const Semojum: React.FC = () => {
 
   // 변환 중이면 먼저 묻는다. window.confirm은 데스크톱 웹뷰에서 뜨지 않아
   // "눌렀는데 아무것도 안 뜬다"가 됐다 — 앱 모달로 묻는다(2026-08-24 QA).
+  //
+  // 판정은 화면에 "분석 중"을 띄우는 조건(isConverting)과 같아야 한다. 예전에는
+  // isUploading·isStreaming만 봤는데, 업로드 응답과 SSE 연결 사이에는 둘 다 false라
+  // 그 구간에서 X를 누르면 묻지도 않고 작업이 지워졌다 (2026-08-24 QA).
   const handleResetRequest = () => {
-    if (isUploading || isStreaming) {
+    if (isConverting) {
       setPendingConfirm({ kind: 'reset' });
       return;
     }
@@ -883,7 +887,10 @@ const Semojum: React.FC = () => {
     if (!hoverBlockId) return null;
     for (const blocks of Object.values(blocksByPage)) {
       const found = blocks.find((b) => b.id === hoverBlockId);
-      if (found) return hasMath(found.currentText) ? found : null;
+      // 독립 수식 요소는 구분자 없이 순수 LaTeX로 오기도 해서, 표기($·```)만으로는
+      // 놓친다 — 서버가 준 요소 유형(formula)을 함께 본다(2026-08-24 실측).
+      if (found)
+        return found.isFormula || hasMath(found.currentText) ? found : null;
     }
     return null;
   }, [hoverBlockId, blocksByPage]);
@@ -1105,7 +1112,8 @@ const Semojum: React.FC = () => {
   const handleTabChange = (tab: ConversionTab) => {
     if (tab === activeTab) return;
     // 변환이 진행 중이면 바로 이동해 작업이 끊기지 않도록 먼저 확인을 받는다.
-    if (isUploading || isStreaming) {
+    // (판정 기준은 X(작업 비우기)와 같다 — handleResetRequest 주석 참고)
+    if (isConverting) {
       setPendingConfirm({ kind: 'tab', tab });
       return;
     }
@@ -2172,7 +2180,13 @@ const Semojum: React.FC = () => {
                     {/* 판면보다 이 칸이 중요하다 — 결과 창을 좀 덜 보이더라도 크게 둔다. */}
                     <div className="custom-scrollbar max-h-[34vh] min-h-[120px] overflow-auto text-[14px] leading-relaxed text-gray-700">
                       <LatexRenderer
-                        text={hoveredMathBlock.currentText}
+                        // 구분자 없이 온 수식 요소는 통째로 한 식으로 그린다.
+                        text={
+                          hoveredMathBlock.isFormula &&
+                          !hasMath(hoveredMathBlock.currentText)
+                            ? `$$${hoveredMathBlock.currentText}$$`
+                            : hoveredMathBlock.currentText
+                        }
                         className="whitespace-pre-wrap"
                       />
                     </div>

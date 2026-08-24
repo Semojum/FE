@@ -4,6 +4,35 @@ import { TABS } from '../../types';
 import { StreamPageResult } from '../../types/apiTypes';
 
 describe('mapPageResult', () => {
+  // 독립 수식 요소는 구분자($·```) 없이 순수 LaTeX로 오기도 한다(2026-08-24 실측).
+  // 표기로만 판단하면 라텍스 변환기가 뜨지 않으므로 요소 유형을 블록에 남긴다.
+  it('mode a: 수식 요소(type=formula)를 표시해 둔다', () => {
+    const result: StreamPageResult = {
+      text_list: [
+        {
+          id: 'f1',
+          type: 'formula',
+          order: 1,
+          is_blocked: false,
+          contents: ['b_{k+i} = \\frac{1}{a_{i}} - 1'],
+        },
+        {
+          id: 't1',
+          type: 'text',
+          order: 2,
+          is_blocked: false,
+          contents: ['그림과 같이'],
+        },
+      ],
+      bounding_box_list: [],
+      image_resolution: { width: 0, height: 0 },
+    } as unknown as StreamPageResult;
+
+    const { blocks } = mapPageResult(TABS.OCR, result);
+    expect(blocks[0].isFormula).toBe(true);
+    expect(blocks[1].isFormula).toBe(false);
+  });
+
   // 명세: contents는 "최종 결과 줄 목록"이다. 여러 줄이 후보가 아니라
   // 한 블록의 본문(줄바꿈으로 이어짐)이어야 한다. 후보는 drafts에서 온다.
   it('점역(b): 여러 줄 contents를 한 블록 본문으로 합치고, 후보로 새지 않는다', () => {
@@ -254,5 +283,30 @@ describe('mapPageResult', () => {
     expect(blocks).toHaveLength(2);
     expect(blocks[1].currentText).toBe('본문 한 줄\n본문 두 줄');
     expect(blocks[1].candidates).toEqual([]);
+  });
+});
+
+describe('점역자 주 래퍼 벗기기', () => {
+  // 서버가 같은 자리에 "<!주>"로 보내는 응답이 있어 태그가 화면에 그대로 보였다.
+  it('<!주> 래퍼도 벗긴다', () => {
+    const result = mapPageResult(TABS.INTEGRATED, {
+      braille_text_list: [
+        {
+          id: 1,
+          contents: ['⠛⠗'],
+          tn_text: '<!주>만화: 후보 다섯 명이 토론한다<!/주>',
+          drafts: [
+            {
+              label: '짧은 제목',
+              text: '<!주>만화: 토론회<!/주>',
+              contents: [],
+            },
+          ],
+        },
+      ],
+    } as never);
+
+    expect(result.blocks[0].tnText).toBe('만화: 후보 다섯 명이 토론한다');
+    expect(result.blocks[0].drafts?.[0].content).toBe('만화: 토론회');
   });
 });

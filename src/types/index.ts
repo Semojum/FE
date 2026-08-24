@@ -83,6 +83,9 @@ export interface TranslationBlock {
   candidates: string[];
   bbox?: BoundingBox; // bbox 정보 추가
   isBlocked?: boolean; // 명세 is_blocked: 처리 불가/검토 필요 요소
+  // 명세 type: 'text' | 'formula' | … — 독립 수식 요소는 구분자($·```) 없이
+  // 순수 LaTeX로 오기도 한다(2026-08-24 실측). 표기로만 판단하면 놓친다.
+  isFormula?: boolean;
   ruleTrail?: RuleTrail[]; // 명세 rule_trail: 적용된 점역 규정
   tnText?: string; // 명세 tn_text: AI 점역사주 원문(시각 요소 설명)
   drafts?: BlockDraft[]; // 명세 drafts: 대체 초안(라벨/설명 포함)

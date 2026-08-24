@@ -37,6 +37,10 @@ interface CandidateModalProps {
   ruleTrail?: RuleTrail[];
 }
 
+// 묵자·점자·시각 요소 설명은 같은 내용을 세 가지로 견주는 자리다 — 글자 크기가
+// 서로 다르면 어느 쪽이 더 중요한 글로 읽힌다. 셋을 시각 요소 설명 크기로 맞춘다.
+const BODY_TEXT = 'text-[12.5px]';
+
 const BraillePreview: React.FC<{ text: string }> = ({ text }) => (
   <div className="w-max rounded-lg border border-[#e4ebf5] bg-white p-1.5">
     {wrapRows(text).map((row, i) => (
@@ -44,7 +48,7 @@ const BraillePreview: React.FC<{ text: string }> = ({ text }) => (
         {toCells(row).map((ch, j) => (
           <span
             key={j}
-            className="h-[17px] w-[15px] shrink-0 text-center text-[13px] leading-[17px] text-gray-800"
+            className={`h-[17px] w-[15px] shrink-0 text-center leading-[17px] text-gray-800 ${BODY_TEXT}`}
           >
             {ch || '⠀'}
           </span>
@@ -210,7 +214,9 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
                   <p className="mb-1 text-[11px] font-semibold text-gray-400">
                     시각 요소 설명 (점역자 주)
                   </p>
-                  <p className="whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-gray-700">
+                  <p
+                    className={`whitespace-pre-wrap break-words leading-relaxed text-gray-700 ${BODY_TEXT}`}
+                  >
                     {tnText}
                   </p>
                 </div>
@@ -228,7 +234,9 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
                     <p className="mb-1 text-[11px] font-semibold text-gray-400">
                       {isBraille ? '묵자' : '텍스트'}
                     </p>
-                    <p className="custom-scrollbar min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-2.5 text-[13px] leading-relaxed text-gray-700">
+                    <p
+                      className={`custom-scrollbar min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-2.5 leading-relaxed text-gray-700 ${BODY_TEXT}`}
+                    >
                       {printText}
                     </p>
                   </div>

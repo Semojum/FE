@@ -51,10 +51,16 @@ const itemText = (item: { contents?: string[]; content?: string | string[] }) =>
 
 // AI가 tn_text/draft.text를 "<!점역자주>...<!/점역자주>" 래퍼로 감싸 보낸다(실서버 확인).
 // 화면 표시용 텍스트에서는 래퍼를 벗긴다.
+//
+// 래퍼 이름은 한 가지가 아니다 — 같은 자리에 "<!주>...<!/주>"로 오는 응답도 있어
+// 대체 텍스트 창에 태그가 그대로 보였다(2026-08-24 QA). 여는/닫는 표시만 보고
+// 이름은 따지지 않는다.
+const TN_WRAPPER = /<!\/?[^<>]{0,20}?주>/g;
+
 const stripTnWrapper = (
   text: string | null | undefined,
 ): string | undefined => {
-  const stripped = (text ?? '').replace(/<!\/?점역자주>/g, '').trim();
+  const stripped = (text ?? '').replace(TN_WRAPPER, '').trim();
   return stripped.length > 0 ? stripped : undefined;
 };
 
@@ -138,6 +144,7 @@ export const mapPageResult = (
           tnText: stripTnWrapper(item.tn_text),
           bbox: matchedBBox,
           isBlocked: item.is_blocked,
+          isFormula: item.type === 'formula',
           ruleTrail: item.rule_trail,
         };
       },
@@ -162,6 +169,7 @@ export const mapPageResult = (
           tnText: stripTnWrapper(item.tn_text),
           bbox: undefined,
           isBlocked: item.is_blocked,
+          isFormula: item.type === 'formula',
           ruleTrail: item.rule_trail,
         };
       },
@@ -177,6 +185,7 @@ export const mapPageResult = (
     const text = itemText(item);
     // OcrTextItem만 is_blocked/rule_trail/drafts를 가진다 (PlainTextItem에는 없음)
     const ocr = item as {
+      type?: string;
       is_blocked?: boolean;
       rule_trail?: TranslationBlock['ruleTrail'];
       drafts?: Draft[] | string | null;
@@ -191,6 +200,8 @@ export const mapPageResult = (
       tnText: stripTnWrapper(ocr.tn_text),
       bbox: matchedBBox,
       isBlocked: ocr.is_blocked,
+      // 독립 수식 요소는 구분자 없이 순수 LaTeX로 오기도 한다(2026-08-24 실측).
+      isFormula: ocr.type === 'formula',
       ruleTrail: ocr.rule_trail,
     };
   });
