@@ -17,6 +17,11 @@ export interface GridMatch {
   cells: { rowIndex: number; cells: number[] }[];
   // 이동·스크롤 기준 행 (구간이 시작하는 행)
   rowIndex: number;
+  // 바꾸기는 화면 행이 아니라 블록 본문에 적용한다 — 그 좌표를 함께 들고 있는다.
+  pageNo: number;
+  blockId: string;
+  start: number;
+  end: number;
 }
 
 // 원본 텍스트에서 걸린 한 건.
@@ -48,7 +53,14 @@ export const searchGrid = (rows: LayoutRow[], query: string): GridMatch[] => {
     for (const range of findRanges(block.text, query)) {
       const { byRow } = rangeToRows(rows, block, range.start, range.end);
       if (byRow.length === 0) continue;
-      matches.push({ cells: byRow, rowIndex: byRow[0].rowIndex });
+      matches.push({
+        cells: byRow,
+        rowIndex: byRow[0].rowIndex,
+        pageNo: block.pageNo,
+        blockId: block.blockId,
+        start: range.start,
+        end: range.end,
+      });
     }
   }
   return matches.sort((a, b) => a.rowIndex - b.rowIndex);
@@ -66,4 +78,21 @@ export const searchTextBlocks = (
       range,
     })),
   );
+};
+
+// 한 블록 안의 여러 자리를 한 번에 바꾼다. 뒤에서부터 갈아 끼워야 앞 구간의
+// 위치가 밀리지 않는다.
+export const replaceRanges = (
+  text: string,
+  ranges: TextRange[],
+  replacement: string,
+): string => {
+  const chars = [...text];
+  return [...ranges]
+    .sort((a, b) => b.start - a.start)
+    .reduce((acc, r) => {
+      const out = [...acc];
+      out.splice(r.start, r.end - r.start, ...replacement);
+      return out.join('');
+    }, chars.join(''));
 };

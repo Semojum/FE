@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { findRanges, searchGrid, searchTextBlocks } from '../docSearch';
+import {
+  findRanges,
+  replaceRanges,
+  searchGrid,
+  searchTextBlocks,
+} from '../docSearch';
 import { LayoutRow } from '../brailleLayout';
 
 const body = (text: string, offset: number, lineIndex = 0): LayoutRow => ({
@@ -59,5 +64,31 @@ describe('searchTextBlocks', () => {
       { blockId: 'a', range: { start: 0, end: 3 } },
       { blockId: 'b', range: { start: 0, end: 3 } },
     ]);
+  });
+});
+
+describe('replaceRanges', () => {
+  it('한 블록의 여러 자리를 한 번에 바꾼다', () => {
+    const text = '굴절률과 굴절률';
+    const ranges = findRanges(text, '굴절률');
+    expect(replaceRanges(text, ranges, '굴절 지수')).toBe(
+      '굴절 지수과 굴절 지수',
+    );
+  });
+
+  it('길이가 달라져도 앞 구간이 밀리지 않는다 (뒤에서부터 바꾼다)', () => {
+    const text = 'aXbXc';
+    expect(replaceRanges(text, findRanges(text, 'X'), '')).toBe('abc');
+  });
+});
+
+describe('searchGrid · 블록 좌표', () => {
+  it('바꾸기에 쓸 블록 본문 좌표를 함께 준다', () => {
+    const rows = [body('앞 굴절', 0), body('률 뒤', 4)];
+    const [match] = searchGrid(rows, '굴절률');
+    expect(match.blockId).toBe('b1');
+    expect(match.pageNo).toBe(1);
+    expect(match.start).toBe(2);
+    expect(match.end).toBe(5);
   });
 });

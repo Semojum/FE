@@ -7,6 +7,8 @@ import { LayoutRow } from './brailleLayout';
 // 블록 본문을 통째로 이어 붙여 찾은 뒤, 그 구간을 다시 행·칸으로 되돌려야 한다.
 
 export interface BlockLines {
+  pageNo: number;
+  blockId: string;
   // lineIndex 오름차순. 각 줄은 offset 오름차순 행 목록과 그 줄의 본문.
   lines: { rowIndices: number[]; text: string }[];
   // 블록 본문(논리 줄을 \n으로 이은 것)
@@ -16,19 +18,26 @@ export interface BlockLines {
 }
 
 export const groupBlockLines = (rows: LayoutRow[]): BlockLines[] => {
-  const blocks = new Map<string, Map<number, number[]>>();
+  const blocks = new Map<
+    string,
+    { pageNo: number; blockId: string; lineMap: Map<number, number[]> }
+  >();
   rows.forEach((row, index) => {
     const src = row.source;
     if (!src || row.kind !== 'body') return;
     const key = `${src.pageNo}:${src.blockId}`;
-    const lines = blocks.get(key) ?? new Map<number, number[]>();
-    const list = lines.get(src.lineIndex) ?? [];
+    const entry = blocks.get(key) ?? {
+      pageNo: src.pageNo,
+      blockId: src.blockId,
+      lineMap: new Map<number, number[]>(),
+    };
+    const list = entry.lineMap.get(src.lineIndex) ?? [];
     list.push(index);
-    lines.set(src.lineIndex, list);
-    blocks.set(key, lines);
+    entry.lineMap.set(src.lineIndex, list);
+    blocks.set(key, entry);
   });
 
-  return [...blocks.values()].map((lineMap) => {
+  return [...blocks.values()].map(({ pageNo, blockId, lineMap }) => {
     const lines = [...lineMap.entries()]
       .sort((a, b) => a[0] - b[0])
       .map(([, rowIndices]) => {
@@ -48,7 +57,13 @@ export const groupBlockLines = (rows: LayoutRow[]): BlockLines[] => {
       lineStarts.push(at);
       at += [...line.text].length + 1; // 줄바꿈 한 글자를 포함해 센다
     }
-    return { lines, text: lines.map((l) => l.text).join('\n'), lineStarts };
+    return {
+      pageNo,
+      blockId,
+      lines,
+      text: lines.map((l) => l.text).join('\n'),
+      lineStarts,
+    };
   });
 };
 

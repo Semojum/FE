@@ -90,7 +90,7 @@ import { toUserMessage } from './api/errorMessages';
 import { ApiError } from './api/apiClient';
 import { mapPageResult } from './utils/mapPageResult';
 import { needsStreamResume, receivedPages } from './utils/tabResume';
-import { searchGrid, searchTextBlocks } from './utils/docSearch';
+import { replaceRanges, searchGrid, searchTextBlocks } from './utils/docSearch';
 import { saveBlob } from './utils/download';
 import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
 import { onAppClose } from './utils/appLifecycle';
@@ -265,6 +265,7 @@ const Semojum: React.FC = () => {
   const [findQuery, setFindQuery] = useState('');
   const [findScope, setFindScope] = useState<FindScope>('all');
   const [findBrailleInput, setFindBrailleInput] = useState(false);
+  const [findReplacement, setFindReplacement] = useState('');
   const [findIndex, setFindIndex] = useState(0);
   // Ctrl+F를 다시 누르면 열려 있어도 입력창으로 돌아오게 하는 신호.
   const [findFocusToken, setFindFocusToken] = useState(0);
@@ -731,6 +732,13 @@ const Semojum: React.FC = () => {
   // 검색어·범위가 바뀌면 첫 건부터 다시 본다.
   useEffect(() => setFindIndex(0), [findQuery, findScope, isFindOpen]);
 
+  // 바꾸고 나면 건수가 줄어든다 — 보고 있던 자리가 사라졌으면 앞으로 당긴다.
+  useEffect(() => {
+    setFindIndex((prev) =>
+      prev >= findTotal ? Math.max(0, findTotal - 1) : prev,
+    );
+  }, [findTotal]);
+
   const activeTextHit =
     findIndex < findHits.text.length ? findHits.text[findIndex] : null;
   const activeGridHit =
@@ -774,6 +782,42 @@ const Semojum: React.FC = () => {
   useEffect(() => {
     if (activeGridHit) setScrollToRow(activeGridHit.rowIndex);
   }, [activeGridHit]);
+
+  // 바꾸기는 결과(출력)에만 건다 — 원본 패널은 읽기 전용 미리보기다.
+  // 화면 행이 아니라 블록 본문에 적용한다(행 경계에 걸친 말도 한 번에 바뀐다).
+  const replaceHits = useCallback(
+    (hits: typeof findHits.grid) => {
+      if (hits.length === 0) return;
+      const byBlock = new Map<string, typeof hits>();
+      hits.forEach((hit) => {
+        const key = `${hit.pageNo}:${hit.blockId}`;
+        byBlock.set(key, [...(byBlock.get(key) ?? []), hit]);
+      });
+
+      byBlock.forEach((blockHits) => {
+        const { pageNo, blockId } = blockHits[0];
+        const block = blocksByPage[pageNo]?.find((b) => b.id === blockId);
+        if (!block) return;
+        // dispatchAction은 아래에서 만들어지므로 ref를 거친다(다른 핸들러와 같은 방식).
+        dispatchActionRef.current?.({
+          type: 'updateBlock',
+          page: pageNo,
+          id: blockId,
+          text: replaceRanges(block.currentText, blockHits, findReplacement),
+        });
+      });
+    },
+    [blocksByPage, findReplacement],
+  );
+
+  const replaceCurrent = useCallback(() => {
+    if (activeGridHit) replaceHits([activeGridHit]);
+  }, [activeGridHit, replaceHits]);
+
+  const replaceAll = useCallback(
+    () => replaceHits(findHits.grid),
+    [findHits.grid, replaceHits],
+  );
 
   const stepFind = useCallback(
     (delta: 1 | -1) => {
@@ -2207,6 +2251,10 @@ const Semojum: React.FC = () => {
             current={findIndex}
             onStep={stepFind}
             focusToken={findFocusToken}
+            replacement={findReplacement}
+            onReplacementChange={setFindReplacement}
+            onReplace={replaceCurrent}
+            onReplaceAll={replaceAll}
             onClose={() => {
               setIsFindOpen(false);
               setFindQuery('');

@@ -19,6 +19,10 @@ const setup = (
     current: 0,
     onStep: vi.fn(),
     onClose: vi.fn(),
+    replacement: '',
+    onReplacementChange: vi.fn(),
+    onReplace: vi.fn(),
+    onReplaceAll: vi.fn(),
     ...overrides,
   };
   render(<FindBar {...props} />);
@@ -91,5 +95,40 @@ describe('FindBar', () => {
     const props = setup({ brailleInput: true });
     await userEvent.type(screen.getByLabelText('찾을 점자'), 'g');
     expect(props.onQueryChange).not.toHaveBeenCalled();
+  });
+
+  // 바꾸기는 결과(출력)에만 — 원본 패널은 읽기 전용 미리보기다.
+  it('바꾸기를 펼치면 바꿀 말과 두 버튼이 나온다', async () => {
+    const props = setup({ query: '굴절', total: 2 });
+    await userEvent.click(screen.getByLabelText('바꾸기 펼치기'));
+
+    await userEvent.type(screen.getByLabelText('바꿀 말'), '굴절 지수');
+    await userEvent.click(screen.getByText('바꾸기'));
+    expect(props.onReplace).toHaveBeenCalled();
+
+    await userEvent.click(screen.getByText('모두 바꾸기'));
+    expect(props.onReplaceAll).toHaveBeenCalled();
+  });
+
+  it('범위가 원본만이면 바꾸기를 잠근다', async () => {
+    setup({ query: '굴절', total: 2, scope: 'original' });
+    await userEvent.click(screen.getByLabelText('바꾸기 펼치기'));
+
+    expect(screen.getByText('바꾸기').closest('button')?.disabled).toBe(true);
+    expect(
+      screen.getByText('원본은 바꿀 수 없습니다 — 범위를 결과로 바꿔 주세요'),
+    ).toBeTruthy();
+  });
+
+  it('점자로 입력을 켜면 바꿀 말도 점형으로 찍는다', async () => {
+    const props = setup({ query: '⠈', total: 1, brailleInput: true });
+    await userEvent.click(screen.getByLabelText('바꾸기 펼치기'));
+
+    const field = screen.getByLabelText('바꿀 점자');
+    fireEvent.keyDown(field, { key: 'f' });
+    fireEvent.keyDown(field, { key: 'd' });
+    fireEvent.keyDown(field, { key: 'j' });
+    fireEvent.keyDown(field, { key: ' ' });
+    expect(props.onReplacementChange).toHaveBeenLastCalledWith('⠋');
   });
 });
