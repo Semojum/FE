@@ -130,11 +130,13 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
           initial={{ opacity: 0, scale: 0.95, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 10 }}
-          className={`relative w-full overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-xl ${
+          // 카드 높이를 화면 안으로 묶는다 — 예전에는 안이 길면 카드가 화면 밖으로
+          // 자라 아래의 [취소]·[이 안 사용]이 보이지 않았다(2026-08-24 QA).
+          className={`relative flex max-h-[88vh] w-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-xl ${
             isBraille ? 'max-w-4xl' : 'max-w-xl'
           }`}
         >
-          <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/50 p-4">
+          <div className="flex shrink-0 items-center justify-between border-b border-gray-100 bg-gray-50/50 p-4">
             <h3 className="font-semibold text-gray-700">대체 텍스트 선택</h3>
             <button
               onClick={onClose}
@@ -155,7 +157,7 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
               <div
                 role="tablist"
                 aria-label="대체 텍스트 방식"
-                className="flex flex-wrap gap-1.5 border-b border-gray-100 px-4 py-3"
+                className="flex shrink-0 flex-wrap gap-1.5 border-b border-gray-100 px-4 py-3"
               >
                 {entries.map((entry, idx) => (
                   <button
@@ -183,7 +185,7 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
               </div>
 
               {(tnText || (ruleTrail && ruleTrail.length > 0)) && (
-                <div className="border-b border-gray-100 bg-[#fbfcfe] px-4 py-3">
+                <div className="custom-scrollbar max-h-[24vh] shrink-0 overflow-auto border-b border-gray-100 bg-[#fbfcfe] px-4 py-3">
                   {tnText && (
                     <>
                       <p className="mb-1 text-[11px] font-semibold text-gray-400">
@@ -200,7 +202,7 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
                       <p className="mb-1 mt-3 text-[11px] font-semibold text-gray-400">
                         적용 규정
                       </p>
-                      <ul className="custom-scrollbar max-h-[120px] space-y-1.5 overflow-y-auto">
+                      <ul className="space-y-1.5">
                         {ruleTrail.map((rule, i) => (
                           <li
                             key={`${rule.rule_id}-${i}`}
@@ -240,33 +242,33 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
                   따로 스크롤한다(창이 좁으면 예전처럼 위아래로 쌓인다). */}
               <div
                 role="tabpanel"
-                className="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-start"
+                className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-4 py-3 md:flex-row md:items-stretch"
               >
                 {printText && (
-                  <div className="min-w-0 flex-1">
+                  <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                     <p className="mb-1 text-[11px] font-semibold text-gray-400">
                       {isBraille ? '묵자' : '텍스트'}
                     </p>
-                    <p className="custom-scrollbar max-h-[52vh] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-2.5 text-[13px] leading-relaxed text-gray-700">
+                    <p className="custom-scrollbar min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-2.5 text-[13px] leading-relaxed text-gray-700">
                       {printText}
                     </p>
                   </div>
                 )}
 
                 {brailleText && (
-                  <div className="min-w-0 md:w-[512px] md:shrink-0">
+                  <div className="flex min-h-0 min-w-0 flex-col md:w-[512px] md:shrink-0">
                     <p className="mb-1 text-[11px] font-semibold text-gray-400">
                       점자
                     </p>
                     {/* 길면 잘라 내지 않고 스크롤한다 — 가로는 32칸, 세로는 줄 수만큼. */}
-                    <div className="custom-scrollbar max-h-[52vh] overflow-auto">
+                    <div className="custom-scrollbar min-h-0 flex-1 overflow-auto">
                       <BraillePreview text={brailleText} />
                     </div>
                   </div>
                 )}
               </div>
 
-              <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-4 py-3">
+              <div className="flex shrink-0 items-center justify-end gap-2 border-t border-gray-100 px-4 py-3">
                 {isConfirming && (
                   <p className="mr-auto text-[12px] font-medium text-[#f47726]">
                     이 블록의 편집 내용이 사라집니다.
