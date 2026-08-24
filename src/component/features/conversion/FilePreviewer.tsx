@@ -1,7 +1,7 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import LatexRenderer from './LatexRenderer';
-import { findMath, splitMath } from '../../../utils/mathText';
+import { findMath } from '../../../utils/mathText';
 import {
   BoundingBox,
   FileState,
@@ -24,11 +24,74 @@ interface Props {
   selectedBlockId: string | null;
   imageResolution: ImageResolution;
   originalTextBlocks?: OriginalTextBlock[];
+  // 문서에서 찾기(Ctrl+F) — 블록별로 걸린 구간. 지금 보고 있는 한 건만 진하게 칠한다.
+  findRangesByBlock?: Map<string, { start: number; end: number }[]>;
+  activeFind?: { blockId: string; start: number; end: number } | null;
   onBlockClick?: (id: string) => void; // ✅ 클릭 핸들러
   // 마우스가 얹힌 블록 — 결과 격자와 같은 값을 공유해 양쪽에 같은 상자를 그린다.
   hoveredBlockId?: string | null;
   onBlockHover?: (id: string | null) => void;
 }
+
+// 원본 텍스트 한 블록을 그린다 — 수식 구간에는 밑줄(기능정의서 "결과 렌더링" D-2),
+// 찾기(Ctrl+F)에 걸린 구간에는 노란 칠. 두 표시가 겹칠 수 있어 글자 단위로 한 번에 나눈다.
+const renderWithFind = (
+  content: string,
+  hits: { start: number; end: number }[],
+  active: { start: number; end: number } | null,
+): React.ReactNode[] => {
+  const mathAt = new Set<number>();
+  findMath(content).forEach((m) => {
+    for (let i = m.start; i < m.end; i++) mathAt.add(i);
+  });
+  const hitAt = new Set<number>();
+  hits.forEach((h) => {
+    for (let i = h.start; i < h.end; i++) hitAt.add(i);
+  });
+  const activeAt = new Set<number>();
+  if (active) {
+    for (let i = active.start; i < active.end; i++) activeAt.add(i);
+  }
+
+  const classOf = (i: number) =>
+    [
+      mathAt.has(i)
+        ? 'underline decoration-[#5b8ce6] decoration-2 underline-offset-2'
+        : '',
+      activeAt.has(i)
+        ? 'bg-[#f9c74f] text-gray-900'
+        : hitAt.has(i)
+          ? 'bg-[#fdf1c7]'
+          : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+  // 같은 표시가 이어지는 동안은 한 조각으로 묶는다.
+  const nodes: React.ReactNode[] = [];
+  let buffer = '';
+  let current = '';
+  const flush = () => {
+    if (!buffer) return;
+    nodes.push(
+      <span key={nodes.length} className={current || undefined}>
+        {buffer}
+      </span>,
+    );
+    buffer = '';
+  };
+
+  [...content].forEach((ch, i) => {
+    const cls = classOf(i);
+    if (cls !== current) {
+      flush();
+      current = cls;
+    }
+    buffer += ch;
+  });
+  flush();
+  return nodes;
+};
 
 const FilePreviewer: React.FC<Props> = memo(
   ({
@@ -38,6 +101,8 @@ const FilePreviewer: React.FC<Props> = memo(
     selectedBlockId,
     imageResolution,
     originalTextBlocks,
+    findRangesByBlock,
+    activeFind,
     onBlockClick,
     hoveredBlockId,
     onBlockHover,
@@ -112,19 +177,10 @@ const FilePreviewer: React.FC<Props> = memo(
                     }`}
                   >
                     <p className="leading-relaxed whitespace-pre-wrap text-sm md:text-base font-medium">
-                      {splitMath(block.content).map((seg, i) =>
-                        seg.kind === 'text' ? (
-                          <span key={i}>{seg.body}</span>
-                        ) : (
-                          // 수식 구간에는 밑줄 — 아래에 조판된 모양을 함께 보여 준다
-                          // (기능정의서 "결과 렌더링" D-2: 모드 b의 좌측).
-                          <span
-                            key={i}
-                            className="underline decoration-[#5b8ce6] decoration-2 underline-offset-2"
-                          >
-                            {seg.body}
-                          </span>
-                        ),
+                      {renderWithFind(
+                        block.content,
+                        findRangesByBlock?.get(block.id) ?? [],
+                        activeFind?.blockId === block.id ? activeFind : null,
                       )}
                     </p>
                     {findMath(block.content).length > 0 && (

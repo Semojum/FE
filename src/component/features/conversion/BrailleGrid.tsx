@@ -114,6 +114,9 @@ interface Props {
   onVisiblePageChange?: (page: number) => void;
   // 원본 페이지를 넘겼을 때 그 지점으로 스크롤하기 위한 요청 신호
   scrollToRow?: number | null;
+  // 문서에서 찾기(Ctrl+F) — 걸린 칸을 옅게, 지금 보고 있는 한 건은 진하게 칠한다.
+  findCells?: Map<number, Set<number>>;
+  activeFindCells?: Map<number, Set<number>>;
 }
 
 const BrailleGrid: React.FC<Props> = ({
@@ -128,6 +131,8 @@ const BrailleGrid: React.FC<Props> = ({
   onHoverBlockChange,
   onVisiblePageChange,
   scrollToRow,
+  findCells,
+  activeFindCells,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -413,33 +418,41 @@ const BrailleGrid: React.FC<Props> = ({
     moveCaret(caret.rowIndex, end);
   };
 
+  // 배경색은 여기 한 곳에서만 정한다 — 클래스를 뒤에 덧붙이는 방식은 CSS 순서에
+  // 따라 앞의 bg-white에 져서 색이 안 먹는다(2026-08-24 확인).
   const cellCls = (
     row: LayoutRow,
     selected: boolean,
     isCaret: boolean,
     highlighted: boolean,
     dimmed: boolean,
+    find: 'none' | 'hit' | 'active' = 'none',
   ): string =>
     [
       'flex h-[19px] w-[19px] shrink-0 items-center justify-center border-r border-b text-[13px] leading-none',
       'border-[#e4ebf5]',
       isCaret
         ? 'bg-[#5b8ce6] text-white'
-        : selected
-          ? 'bg-[#5b8ce6]/10'
-          : row.kind === 'fixed'
-            ? // 변경선·페이지행은 조판이 만든 줄이라 고칠 수 없다 — 눌러서 구분되게 한다.
-              'bg-[#f2f5fa] text-gray-400'
-            : // 디자인 V3/BlockCard의 세 상태를 격자에 옮긴 것.
-              //  review(검토 필요) — 크림 배경 + 주황 테두리 (테두리는 행 단위로 그린다)
-              //  selected(원본 대조) — 연한 주황 배경. 디자인은 주황 테두리지만 그 뜻이
-              //    전달되지 않아 배경색으로 바꿨다 (QA "AI 생성 블록 표기 방식 변경").
-              //    review와 헷갈리지 않도록 크림(노랑기)과 주황기로 색을 갈라 둔다.
-              row.source?.isBlocked
-              ? 'bg-[#fdf8e3]'
-              : highlighted
-                ? 'bg-[#fbe4d3]'
-                : 'bg-white',
+        : find === 'active'
+          ? // 찾기에서 지금 보고 있는 한 건
+            'bg-[#f9c74f] text-gray-900'
+          : find === 'hit'
+            ? 'bg-[#fdf1c7]'
+            : selected
+              ? 'bg-[#5b8ce6]/10'
+              : row.kind === 'fixed'
+                ? // 변경선·페이지행은 조판이 만든 줄이라 고칠 수 없다 — 눌러서 구분되게 한다.
+                  'bg-[#f2f5fa] text-gray-400'
+                : // 디자인 V3/BlockCard의 세 상태를 격자에 옮긴 것.
+                  //  review(검토 필요) — 크림 배경 + 주황 테두리 (테두리는 행 단위로 그린다)
+                  //  selected(원본 대조) — 연한 주황 배경. 디자인은 주황 테두리지만 그 뜻이
+                  //    전달되지 않아 배경색으로 바꿨다 (QA "AI 생성 블록 표기 방식 변경").
+                  //    review와 헷갈리지 않도록 크림(노랑기)과 주황기로 색을 갈라 둔다.
+                  row.source?.isBlocked
+                  ? 'bg-[#fdf8e3]'
+                  : highlighted
+                    ? 'bg-[#fbe4d3]'
+                    : 'bg-white',
       // 점역자주 태그는 본문에 남겨 두되 흐리게 그려 읽기를 방해하지 않게 한다.
       dimmed && !isCaret ? 'text-[#c8ccd4]' : '',
     ].join(' ');
@@ -501,6 +514,8 @@ const BrailleGrid: React.FC<Props> = ({
               const cells = toCells(row.text);
               const dimMaskRow = tagMask[rowIndex] ?? [];
               const mathCells = math?.underline.get(rowIndex);
+              const hitCells = findCells?.get(rowIndex);
+              const activeHitCells = activeFindCells?.get(rowIndex);
               const formulas = math?.formulasAfterRow.get(rowIndex);
               // 검토 필요(review) 블록은 디자인대로 주황 테두리로 감싼다 —
               // 배경색만으로 알리는 선택(대조) 상태와 섞이지 않게 하는 구분이기도 하다.
@@ -576,6 +591,11 @@ const BrailleGrid: React.FC<Props> = ({
                         isSelected && caret?.cell === cellIdx,
                         isHighlighted,
                         dimMaskRow[cellIdx] === true,
+                        activeHitCells?.has(cellIdx)
+                          ? 'active'
+                          : hitCells?.has(cellIdx)
+                            ? 'hit'
+                            : 'none',
                       )}${
                         mathCells?.has(cellIdx)
                           ? ' underline decoration-[#5b8ce6] decoration-2 underline-offset-2'

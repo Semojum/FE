@@ -54,6 +54,7 @@ import BrailleGrid, {
 } from './component/features/conversion/BrailleGrid';
 import ContextMenu from './component/shared/ContextMenu';
 import CandidateModal from './component/features/conversion/CandidateModal';
+import FindBar, { FindScope } from './component/features/conversion/FindBar';
 import LoginScreen from './component/features/auth/LoginScreen';
 import MyPage from './component/features/mypage/MyPage';
 import InquiryFab from './component/features/support/InquiryFab';
@@ -89,6 +90,7 @@ import { toUserMessage } from './api/errorMessages';
 import { ApiError } from './api/apiClient';
 import { mapPageResult } from './utils/mapPageResult';
 import { needsStreamResume, receivedPages } from './utils/tabResume';
+import { searchGrid, searchTextBlocks } from './utils/docSearch';
 import { saveBlob } from './utils/download';
 import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
 import { onAppClose } from './utils/appLifecycle';
@@ -255,6 +257,17 @@ const Semojum: React.FC = () => {
   } | null>(null);
   const [visibleOutputPage, setVisibleOutputPage] = useState(1);
   const [scrollToRow, setScrollToRow] = useState<number | null>(null);
+
+  // ─── 문서에서 찾기 (Ctrl+F) ────────────────────────────────────────
+  // 인덱스를 두지 않는다 — 열려 있는 작업 하나만 메모리에 있고 본문이 1MB 남짓이라
+  // 훑는 편이 인덱스를 만들고 편집마다 갱신하는 것보다 싸다(docSearch 주석 참고).
+  const [isFindOpen, setIsFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [findScope, setFindScope] = useState<FindScope>('all');
+  const [findBrailleInput, setFindBrailleInput] = useState(false);
+  const [findIndex, setFindIndex] = useState(0);
+  // Ctrl+F를 다시 누르면 열려 있어도 입력창으로 돌아오게 하는 신호.
+  const [findFocusToken, setFindFocusToken] = useState(0);
   // 손으로 고친 블록(`페이지:블록id`) — 대체 텍스트 적용 전 확인 여부를 가른다.
   const [editedBlocks, setEditedBlocks] = useState<Set<string>>(new Set());
   // 대체 초안 피커를 연 블록 — 어느 페이지의 블록인지까지 들고 있는다.
@@ -699,6 +712,77 @@ const Semojum: React.FC = () => {
 
   // 커서가 놓인 줄의 블록 — 결과 패널 블록 버튼(추가·이동·삭제·대체 텍스트)의 대상.
   // 우클릭 메뉴만으로는 기능이 있는지조차 알기 어려웠다 (QA "블록 관련 버튼 생성").
+  // 찾기 결과 — 범위(원본만/결과만/전체)에 따라 훑을 곳이 달라진다.
+  const findHits = useMemo(() => {
+    const query = findQuery.trim();
+    if (!isFindOpen || !query) return { grid: [], text: [] };
+    return {
+      grid: findScope === 'original' ? [] : searchGrid(gridRows, query),
+      text:
+        findScope === 'result'
+          ? []
+          : searchTextBlocks(currentOriginalTexts, query),
+    };
+  }, [isFindOpen, findQuery, findScope, gridRows, currentOriginalTexts]);
+
+  // 이동 순서는 "원본 먼저, 그다음 결과" — 화면 왼쪽에서 오른쪽으로 읽는 순서다.
+  const findTotal = findHits.text.length + findHits.grid.length;
+
+  // 검색어·범위가 바뀌면 첫 건부터 다시 본다.
+  useEffect(() => setFindIndex(0), [findQuery, findScope, isFindOpen]);
+
+  const activeTextHit =
+    findIndex < findHits.text.length ? findHits.text[findIndex] : null;
+  const activeGridHit =
+    findIndex >= findHits.text.length
+      ? findHits.grid[findIndex - findHits.text.length]
+      : null;
+
+  const findCells = useMemo(() => {
+    const map = new Map<number, Set<number>>();
+    findHits.grid.forEach((hit) =>
+      hit.cells.forEach(({ rowIndex, cells }) => {
+        const set = map.get(rowIndex) ?? new Set<number>();
+        cells.forEach((c) => set.add(c));
+        map.set(rowIndex, set);
+      }),
+    );
+    return map;
+  }, [findHits.grid]);
+
+  const activeFindCells = useMemo(() => {
+    const map = new Map<number, Set<number>>();
+    activeGridHit?.cells.forEach(({ rowIndex, cells }) => {
+      const set = map.get(rowIndex) ?? new Set<number>();
+      cells.forEach((c) => set.add(c));
+      map.set(rowIndex, set);
+    });
+    return map;
+  }, [activeGridHit]);
+
+  const findRangesByBlock = useMemo(() => {
+    const map = new Map<string, { start: number; end: number }[]>();
+    findHits.text.forEach(({ blockId, range }) => {
+      const list = map.get(blockId) ?? [];
+      list.push(range);
+      map.set(blockId, list);
+    });
+    return map;
+  }, [findHits.text]);
+
+  // 지금 보고 있는 한 건으로 화면을 옮긴다 — 결과는 격자 스크롤, 원본은 블록 선택.
+  useEffect(() => {
+    if (activeGridHit) setScrollToRow(activeGridHit.rowIndex);
+  }, [activeGridHit]);
+
+  const stepFind = useCallback(
+    (delta: 1 | -1) => {
+      if (findTotal === 0) return;
+      setFindIndex((prev) => (prev + delta + findTotal) % findTotal);
+    },
+    [findTotal],
+  );
+
   const caretSource = caret ? (gridRows[caret.rowIndex]?.source ?? null) : null;
   const caretBlocks = caretSource
     ? (blocksByPage[caretSource.pageNo] ?? [])
@@ -1252,6 +1336,11 @@ const Semojum: React.FC = () => {
       } else if (key === 's') {
         e.preventDefault();
         dispatchAction({ type: 'savePage', page: currentPageRef.current });
+      } else if (key === 'f') {
+        // 브라우저 찾기 대신 문서 안에서 찾는다.
+        e.preventDefault();
+        setIsFindOpen(true);
+        setFindFocusToken((v) => v + 1);
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -1592,6 +1681,15 @@ const Semojum: React.FC = () => {
                       selectedBlockId={selectedBlockId}
                       imageResolution={imgResolution}
                       originalTextBlocks={currentOriginalTexts}
+                      findRangesByBlock={findRangesByBlock}
+                      activeFind={
+                        activeTextHit
+                          ? {
+                              blockId: activeTextHit.blockId,
+                              ...activeTextHit.range,
+                            }
+                          : null
+                      }
                       onBlockClick={handleSelectFromOriginal}
                       hoveredBlockId={hoverBlockId}
                       onBlockHover={handleHoverBlock}
@@ -1896,6 +1994,8 @@ const Semojum: React.FC = () => {
                       onHoverBlockChange={handleHoverBlock}
                       onVisiblePageChange={setVisibleOutputPage}
                       scrollToRow={scrollToRow}
+                      findCells={findCells}
+                      activeFindCells={activeFindCells}
                     />
                   ) : pageStatuses[currentPage] === 'BLOCKED' ? (
                     // 서버가 이 페이지를 변환하지 못한 경우(page_done status=BLOCKED /
@@ -2091,6 +2191,28 @@ const Semojum: React.FC = () => {
           onInstall={() => void appVersion.installNow()}
           onDismiss={appVersion.dismissToast}
         />
+      )}
+
+      {/* 문서에서 찾기 — Ctrl+F. 두 패널 위에 떠 있고 범위로 어디를 훑을지 고른다. */}
+      {isFindOpen && !isPopup && (
+        <div className="fixed left-1/2 top-3 z-[45] -translate-x-1/2">
+          <FindBar
+            query={findQuery}
+            onQueryChange={setFindQuery}
+            scope={findScope}
+            onScopeChange={setFindScope}
+            brailleInput={findBrailleInput}
+            onBrailleInputChange={setFindBrailleInput}
+            total={findTotal}
+            current={findIndex}
+            onStep={stepFind}
+            focusToken={findFocusToken}
+            onClose={() => {
+              setIsFindOpen(false);
+              setFindQuery('');
+            }}
+          />
+        </div>
       )}
 
       {!isPopup && <AppVersionBadge />}
