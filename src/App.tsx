@@ -2163,13 +2163,14 @@ const Semojum: React.FC = () => {
                     읽기 전용이다: 고치는 곳은 위 판면 격자 하나뿐이어야 한다. */}
                 {hoveredMathBlock && (
                   <section
-                    aria-label="수식 보기"
+                    aria-label="라텍스 변환기"
                     className="order-last mt-2 shrink-0 rounded-[10px] border border-[#e2e8f0] bg-white px-3 py-2"
                   >
                     <p className="mb-1 text-[10.5px] font-bold text-gray-400">
-                      수식 보기 · 마우스를 얹은 블록
+                      라텍스 변환기
                     </p>
-                    <div className="custom-scrollbar max-h-[140px] overflow-auto text-[13px] leading-relaxed text-gray-700">
+                    {/* 판면보다 이 칸이 중요하다 — 결과 창을 좀 덜 보이더라도 크게 둔다. */}
+                    <div className="custom-scrollbar max-h-[34vh] min-h-[120px] overflow-auto text-[14px] leading-relaxed text-gray-700">
                       <LatexRenderer
                         text={hoveredMathBlock.currentText}
                         className="whitespace-pre-wrap"
