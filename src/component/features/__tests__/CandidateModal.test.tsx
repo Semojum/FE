@@ -90,7 +90,9 @@ describe('CandidateModal', () => {
 
   // 기능정의서 "대체 초안 / 후보 선택" 3항·D-2: 근거 없는 선택지를 주지 않는다 —
   // 시각 요소 설명(점역자 주)과 적용 규정을 후보와 함께 보여 준다.
-  it('시각 요소 설명과 적용 규정을 함께 보여 준다', () => {
+  // 시각 요소 설명은 늘 보이고, 점역 규정은 오른쪽 버튼을 눌러야 뜬다 —
+  // 늘 펼쳐 두면 정작 봐야 할 안이 좁아진다(2026-08-24 결정).
+  it('시각 요소 설명은 바로 보이고, 점역 규정은 눌러야 뜬다', async () => {
     render(
       <CandidateModal
         isOpen
@@ -118,9 +120,17 @@ describe('CandidateModal', () => {
     expect(
       screen.getByText('막대그래프. 가로축은 연도, 세로축은 판매량.'),
     ).toBeInTheDocument();
-    expect(screen.getByText('적용 규정')).toBeInTheDocument();
+
+    // 규정은 접혀 있고 버튼에 건수가 붙는다.
+    expect(screen.queryByText('제2장 수의 표기')).toBeNull();
+    await userEvent.click(screen.getByText('점역 규정 1'));
+
     expect(screen.getByText('제2장 수의 표기')).toBeInTheDocument();
     expect(screen.getByText('숫자 앞에는 수표를 적는다.')).toBeInTheDocument();
+
+    // 다시 누르면 접힌다.
+    await userEvent.click(screen.getByLabelText('점역 규정 닫기'));
+    expect(screen.queryByText('제2장 수의 표기')).toBeNull();
   });
 
   it('근거가 없으면 그 자리를 아예 두지 않는다', () => {
@@ -135,7 +145,7 @@ describe('CandidateModal', () => {
         onSelect={vi.fn()}
       />,
     );
-    expect(screen.queryByText('적용 규정')).toBeNull();
+    expect(screen.queryByText(/점역 규정/)).toBeNull();
     expect(screen.queryByText('시각 요소 설명 (점역자 주)')).toBeNull();
   });
 

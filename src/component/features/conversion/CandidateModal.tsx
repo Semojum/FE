@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X } from 'lucide-react';
+import { BookOpen, X } from 'lucide-react';
 import { BlockDraft, ConversionTab, TABS } from '../../../types';
 import { RuleTrail } from '../../../types/apiTypes';
 import { toCells, wrapRows } from '../../../utils/brailleGrid';
@@ -80,11 +80,15 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
   const [tab, setTab] = useState(0);
   // 적용 전 확인 단계(편집한 블록일 때만) — 열 때마다 초기화한다.
   const [isConfirming, setIsConfirming] = useState(false);
+  // 점역 규정은 판단의 근거지만 늘 펼쳐 두면 정작 봐야 할 안이 좁아진다.
+  // 오른쪽 버튼으로 빼 두고 누를 때만 띄운다.
+  const [showRules, setShowRules] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
     setTab(inUseIdx >= 0 ? inUseIdx : 0);
     setIsConfirming(false);
+    setShowRules(false);
     // 열릴 때 한 번만 맞춘다 — 보는 중에 탭이 되돌아가면 안 된다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
@@ -182,58 +186,33 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
                     )}
                   </button>
                 ))}
+
+                {/* 점역 규정 — 누를 때만 띄운다(기능정의서 "대체 초안" 3항의 적용 규정 목록) */}
+                {ruleTrail && ruleTrail.length > 0 && (
+                  <button
+                    type="button"
+                    aria-expanded={showRules}
+                    onClick={() => setShowRules((v) => !v)}
+                    className={`ml-auto flex items-center gap-1 rounded-full border px-3 py-1 text-[12px] font-semibold transition-colors ${
+                      showRules
+                        ? 'border-[#5A8FBB] bg-[#5A8FBB] text-white'
+                        : 'border-[#5A8FBB]/40 bg-white text-[#5A8FBB] hover:bg-[#5A8FBB]/10'
+                    }`}
+                  >
+                    <BookOpen size={13} aria-hidden />
+                    점역 규정 {ruleTrail.length}
+                  </button>
+                )}
               </div>
 
-              {(tnText || (ruleTrail && ruleTrail.length > 0)) && (
-                <div className="custom-scrollbar max-h-[24vh] shrink-0 overflow-auto border-b border-gray-100 bg-[#fbfcfe] px-4 py-3">
-                  {tnText && (
-                    <>
-                      <p className="mb-1 text-[11px] font-semibold text-gray-400">
-                        시각 요소 설명 (점역자 주)
-                      </p>
-                      <p className="whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-gray-700">
-                        {tnText}
-                      </p>
-                    </>
-                  )}
-
-                  {ruleTrail && ruleTrail.length > 0 && (
-                    <>
-                      <p className="mb-1 mt-3 text-[11px] font-semibold text-gray-400">
-                        적용 규정
-                      </p>
-                      <ul className="space-y-1.5">
-                        {ruleTrail.map((rule, i) => (
-                          <li
-                            key={`${rule.rule_id}-${i}`}
-                            className="rounded-[8px] bg-white px-2.5 py-2 text-[12px] leading-relaxed text-gray-600 shadow-[0_1px_2px_0_rgba(23,43,77,0.06)]"
-                          >
-                            <span className="font-semibold text-gray-700">
-                              {[rule.section, rule.title]
-                                .filter(Boolean)
-                                .join(' ')}
-                            </span>
-                            {rule.priority === 'secondary' && (
-                              <span className="ml-1 text-[10.5px] text-gray-400">
-                                (보조)
-                              </span>
-                            )}
-                            {rule.excerpt && (
-                              <span className="block text-gray-500">
-                                {rule.excerpt}
-                              </span>
-                            )}
-                            {rule.source && (
-                              <span className="block text-[10.5px] text-gray-400">
-                                {rule.source}
-                                {rule.rule_id ? ` · ${rule.rule_id}` : ''}
-                              </span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
+              {tnText && (
+                <div className="custom-scrollbar max-h-[18vh] shrink-0 overflow-auto border-b border-gray-100 bg-[#fbfcfe] px-4 py-3">
+                  <p className="mb-1 text-[11px] font-semibold text-gray-400">
+                    시각 요소 설명 (점역자 주)
+                  </p>
+                  <p className="whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-gray-700">
+                    {tnText}
+                  </p>
                 </div>
               )}
 
@@ -267,6 +246,56 @@ const CandidateModal: React.FC<CandidateModalProps> = ({
                   </div>
                 )}
               </div>
+
+              {showRules && ruleTrail && (
+                <div
+                  role="region"
+                  aria-label="적용된 점역 규정"
+                  className="custom-scrollbar absolute right-3 top-[92px] z-10 max-h-[58vh] w-[340px] overflow-auto rounded-[12px] border border-[#dfe8f2] bg-white p-3 shadow-[0_10px_30px_0_rgba(23,43,77,0.18)]"
+                >
+                  <div className="mb-2 flex items-center gap-2">
+                    <p className="text-[12px] font-bold text-gray-700">
+                      적용된 점역 규정
+                    </p>
+                    <button
+                      type="button"
+                      aria-label="점역 규정 닫기"
+                      onClick={() => setShowRules(false)}
+                      className="ml-auto rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                  <ul className="space-y-1.5">
+                    {ruleTrail.map((rule, i) => (
+                      <li
+                        key={`${rule.rule_id}-${i}`}
+                        className="rounded-[8px] bg-[#fbfcfe] px-2.5 py-2 text-[12px] leading-relaxed text-gray-600"
+                      >
+                        <span className="font-semibold text-gray-700">
+                          {[rule.section, rule.title].filter(Boolean).join(' ')}
+                        </span>
+                        {rule.priority === 'secondary' && (
+                          <span className="ml-1 text-[10.5px] text-gray-400">
+                            (보조)
+                          </span>
+                        )}
+                        {rule.excerpt && (
+                          <span className="block text-gray-500">
+                            {rule.excerpt}
+                          </span>
+                        )}
+                        {rule.source && (
+                          <span className="block text-[10.5px] text-gray-400">
+                            {rule.source}
+                            {rule.rule_id ? ` · ${rule.rule_id}` : ''}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               <div className="flex shrink-0 items-center justify-end gap-2 border-t border-gray-100 px-4 py-3">
                 {isConfirming && (
