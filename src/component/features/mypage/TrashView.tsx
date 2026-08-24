@@ -5,6 +5,7 @@ import {
   purgeTrashItem,
   restoreTrashItem,
 } from '../../../api/TrashService';
+import ConfirmModal from '../../shared/ConfirmModal';
 import { toUserMessage } from '../../../api/errorMessages';
 import { TrashItem } from '../../../types/mypage';
 
@@ -37,6 +38,9 @@ const TrashView: React.FC<Props> = ({ token, onBack, onError, onChanged }) => {
   const [isLoading, setIsLoading] = useState(true);
   // 처리 중인 항목 id — 버튼 중복 클릭을 막는다.
   const [busyId, setBusyId] = useState<string | null>(null);
+  // 완전 삭제는 되돌릴 수 없다 — 앱 모달로 한 번 더 묻는다. window.confirm은
+  // 데스크톱 웹뷰에서 뜨지 않아 아무 일도 없는 것처럼 보였다(2026-08-24 QA).
+  const [purgeTarget, setPurgeTarget] = useState<TrashItem | null>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -68,11 +72,7 @@ const TrashView: React.FC<Props> = ({ token, onBack, onError, onChanged }) => {
   };
 
   const handlePurge = async (item: TrashItem) => {
-    // 복구할 수 없는 동작이므로 한 번 더 확인받는다.
-    const ok = window.confirm(
-      `"${item.name}"을(를) 완전히 삭제합니다.\n삭제한 뒤에는 복구할 수 없습니다.`,
-    );
-    if (!ok) return;
+    setPurgeTarget(null);
     setBusyId(item.id);
     try {
       await purgeTrashItem(item.id, token);
@@ -152,7 +152,7 @@ const TrashView: React.FC<Props> = ({ token, onBack, onError, onChanged }) => {
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => void handlePurge(item)}
+                  onClick={() => setPurgeTarget(item)}
                   className="h-[30px] shrink-0 rounded-[8px] border border-gray-200 bg-white px-4 text-[13px] font-semibold text-gray-600 transition-colors hover:border-red-200 hover:text-red-500 disabled:opacity-50"
                 >
                   삭제
@@ -162,6 +162,20 @@ const TrashView: React.FC<Props> = ({ token, onBack, onError, onChanged }) => {
           })}
         </ul>
       )}
+
+      <ConfirmModal
+        isOpen={purgeTarget !== null}
+        title="완전히 삭제할까요?"
+        message={
+          purgeTarget
+            ? `"${purgeTarget.name}"을(를) 완전히 삭제합니다.\n삭제한 뒤에는 복구할 수 없습니다.`
+            : ''
+        }
+        confirmLabel="완전 삭제"
+        busy={busyId === purgeTarget?.id}
+        onClose={() => setPurgeTarget(null)}
+        onConfirm={() => purgeTarget && void handlePurge(purgeTarget)}
+      />
     </div>
   );
 };

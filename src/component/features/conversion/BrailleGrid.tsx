@@ -7,7 +7,6 @@ import React, {
 } from 'react';
 import { ConversionTab, TABS } from '../../../types';
 import { annotateMath } from '../../../utils/mathAnnotate';
-import LatexRenderer from './LatexRenderer';
 import {
   deleteAt,
   deleteBefore,
@@ -516,7 +515,6 @@ const BrailleGrid: React.FC<Props> = ({
               const mathCells = math?.underline.get(rowIndex);
               const hitCells = findCells?.get(rowIndex);
               const activeHitCells = activeFindCells?.get(rowIndex);
-              const formulas = math?.formulasAfterRow.get(rowIndex);
               // 검토 필요(review) 블록은 디자인대로 주황 테두리로 감싼다 —
               // 배경색만으로 알리는 선택(대조) 상태와 섞이지 않게 하는 구분이기도 하다.
               // 한 블록이 여러 줄이면 줄마다 그리지 않고 한 덩어리로 두른다.
@@ -608,26 +606,7 @@ const BrailleGrid: React.FC<Props> = ({
                 </div>
               );
 
-              // 수식이 끝나는 줄 바로 아래에 조판된 모양으로 한 번 더 보여 준다.
-              if (!formulas?.length) return rowNode;
-              return (
-                <React.Fragment key={rowIndex}>
-                  {rowNode}
-                  <div className="flex w-full items-start gap-2 border-t border-[#eef2f7] bg-[#fbfcfe] px-2 py-1.5">
-                    <span
-                      aria-hidden
-                      className="shrink-0 text-[9.5px] font-bold text-[#5b8ce6]"
-                    >
-                      수식
-                    </span>
-                    <div className="min-w-0 text-[13px] text-gray-700">
-                      {formulas.map((formula: string, i: number) => (
-                        <LatexRenderer key={i} text={`$${formula}$`} />
-                      ))}
-                    </div>
-                  </div>
-                </React.Fragment>
-              );
+              return rowNode;
             })}
           </div>
         </div>

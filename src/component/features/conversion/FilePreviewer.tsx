@@ -191,13 +191,12 @@ const FilePreviewer: React.FC<Props> = memo(
                         >
                           수식
                         </span>
-                        {/* 밑줄 친 구간만 조판해 보여 준다 — 문장까지 다시 그리면
-                            같은 글이 두 번 보여 오히려 읽기 어렵다. */}
-                        <div className="min-w-0 text-[13px] text-gray-700">
-                          {findMath(block.content).map((m, i) => (
-                            <LatexRenderer key={i} text={`$${m.body}$`} />
-                          ))}
-                        </div>
+                        {/* 문장을 통째로 조판해 보여 준다 — 수식만 떼어 놓으면
+                            앞뒤 맥락이 끊겨 무엇을 가리키는 식인지 알기 어렵다. */}
+                        <LatexRenderer
+                          text={block.content}
+                          className="min-w-0 whitespace-pre-wrap text-[13px] text-gray-700"
+                        />
                       </div>
                     )}
                   </div>

@@ -54,6 +54,8 @@ import BrailleGrid, {
 } from './component/features/conversion/BrailleGrid';
 import ContextMenu from './component/shared/ContextMenu';
 import CandidateModal from './component/features/conversion/CandidateModal';
+import LatexRenderer from './component/features/conversion/LatexRenderer';
+import ConfirmModal from './component/shared/ConfirmModal';
 import FindBar, { FindScope } from './component/features/conversion/FindBar';
 import LoginScreen from './component/features/auth/LoginScreen';
 import MyPage from './component/features/mypage/MyPage';
@@ -90,6 +92,7 @@ import { toUserMessage } from './api/errorMessages';
 import { ApiError } from './api/apiClient';
 import { mapPageResult } from './utils/mapPageResult';
 import { needsStreamResume, receivedPages } from './utils/tabResume';
+import { hasMath } from './utils/mathText';
 import { replaceRanges, searchGrid, searchTextBlocks } from './utils/docSearch';
 import { saveBlob } from './utils/download';
 import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
@@ -304,6 +307,10 @@ const Semojum: React.FC = () => {
   // 마우스를 얹으면 대조 상자를 그릴 자리가 없어 화면이 어긋났다(2026-08-24 QA).
   // 둘이 다 준비될 때까지는 진행 표시만 보여 준다.
   const [isRestoringJob, setIsRestoringJob] = useState(false);
+  // 되돌릴 수 없는 조작을 묻는 창(작업 비우기 · 모드 이동).
+  const [pendingConfirm, setPendingConfirm] = useState<
+    { kind: 'reset' } | { kind: 'tab'; tab: ConversionTab } | null
+  >(null);
   const [originalLoadError, setOriginalLoadError] = useState<string | null>(
     null,
   );
@@ -429,14 +436,7 @@ const Semojum: React.FC = () => {
   // 예전에는 아무 확인 없이 바로 화면을 비워, 사용자에게는 "취소를 누르니 모달도
   // 없이 변환이 끝났다"로 보였다 (QA 2026-08-09).
   // (isStreaming은 아래에서 만들어지므로 호출 시점에 읽는 일반 함수로 둔다)
-  const handleResetRequest = () => {
-    const converting = isUploading || isStreaming;
-    if (converting) {
-      const ok = window.confirm(
-        '변환이 아직 진행 중입니다.\n지금 비우면 변환을 중단합니다. 비울까요?',
-      );
-      if (!ok) return;
-    }
+  const performReset = (converting: boolean) => {
     // 화면만 비우면 서버는 계속 분석한다 — 크레딧도 그만큼 나간다.
     // 명세대로 취소 API를 불러 남은 페이지를 큐에서 뺀다(이미 AI에 들어간 페이지는
     // 마무리되고, 거기까지가 결과로 남는다). 실패해도 화면은 비운다.
@@ -457,17 +457,17 @@ const Semojum: React.FC = () => {
     handleReset();
   };
 
-  const handleTabChange = (tab: ConversionTab) => {
-    if (tab === activeTab) return;
-
-    // 변환이 진행 중이면 바로 이동해 작업이 끊기지 않도록 먼저 확인을 받는다.
+  // 변환 중이면 먼저 묻는다. window.confirm은 데스크톱 웹뷰에서 뜨지 않아
+  // "눌렀는데 아무것도 안 뜬다"가 됐다 — 앱 모달로 묻는다(2026-08-24 QA).
+  const handleResetRequest = () => {
     if (isUploading || isStreaming) {
-      const ok = window.confirm(
-        '변환 작업이 아직 진행 중입니다.\n지금 다른 모드로 이동하면 진행 중인 작업이 중단됩니다. 이동할까요?',
-      );
-      if (!ok) return;
+      setPendingConfirm({ kind: 'reset' });
+      return;
     }
+    performReset(false);
+  };
 
+  const performTabChange = (tab: ConversionTab) => {
     // 1) 떠나는 탭의 편집 내용을 서버에 밀어내고 화면 상태를 스냅샷으로 보관
     void editor.saveAllDirty();
     setTabSnapshots((prev) => ({ ...prev, [activeTab]: captureState() }));
@@ -859,6 +859,18 @@ const Semojum: React.FC = () => {
     replaceAllRef.current = replaceAll;
   }, [stepFind, replaceCurrent, replaceAll]);
 
+  // 마우스를 얹은 블록의 수식을 판면 아래에서 통째로 조판해 보여 준다.
+  // 판면은 32칸 격자라 LaTeX가 한 글자씩 흩뿌려져 읽을 수 없다 — 밑줄로 어디가
+  // 수식인지 표시하고, 실제 모양은 이 자리에서 블록 단위로 확인한다.
+  const hoveredMathBlock = useMemo(() => {
+    if (!hoverBlockId) return null;
+    for (const blocks of Object.values(blocksByPage)) {
+      const found = blocks.find((b) => b.id === hoverBlockId);
+      if (found) return hasMath(found.currentText) ? found : null;
+    }
+    return null;
+  }, [hoverBlockId, blocksByPage]);
+
   const caretSource = caret ? (gridRows[caret.rowIndex]?.source ?? null) : null;
   const caretBlocks = caretSource
     ? (blocksByPage[caretSource.pageNo] ?? [])
@@ -1072,6 +1084,16 @@ const Semojum: React.FC = () => {
     insertPageNumber,
     footerText,
   ]);
+
+  const handleTabChange = (tab: ConversionTab) => {
+    if (tab === activeTab) return;
+    // 변환이 진행 중이면 바로 이동해 작업이 끊기지 않도록 먼저 확인을 받는다.
+    if (isUploading || isStreaming) {
+      setPendingConfirm({ kind: 'tab', tab });
+      return;
+    }
+    performTabChange(tab);
+  };
 
   // 라이브 업로드로 생성된 Job을 블록 편집 저장 대상으로 등록
   useEffect(() => {
@@ -2113,6 +2135,25 @@ const Semojum: React.FC = () => {
                   </div>
                 )}
 
+                {/* 수식 보기 — 마우스를 얹은 블록에 수식이 있을 때만 뜬다.
+                    읽기 전용이다: 고치는 곳은 위 판면 격자 하나뿐이어야 한다. */}
+                {hoveredMathBlock && (
+                  <section
+                    aria-label="수식 보기"
+                    className="order-last mt-2 shrink-0 rounded-[10px] border border-[#e2e8f0] bg-white px-3 py-2"
+                  >
+                    <p className="mb-1 text-[10.5px] font-bold text-gray-400">
+                      수식 보기 · 마우스를 얹은 블록
+                    </p>
+                    <div className="custom-scrollbar max-h-[140px] overflow-auto text-[13px] leading-relaxed text-gray-700">
+                      <LatexRenderer
+                        text={hoveredMathBlock.currentText}
+                        className="whitespace-pre-wrap"
+                      />
+                    </div>
+                  </section>
+                )}
+
                 {/* min-h-0 — flex 아이템 기본값(min-height:auto)이면 격자가 제 높이만큼
                     이 칸을 밀어내 스크롤이 걸리지 않는다. */}
                 <div className="min-h-0 flex-1 overflow-hidden pr-1">
@@ -2342,6 +2383,32 @@ const Semojum: React.FC = () => {
         busy={isSending}
         onCancel={() => setIsOverwriteOpen(false)}
         onConfirm={() => void runSendToBraille(true)}
+      />
+
+      {/* 되돌릴 수 없는 조작 확인 — 변환 중 작업 비우기 · 모드 이동 */}
+      <ConfirmModal
+        isOpen={pendingConfirm !== null}
+        title={
+          pendingConfirm?.kind === 'tab'
+            ? '다른 모드로 이동할까요?'
+            : '변환을 중단할까요?'
+        }
+        message={
+          pendingConfirm?.kind === 'tab'
+            ? '변환이 아직 진행 중입니다.\n지금 이동하면 진행 중인 변환이 중단됩니다.'
+            : '변환이 아직 진행 중입니다.\n지금 비우면 변환을 중단하고 화면을 비웁니다.'
+        }
+        confirmLabel={
+          pendingConfirm?.kind === 'tab' ? '이동' : '중단하고 비우기'
+        }
+        onClose={() => setPendingConfirm(null)}
+        onConfirm={() => {
+          const target = pendingConfirm;
+          setPendingConfirm(null);
+          if (!target) return;
+          if (target.kind === 'tab') performTabChange(target.tab);
+          else performReset(true);
+        }}
       />
 
       {/* 하단 토스트 — 저장·이동·삭제 실패 등 짧은 안내 (모달 공통 규칙) */}
