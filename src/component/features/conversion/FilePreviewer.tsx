@@ -33,17 +33,13 @@ interface Props {
   onBlockHover?: (id: string | null) => void;
 }
 
-// 원본 텍스트 한 블록을 그린다 — 수식 구간에는 밑줄(기능정의서 "결과 렌더링" D-2),
-// 찾기(Ctrl+F)에 걸린 구간에는 노란 칠. 두 표시가 겹칠 수 있어 글자 단위로 한 번에 나눈다.
+// 원본 텍스트 한 블록을 그린다 — 찾기(Ctrl+F)에 걸린 구간에 노란 칠을 한다.
+// 수식 구간 밑줄은 뺐다(2026-08-24 요청) — 조판된 모양은 아래 "수식" 칸이 보여 준다.
 const renderWithFind = (
   content: string,
   hits: { start: number; end: number }[],
   active: { start: number; end: number } | null,
 ): React.ReactNode[] => {
-  const mathAt = new Set<number>();
-  findMath(content).forEach((m) => {
-    for (let i = m.start; i < m.end; i++) mathAt.add(i);
-  });
   const hitAt = new Set<number>();
   hits.forEach((h) => {
     for (let i = h.start; i < h.end; i++) hitAt.add(i);
@@ -54,18 +50,11 @@ const renderWithFind = (
   }
 
   const classOf = (i: number) =>
-    [
-      mathAt.has(i)
-        ? 'underline decoration-[#5b8ce6] decoration-2 underline-offset-2'
-        : '',
-      activeAt.has(i)
-        ? 'bg-[#f9c74f] text-gray-900'
-        : hitAt.has(i)
-          ? 'bg-[#fdf1c7]'
-          : '',
-    ]
-      .filter(Boolean)
-      .join(' ');
+    activeAt.has(i)
+      ? 'bg-[#f9c74f] text-gray-900'
+      : hitAt.has(i)
+        ? 'bg-[#fdf1c7]'
+        : '';
 
   // 같은 표시가 이어지는 동안은 한 조각으로 묶는다.
   const nodes: React.ReactNode[] = [];
