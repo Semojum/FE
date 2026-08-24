@@ -299,6 +299,11 @@ const Semojum: React.FC = () => {
   // 마이페이지에서 복원한 작업의 원본 파일명(라이브 업로드는 fileState.file이 들고 있다).
   const [originalFileName, setOriginalFileName] = useState<string | null>(null);
   // 복원 작업의 원본(PDF/이미지) 로드 실패 안내와 "다시 시도" 신호.
+  // 마이페이지에서 작업을 열면 결과(블록)와 원본(페이지 PDF·이미지)이 서로 다른
+  // 시점에 도착한다. 예전에는 결과만 먼저 그려져, 아직 원본이 없는 패널 위로
+  // 마우스를 얹으면 대조 상자를 그릴 자리가 없어 화면이 어긋났다(2026-08-24 QA).
+  // 둘이 다 준비될 때까지는 진행 표시만 보여 준다.
+  const [isRestoringJob, setIsRestoringJob] = useState(false);
   const [originalLoadError, setOriginalLoadError] = useState<string | null>(
     null,
   );
@@ -1246,9 +1251,19 @@ const Semojum: React.FC = () => {
     dispatchActionRef.current = dispatchAction;
   }, [dispatchAction]);
 
+  // 원본 응답이 끝내 오지 않아도 화면이 갇히지는 않게 한다 — 진행 표시를 내리면
+  // 그 아래의 실패 안내·다시 시도 버튼을 쓸 수 있다.
+  useEffect(() => {
+    if (!isRestoringJob) return;
+    const id = window.setTimeout(() => setIsRestoringJob(false), 20_000);
+    return () => window.clearTimeout(id);
+  }, [isRestoringJob]);
+
   const handleJobLoaded = useCallback(
     (job: JobDetail) => {
       handleReset();
+      // 원본까지 준비되면 아래 effect가 내린다(점역 모드는 원본이 텍스트라 즉시).
+      setIsRestoringJob(job.mode !== TABS.BRAILLE);
       setActiveTab(job.mode);
       setAllBlocks(job.blocksByPage);
       // 복원된 블록을 "서버에 있는 요소"로 등록하고, 이 Job을 저장 대상으로 삼는다.
@@ -1306,6 +1321,8 @@ const Semojum: React.FC = () => {
             previewUrl: job.thumbnailUrl ?? null,
           });
           setSavedOriginalsByPage(null);
+          // 페이지 원본이 없으면 더 기다릴 것이 없다(썸네일로 폴백).
+          setIsRestoringJob(false);
         }
       }
       setIsMyPageOpen(false);
@@ -1351,6 +1368,7 @@ const Semojum: React.FC = () => {
             previewUrl: orig.url,
             isRestoredPages: true,
           });
+          setIsRestoringJob(false);
           return;
         }
 
@@ -1371,10 +1389,13 @@ const Semojum: React.FC = () => {
           previewUrl: blobUrl,
           isRestoredPages: true,
         });
+        setIsRestoringJob(false);
       } catch (e) {
         if (cancelled) return;
         // 실패를 삼키면 미리보기가 이유 없는 빈 화면이 된다 — 화면에 알린다.
+        // 진행 표시를 내려야 그 안내가 보인다.
         console.error(e);
+        setIsRestoringJob(false);
         setOriginalLoadError('원본을 불러오지 못했습니다.');
       }
     })();
@@ -1698,7 +1719,26 @@ const Semojum: React.FC = () => {
         )}
       </header>
 
-      <main className="flex min-h-0 w-full flex-1 flex-col items-center px-2 py-3">
+      <main className="relative flex min-h-0 w-full flex-1 flex-col items-center px-2 py-3">
+        {/* 작업을 불러오는 동안은 두 패널을 함께 덮는다 — 결과만 먼저 그려 놓으면
+            아직 원본이 없는 자리에 대조 상자를 그리려다 화면이 어긋난다.
+            "원본을 불러오지 못했습니다"를 성급히 띄우지 않는 효과도 있다. */}
+        {isRestoringJob && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-[#F0F4F8]/92"
+          >
+            <Loader2 className="h-9 w-9 animate-spin text-[#407FAC]" />
+            <p className="text-[14px] font-medium text-gray-600">
+              작업을 불러오는 중...
+            </p>
+            <p className="text-[12px] text-gray-400">
+              원본과 결과가 모두 준비되면 함께 보여 드립니다.
+            </p>
+          </div>
+        )}
+
         <div
           className={
             panelMode === 'both'
