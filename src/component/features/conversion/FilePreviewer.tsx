@@ -17,6 +17,19 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
+// pdf.js가 CID 폰트(한글 PDF가 흔히 쓴다)를 그리려면 CMap 파일이 필요하다. 이 값을
+// 안 주면 해당 페이지의 글자가 하나도 안 그려지고 표·선만 남는다 — 원본 2쪽이
+// 빈 표로 보이던 원인(2026-08-25 QA). 렌더 속도도 같이 무너진다(6,331ms → 164ms).
+// 파일은 vite.config.ts의 semojum:pdfjs-assets 플러그인이 /pdfjs/ 아래로 담는다.
+//
+// 이 객체는 반드시 모듈 수준 상수여야 한다 — react-pdf는 options의 참조가 바뀌면
+// 문서를 처음부터 다시 읽는다(렌더할 때마다 새 객체를 넘기면 무한 재로딩).
+const PDF_OPTIONS = {
+  cMapUrl: '/pdfjs/cmaps/',
+  cMapPacked: true,
+  standardFontDataUrl: '/pdfjs/standard_fonts/',
+};
+
 interface Props {
   state: FileState;
   onLoadSuccess: (numPages: number) => void;
@@ -220,6 +233,7 @@ const FilePreviewer: React.FC<Props> = memo(
             ) : (
               <Document
                 file={previewUrl}
+                options={PDF_OPTIONS}
                 // 마이페이지 복원본은 페이지별로 분리된 단일 페이지 PDF이므로 총 페이지 수를
                 // 덮어쓰지 않는다(총 페이지는 작업 메타에서 이미 설정됨).
                 onLoadSuccess={({ numPages }) =>

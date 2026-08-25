@@ -1,16 +1,26 @@
 // vite.config.ts
-import { readFileSync } from 'node:fs';
-import { defineConfig } from 'vite';
+import {
+  createReadStream,
+  existsSync,
+  readdirSync,
+  readFileSync,
+} from 'node:fs';
+import { extname, join } from 'node:path';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 // 앱 버전은 Tauri 설정을 단일 출처로 삼는다. GET /api/app/version?current= 에 그대로 보내고,
 // 서버가 minSupportedVersion과 비교해 강제 업데이트 여부를 계산한다.
-const appVersion = (
-  JSON.parse(
-    readFileSync(new URL('./src-tauri/tauri.conf.json', import.meta.url), 'utf-8'),
-  ) as { version?: string }
-).version ?? '0.0.0';
+const appVersion =
+  (
+    JSON.parse(
+      readFileSync(
+        new URL('./src-tauri/tauri.conf.json', import.meta.url),
+        'utf-8',
+      ),
+    ) as { version?: string }
+  ).version ?? '0.0.0';
 
 // 점자 조판 규칙은 Semojum/braille-assist가 단일 출처다(python·ts·java 동일 출력).
 // npm 미배포 + ts/가 하위 디렉터리라 bun add로 못 받으므로 submodule 소스를 직접 가리킨다.
@@ -22,8 +32,62 @@ export const alias = {
   ).pathname,
 };
 
+// pdf.js 보조 자료(CMap · 표준 글꼴)를 /pdfjs/ 아래로 함께 담는다.
+//
+// 한글 PDF는 CID 폰트를 쓰는 경우가 많은데, pdf.js는 그 글자를 그릴 때 CMap 파일을
+// 따로 읽어야 한다. 없으면 "Ensure that the cMapUrl ... are provided" 경고와 함께
+// 그 페이지의 글자가 **하나도 그려지지 않고** 표·선만 남는다. 렌더도 느려진다
+// (실측: 같은 쪽이 6,331ms → 164ms). 2026-08-25 QA에서 원본 2쪽이 빈 표로 보였다.
+//
+// 데스크톱 앱은 오프라인·CSP 때문에 CDN을 쓸 수 없으므로 번들에 넣는다.
+// node_modules를 단일 출처로 삼아 pdfjs-dist 버전과 어긋나지 않게 한다.
+const PDFJS_ASSET_DIRS = ['cmaps', 'standard_fonts'] as const;
+
+const pdfjsAssets = (): Plugin => {
+  const rootOf = (dir: string) =>
+    new URL(`./node_modules/pdfjs-dist/${dir}/`, import.meta.url).pathname;
+
+  return {
+    name: 'semojum:pdfjs-assets',
+
+    // 개발 서버: /pdfjs/<dir>/<file> 요청을 node_modules에서 바로 읽어 준다.
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const match = /^\/pdfjs\/(cmaps|standard_fonts)\/([\w.-]+)$/.exec(
+          (req.url ?? '').split('?')[0],
+        );
+        if (!match) return next();
+        const [, dir, file] = match;
+        const path = join(rootOf(dir), file);
+        if (!existsSync(path)) return next();
+        res.setHeader(
+          'Content-Type',
+          extname(file) === '.bcmap' ? 'application/octet-stream' : 'font/otf',
+        );
+        createReadStream(join(rootOf(dir), file))
+          .on('error', next)
+          .pipe(res);
+      });
+    },
+
+    // 빌드: dist/pdfjs/<dir>/ 아래로 그대로 복사한다.
+    generateBundle() {
+      for (const dir of PDFJS_ASSET_DIRS) {
+        const root = rootOf(dir);
+        for (const file of readdirSync(root)) {
+          this.emitFile({
+            type: 'asset',
+            fileName: `pdfjs/${dir}/${file}`,
+            source: readFileSync(join(root, file)),
+          });
+        }
+      }
+    },
+  };
+};
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), pdfjsAssets()],
   resolve: { alias },
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
