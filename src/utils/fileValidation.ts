@@ -9,16 +9,18 @@ export const detectFileType = (file: File): FileType => {
   return 'text';
 };
 
+// HWP는 초안 생성(a)에서 받는다 — 서버가 PDF로 바꿔 처리한다(2026-08-26 변경).
+// 텍스트 점자 번역(b)은 더 이상 HWP를 받지 않는다.
 export const TAB_ALLOWED_FILE_TYPES: Record<ConversionTab, FileType[]> = {
-  [TABS.OCR]: ['pdf'],
-  [TABS.BRAILLE]: ['text', 'hwp'],
+  [TABS.OCR]: ['pdf', 'hwp'],
+  [TABS.BRAILLE]: ['text'],
   [TABS.INTEGRATED]: ['pdf'],
 };
 
 // 에러 메시지/안내에 쓰는 사람이 읽을 수 있는 허용 형식 라벨
 export const TAB_ALLOWED_FILE_LABEL: Record<ConversionTab, string> = {
-  [TABS.OCR]: 'PDF',
-  [TABS.BRAILLE]: 'TXT, HWP',
+  [TABS.OCR]: 'PDF, HWP',
+  [TABS.BRAILLE]: 'TXT',
   [TABS.INTEGRATED]: 'PDF',
 };
 

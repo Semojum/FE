@@ -95,7 +95,7 @@ describe('useFileHandler', () => {
     });
 
     expect(result.current.fileState.file).toBeNull();
-    expect(result.current.fileState.error).toMatch(/TXT, HWP/);
+    expect(result.current.fileState.error).toMatch(/TXT/);
   });
 
   it('accepts an allowed file for the active tab and clears error', async () => {

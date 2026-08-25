@@ -1,23 +1,45 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, ChevronUp, X } from 'lucide-react';
 import DotInput from './DotInput';
+import { ConversionTab, TABS } from '../../../types';
 
 // 문서 안에서 찾기·바꾸기 (Ctrl+F) — 브라우저 찾기와 같은 관습으로 둔다.
 //  · Enter 다음 · Shift+Enter 이전 · Esc 닫기
-//  · 범위: 원본만 / 결과만 / 전체
-//  · 바꾸기는 **결과(출력)에만** 걸린다 — 원본 패널은 읽기 전용 미리보기라
-//    고칠 대상이 아니다. 그래서 범위가 '원본만'이면 바꾸기를 잠근다.
-//  · "점자로 입력": 로컬에 묵자→점자 번역기가 없어(조판 라이브러리는 번역을 하지 않는다)
-//    점형을 직접 찍는다(DotInput). 방식은 판면 격자와 같다 — F D S · J K L 을 함께
-//    누르고 떼면 한 글자가 커서 자리에 들어간다. 찾을 말·바꿀 말 양쪽에 적용된다.
+//  · 범위는 "어디를"이 아니라 "무슨 글자를"로 고른다 — 묵자 / 점자.
+//    한 화면에 묵자와 점자가 섞여 있어서, 원본·결과로 나누면 무엇을 어떻게 쳐야
+//    하는지가 드러나지 않았다(2026-08-26 요청).
+//  · 모드마다 존재하는 글자가 다르므로 없는 쪽은 잠근다(scopeAvailability 참고).
+//  · 점자를 고르면 입력도 6점으로 바뀐다 — 로컬에 묵자→점자 번역기가 없어
+//    (조판 라이브러리는 번역을 하지 않는다) 점형을 직접 찍어야 한다. 방식은 판면
+//    격자와 같다: F D S · J K L 을 함께 누르고 떼면 한 글자가 커서 자리에 들어간다.
+//  · 바꾸기는 **결과(출력)에만** 걸린다 — 원본 패널은 읽기 전용 미리보기다.
 
-export type FindScope = 'all' | 'original' | 'result';
+export type FindScope = 'original' | 'result';
 
-const SCOPE_LABEL: Record<FindScope, string> = {
-  all: '전체',
-  original: '원본만',
-  result: '결과만',
-};
+// 범위 이름은 그 자리에 실제로 무슨 글자가 있는지로 적는다. 원본은 언제나 묵자고,
+// 결과는 모드에 따라 묵자(초안 생성)이거나 점자(점자 번역)다 — "원본/결과"보다
+// 무엇을 어떻게 쳐야 하는지가 바로 드러난다(2026-08-26 요청).
+export const scopeLabels = (
+  mode: ConversionTab,
+): Record<FindScope, string> => ({
+  original: '묵자',
+  result: mode === TABS.OCR ? '묵자' : '점자',
+});
+
+// 그 모드에 없는 것은 잠근다.
+//  a(초안 생성)      원본·결과 모두 묵자 → 점자로 입력할 것이 없다
+//  b(텍스트 점자 번역) 원본은 묵자, 결과는 점자 → 둘 다
+//  c(이미지 점자 번역) 원본이 그림이라 찾을 묵자가 없다
+export const canSearchOriginal = (mode: ConversionTab) =>
+  mode !== TABS.INTEGRATED;
+export const canSearchBraille = (mode: ConversionTab) => mode !== TABS.OCR;
+
+// 잠긴 범위에 남아 있지 않게 한다(탭을 옮기면 바뀔 수 있다).
+export const resolveScope = (
+  mode: ConversionTab,
+  scope: FindScope,
+): FindScope =>
+  scope === 'original' && !canSearchOriginal(mode) ? 'result' : scope;
 
 interface Props {
   query: string;
@@ -26,6 +48,8 @@ interface Props {
   onScopeChange: (scope: FindScope) => void;
   brailleInput: boolean;
   onBrailleInputChange: (on: boolean) => void;
+  // 범위 이름과 잠금은 모드가 정한다.
+  mode: ConversionTab;
   total: number;
   current: number; // 0-based. total이 0이면 무시된다.
   onStep: (delta: 1 | -1) => void;
@@ -46,6 +70,7 @@ const FindBar: React.FC<Props> = ({
   onScopeChange,
   brailleInput,
   onBrailleInputChange,
+  mode,
   total,
   current,
   onStep,
@@ -56,8 +81,15 @@ const FindBar: React.FC<Props> = ({
   onReplace,
   onReplaceAll,
 }) => {
-  const [showReplace, setShowReplace] = useState(false);
-  // 원본은 읽기 전용이라 바꿀 수 없다 — 범위가 '원본만'이면 잠근다.
+  // 바꾸기 줄은 처음부터 펼쳐 둔다. 접어 두면 이런 기능이 있다는 걸 모른 채
+  // 찾기만 쓰게 된다(2026-08-26 QA). 필요하면 접을 수는 있게 남긴다.
+  const [showReplace, setShowReplace] = useState(true);
+  const labels = scopeLabels(mode);
+  const available: Record<FindScope, boolean> = {
+    original: canSearchOriginal(mode),
+    result: true,
+  };
+  // 원본은 읽기 전용이라 바꿀 수 없다 — 범위가 원본이면 잠근다.
   const canReplace = scope !== 'original' && total > 0;
 
   return (
@@ -118,31 +150,46 @@ const FindBar: React.FC<Props> = ({
           aria-label="찾을 범위"
           className="flex gap-0.5 rounded-[7px] bg-[#f0f4f8] p-[3px]"
         >
-          {(Object.keys(SCOPE_LABEL) as FindScope[]).map((s) => (
+          {(Object.keys(labels) as FindScope[]).map((s) => (
             <button
               key={s}
               type="button"
               role="radio"
               aria-checked={scope === s}
+              disabled={!available[s]}
+              title={
+                available[s]
+                  ? undefined
+                  : '이 모드의 원본은 그림이라 글자를 찾을 수 없습니다'
+              }
               onClick={() => onScopeChange(s)}
               className={`rounded-[5px] px-2 py-0.5 text-[11px] font-bold transition-colors ${
                 scope === s
                   ? 'bg-white text-[#5b8ce6]'
                   : 'text-gray-500 hover:text-[#5b8ce6]'
-              }`}
+              } disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:text-gray-300`}
             >
-              {SCOPE_LABEL[s]}
+              {labels[s]}
             </button>
           ))}
         </div>
 
         <label
-          title="점자를 직접 찍어 찾습니다 — 판면과 같은 방식(F D S · J K L 함께 누르고 떼기)"
-          className="flex cursor-pointer items-center gap-1 text-[11px] font-bold text-gray-500"
+          title={
+            canSearchBraille(mode)
+              ? '점자를 직접 찍어 찾습니다 — 판면과 같은 방식(F D S · J K L 함께 누르고 떼기)'
+              : '이 모드에는 점자가 없습니다'
+          }
+          className={`flex items-center gap-1 text-[11px] font-bold ${
+            canSearchBraille(mode)
+              ? 'cursor-pointer text-gray-500'
+              : 'cursor-not-allowed text-gray-300'
+          }`}
         >
           <input
             type="checkbox"
             checked={brailleInput}
+            disabled={!canSearchBraille(mode)}
             onChange={(e) => onBrailleInputChange(e.target.checked)}
             className="size-3 accent-[#5b8ce6]"
           />
@@ -189,7 +236,7 @@ const FindBar: React.FC<Props> = ({
           </button>
           <span className="text-[10.5px] text-gray-400">
             {scope === 'original'
-              ? '원본은 바꿀 수 없습니다 — 범위를 결과로 바꿔 주세요'
+              ? `원본은 바꿀 수 없습니다 — 범위를 ${labels.result}로 바꿔 주세요`
               : '결과(출력)만 바뀝니다'}
           </span>
         </div>

@@ -43,7 +43,7 @@ export type SyncAction =
 export interface FindSyncState {
   open: boolean;
   query: string;
-  scope: 'all' | 'original' | 'result';
+  scope: 'original' | 'result';
   brailleInput: boolean;
   index: number;
   replacement: string;

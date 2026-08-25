@@ -64,16 +64,42 @@ export const useSavedJobs = ({
       let originalFileName = '';
 
       try {
-        for (let page = 1; page <= job.totalPages; page += 1) {
-          let pageData;
-          try {
-            pageData = await getJobPage(token, job.jobId, page);
-          } catch (e) {
-            // 아직 변환 결과가 없는 페이지(JOB4001)는 건너뛴다.
-            // 그 외(인증 만료 등)는 표면화해 사용자에게 알린다.
-            if (e instanceof ApiError && e.code === 'JOB4001') continue;
-            throw e;
+        // 쪽별 조회를 여러 개씩 겹쳐 부른다.
+        //
+        // 예전에는 1쪽부터 마지막 쪽까지 **한 번에 하나씩** 기다렸다. 왕복 한 번이
+        // 0.7~1초쯤이라 10쪽짜리는 열기만 5~10초가 걸렸다(2026-08-26 QA). 쪽끼리는
+        // 서로 기다릴 이유가 없다. 서버·회선을 한꺼번에 때리지 않도록 몇 개씩만 겹친다.
+        const CONCURRENCY = 5;
+        const pages = Array.from({ length: job.totalPages }, (_, i) => i + 1);
+        const results: Array<
+          [number, Awaited<ReturnType<typeof getJobPage>>] | null
+        > = new Array(pages.length).fill(null);
+
+        let next = 0;
+        const worker = async () => {
+          for (;;) {
+            const idx = next;
+            next += 1;
+            if (idx >= pages.length) return;
+            const page = pages[idx];
+            try {
+              results[idx] = [page, await getJobPage(token, job.jobId, page)];
+            } catch (e) {
+              // 아직 변환 결과가 없는 페이지(JOB4001)는 건너뛴다.
+              // 그 외(인증 만료 등)는 표면화해 사용자에게 알린다.
+              if (e instanceof ApiError && e.code === 'JOB4001') continue;
+              throw e;
+            }
           }
+        };
+        await Promise.all(
+          Array.from({ length: Math.min(CONCURRENCY, pages.length) }, worker),
+        );
+
+        // 쪽 번호 순서대로 정리한다 — 받은 순서는 뒤섞일 수 있다.
+        for (const entry of results) {
+          if (!entry) continue;
+          const [page, pageData] = entry;
           const mapped = mapPageResult(tab, pageData.result ?? {});
           blocksByPage[page] = mapped.blocks;
           bboxDataByPage[page] = mapped.bboxes;

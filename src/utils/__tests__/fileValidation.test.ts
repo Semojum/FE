@@ -36,21 +36,27 @@ describe('isFileAllowedForTab', () => {
     );
   });
 
-  it('점역(b) 모드는 TXT/HWP만 허용', () => {
+  // HWP는 초안 생성(a)이 받는다 — 서버가 PDF로 바꿔 처리한다(2026-08-26 변경).
+  it('점역(b) 모드는 TXT만 허용', () => {
     expect(isFileAllowedForTab(file('a.txt', 'text/plain'), TABS.BRAILLE)).toBe(
       true,
     );
-    expect(isFileAllowedForTab(file('a.hwp', ''), TABS.BRAILLE)).toBe(true);
+    expect(isFileAllowedForTab(file('a.hwp', ''), TABS.BRAILLE)).toBe(false);
     expect(
       isFileAllowedForTab(file('a.pdf', 'application/pdf'), TABS.BRAILLE),
     ).toBe(false);
+  });
+
+  it('초안 생성(a) 모드는 PDF와 HWP를 받는다', () => {
+    expect(isFileAllowedForTab(file('a.hwp', ''), TABS.OCR)).toBe(true);
+    expect(isFileAllowedForTab(file('a.hwp', ''), TABS.INTEGRATED)).toBe(false);
   });
 });
 
 describe('TAB_ALLOWED_FILE_TYPES', () => {
   it('명세와 일치', () => {
-    expect(TAB_ALLOWED_FILE_TYPES[TABS.OCR]).toEqual(['pdf']);
-    expect(TAB_ALLOWED_FILE_TYPES[TABS.BRAILLE]).toEqual(['text', 'hwp']);
+    expect(TAB_ALLOWED_FILE_TYPES[TABS.OCR]).toEqual(['pdf', 'hwp']);
+    expect(TAB_ALLOWED_FILE_TYPES[TABS.BRAILLE]).toEqual(['text']);
     expect(TAB_ALLOWED_FILE_TYPES[TABS.INTEGRATED]).toEqual(['pdf']);
   });
 });
@@ -59,10 +65,10 @@ describe('fileValidationMessage', () => {
   it('탭 라벨과 허용 형식을 포함', () => {
     // 식별자(a/b/c)가 아니라 사람이 읽는 모드 이름이 들어가야 한다.
     expect(fileValidationMessage(TABS.OCR)).toBe(
-      '초안 생성 모드는 PDF 파일만 지원합니다.',
+      '초안 생성 모드는 PDF, HWP 파일만 지원합니다.',
     );
     expect(fileValidationMessage(TABS.BRAILLE)).toBe(
-      '텍스트 점자 번역 모드는 TXT, HWP 파일만 지원합니다.',
+      '텍스트 점자 번역 모드는 TXT 파일만 지원합니다.',
     );
   });
 });

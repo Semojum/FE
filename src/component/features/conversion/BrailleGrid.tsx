@@ -166,6 +166,9 @@ const GridPage = React.memo<PageProps>(
     // 남으므로 스크롤 이동(scrollIntoView)과 검색은 예전처럼 동작한다.
     <div
       className="mb-5 w-max px-1 pt-2"
+      // contain-intrinsic-size의 auto: 한 번 그려진 뒤에는 **실제** 크기를 기억한다.
+      // 예상값만 쓰면 화면 밖 면의 높이가 실제와 달라, 위쪽 면으로 스크롤할 때
+      // 그 면들이 다시 배치되며 목표가 밀려 엉뚱한 곳에 섰다(2026-08-26 QA).
       style={{ contentVisibility: 'auto', containIntrinsicSize: intrinsic }}
     >
       {/* 칸 눈금 — 왼쪽 끝에 이 면이 몇 쪽인지 함께 적는다.
@@ -438,10 +441,17 @@ const BrailleGrid: React.FC<Props> = React.memo(
     // data-row로 찾는다(면이 화면 밖이어도 DOM에는 있다).
     useEffect(() => {
       if (scrollToRow == null) return;
-      const el = scrollRef.current?.querySelector(
-        `[data-row="${scrollToRow}"]`,
-      ) as HTMLElement | null;
-      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const find = () =>
+        scrollRef.current?.querySelector(
+          `[data-row="${scrollToRow}"]`,
+        ) as HTMLElement | null;
+      find()?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // 지나온 면들이 화면에 들어오며 뒤늦게 배치되면 목표 줄의 위치가 달라진다.
+      // 배치가 끝난 다음 프레임에 한 번 더 맞춘다(특히 위쪽으로 갈 때).
+      const id = requestAnimationFrame(() =>
+        find()?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+      );
+      return () => cancelAnimationFrame(id);
     }, [scrollToRow]);
 
     // 스크롤 위치로 현재 보고 있는 출력 쪽을 계산한다.
@@ -774,7 +784,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
               hoverBlockId={pageHover}
               findCells={findByPage?.[pageIdx]}
               activeFindCells={activeFindByPage?.[pageIdx]}
-              intrinsic={`${26 + CELLS_PER_ROW * 19 + 8}px ${page.rows.length * 19 + 60}px`}
+              intrinsic={`auto ${26 + CELLS_PER_ROW * 19 + 8}px auto ${page.rows.length * 19 + 60}px`}
             />
           );
         })}

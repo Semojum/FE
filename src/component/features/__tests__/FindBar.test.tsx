@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import FindBar from '../conversion/FindBar';
+import { TABS } from '../../../types';
 
 // 문서 안에서 찾기 — 브라우저 관습(Enter/Shift+Enter/Esc)과 점역사 관습(6점 입력).
 
@@ -11,10 +12,12 @@ const setup = (
   const props = {
     query: '',
     onQueryChange: vi.fn(),
-    scope: 'all' as const,
+    scope: 'result' as const,
     onScopeChange: vi.fn(),
     brailleInput: false,
     onBrailleInputChange: vi.fn(),
+    // 텍스트 점자 번역(b)은 원본(묵자)·결과(점자)가 모두 있는 모드다.
+    mode: TABS.BRAILLE,
     total: 0,
     current: 0,
     onStep: vi.fn(),
@@ -52,16 +55,37 @@ describe('FindBar', () => {
     expect(screen.getByText('2/3')).toBeTruthy();
   });
 
-  it('범위를 고를 수 있다', async () => {
+  // 범위 이름은 그 자리에 있는 글자로 적는다 — 원본은 늘 묵자, 결과는 모드에 따라
+  // 묵자(초안 생성)이거나 점자(점자 번역)다.
+  it('텍스트 점자 번역에서는 묵자·점자로 보인다', async () => {
     const props = setup();
-    await userEvent.click(screen.getByRole('radio', { name: '원본만' }));
+    await userEvent.click(screen.getByRole('radio', { name: '묵자' }));
     expect(props.onScopeChange).toHaveBeenCalledWith('original');
+    expect(screen.getByRole('radio', { name: '점자' })).toBeTruthy();
+  });
+
+  it('초안 생성에서는 결과도 묵자로 보이고 점자 입력을 잠근다', () => {
+    setup({ mode: TABS.OCR });
+    expect(screen.getAllByRole('radio', { name: '묵자' })).toHaveLength(2);
+    expect(
+      (screen.getByLabelText('점자로 입력') as HTMLInputElement).disabled,
+    ).toBe(true);
+  });
+
+  it('이미지 점자 번역에서는 원본(묵자) 범위를 잠근다', () => {
+    setup({ mode: TABS.INTEGRATED });
+    expect(
+      screen.getByRole('radio', { name: '묵자' }).hasAttribute('disabled'),
+    ).toBe(true);
+    expect(
+      (screen.getByLabelText('점자로 입력') as HTMLInputElement).disabled,
+    ).toBe(false);
   });
 
   // 입력 방식은 판면 격자(출력란)와 같다 — 함께 누르고 **떼는 순간** 한 글자가 들어간다.
   // 예전에는 스페이스로 확정하고 늘 끝에만 붙어, 커서를 옮겨도 소용이 없었다.
   it('점자 입력: 함께 누르고 떼면 점형 한 글자가 들어간다', () => {
-    const props = setup({ brailleInput: true });
+    const props = setup({ scope: 'result' as const, brailleInput: true });
     const input = screen.getByLabelText('찾을 점자');
 
     // 1·2·4점 = ⠋ (자판 배열과 무관하게 e.code로 본다)
@@ -74,7 +98,11 @@ describe('FindBar', () => {
   });
 
   it('점자 입력: 스페이스는 커서 자리에 빈 칸을 넣는다', () => {
-    const props = setup({ brailleInput: true, query: '⠋' });
+    const props = setup({
+      scope: 'result' as const,
+      brailleInput: true,
+      query: '⠋',
+    });
     const input = screen.getByLabelText('찾을 점자') as HTMLInputElement;
     // 열 때 전체 선택되므로(브라우저 찾기와 같은 습관) 커서를 끝으로 옮겨 둔다.
     input.setSelectionRange(1, 1);
@@ -84,7 +112,11 @@ describe('FindBar', () => {
   });
 
   it('점자 입력: 커서 자리에 끼워 넣는다 (끝에만 붙지 않는다)', () => {
-    const props = setup({ brailleInput: true, query: '⠈⠪' });
+    const props = setup({
+      scope: 'result' as const,
+      brailleInput: true,
+      query: '⠈⠪',
+    });
     const input = screen.getByLabelText('찾을 점자') as HTMLInputElement;
     input.setSelectionRange(1, 1); // 두 칸 사이
 
@@ -95,7 +127,7 @@ describe('FindBar', () => {
   });
 
   it('점자 입력에서는 6점 키가 아닌 문자키를 삼킨다', () => {
-    const props = setup({ brailleInput: true });
+    const props = setup({ scope: 'result' as const, brailleInput: true });
     // 퍼킨스 타법에서 S·D·F·J·K·L 옆의 A·G·H를 잘못 눌러도 찍히지 않아야 한다.
     fireEvent.keyDown(screen.getByLabelText('찾을 점자'), {
       key: 'g',
@@ -105,9 +137,9 @@ describe('FindBar', () => {
   });
 
   // 바꾸기는 결과(출력)에만 — 원본 패널은 읽기 전용 미리보기다.
-  it('바꾸기를 펼치면 바꿀 말과 두 버튼이 나온다', async () => {
-    const props = setup({ query: '굴절', total: 2 });
-    await userEvent.click(screen.getByLabelText('바꾸기 펼치기'));
+  it('바꿀 말과 두 버튼이 처음부터 보인다', async () => {
+    // 초안 생성(a)의 묵자는 결과 격자라 바꾸기가 열려 있다.
+    const props = setup({ query: '굴절', total: 2, mode: TABS.OCR });
 
     await userEvent.type(screen.getByLabelText('바꿀 말'), '굴절 지수');
     await userEvent.click(screen.getByText('바꾸기'));
@@ -117,19 +149,23 @@ describe('FindBar', () => {
     expect(props.onReplaceAll).toHaveBeenCalled();
   });
 
-  it('범위가 원본만이면 바꾸기를 잠근다', async () => {
-    setup({ query: '굴절', total: 2, scope: 'original' });
-    await userEvent.click(screen.getByLabelText('바꾸기 펼치기'));
+  // 원본은 읽기 전용이라 바꿀 수 없다. 안내 문구는 그 모드의 결과 이름으로 적는다.
+  it('범위가 원본이면 바꾸기를 잠그고 결과 이름으로 안내한다', () => {
+    setup({ query: '굴절', total: 2, scope: 'original', mode: TABS.BRAILLE });
 
     expect(screen.getByText('바꾸기').closest('button')?.disabled).toBe(true);
     expect(
-      screen.getByText('원본은 바꿀 수 없습니다 — 범위를 결과로 바꿔 주세요'),
+      screen.getByText('원본은 바꿀 수 없습니다 — 범위를 점자로 바꿔 주세요'),
     ).toBeTruthy();
   });
 
   it('점자로 입력을 켜면 바꿀 말도 점형으로 찍는다', async () => {
-    const props = setup({ query: '⠈', total: 1, brailleInput: true });
-    await userEvent.click(screen.getByLabelText('바꾸기 펼치기'));
+    const props = setup({
+      query: '⠈',
+      total: 1,
+      scope: 'result' as const,
+      brailleInput: true,
+    });
 
     const field = screen.getByLabelText('바꿀 점자');
     fireEvent.keyDown(field, { code: 'KeyF' });
@@ -137,5 +173,15 @@ describe('FindBar', () => {
     fireEvent.keyDown(field, { code: 'KeyJ' });
     fireEvent.keyUp(field, { code: 'KeyF' });
     expect(props.onReplacementChange).toHaveBeenLastCalledWith('⠋');
+  });
+
+  // 펼침이 기본이지만 접을 수는 있어야 한다(2026-08-26 QA로 기본값만 뒤집었다).
+  it('접기 단추로 바꾸기 줄을 숨길 수 있다', async () => {
+    setup({ query: '굴절', total: 2 });
+    expect(screen.queryByLabelText('바꿀 말')).toBeTruthy();
+
+    await userEvent.click(screen.getByLabelText('바꾸기 접기'));
+
+    expect(screen.queryByLabelText('바꿀 말')).toBeNull();
   });
 });

@@ -56,7 +56,10 @@ import ContextMenu from './component/shared/ContextMenu';
 import CandidateModal from './component/features/conversion/CandidateModal';
 import LatexRenderer from './component/features/conversion/LatexRenderer';
 import ConfirmModal from './component/shared/ConfirmModal';
-import FindBar, { FindScope } from './component/features/conversion/FindBar';
+import FindBar, {
+  FindScope,
+  resolveScope,
+} from './component/features/conversion/FindBar';
 import LoginScreen from './component/features/auth/LoginScreen';
 import MyPage from './component/features/mypage/MyPage';
 import InquiryFab from './component/features/support/InquiryFab';
@@ -260,6 +263,10 @@ const Semojum: React.FC = () => {
   } | null>(null);
   const [visibleOutputPage, setVisibleOutputPage] = useState(1);
   const [scrollToRow, setScrollToRow] = useState<number | null>(null);
+  // 원본 미리보기를 맨 위로 올리라는 신호. 쪽 번호를 눌러 넘겼을 때만 올린다 —
+  // 블록을 골라 넘어온 경우에는 그 블록 자리로 가야 하므로 건드리면 안 된다
+  // (2026-08-26 QA: 우측에서 아래쪽 블록을 고르면 좌측이 위로 튀어 안 보였다).
+  const [originalTopToken, setOriginalTopToken] = useState(0);
   // 취소 처리 — "전송 중"(업로드 응답 전)에 X를 누르면 아직 jobId가 없어 취소 API를
   // 부를 수가 없다. 그래서 업로드마다 세대 번호를 매기고, 취소하면 세대를 넘긴다.
   // 응답이 돌아왔을 때 세대가 바뀌어 있으면 붙이지 않고 그 자리에서 취소한다.
@@ -272,7 +279,8 @@ const Semojum: React.FC = () => {
   // 훑는 편이 인덱스를 만들고 편집마다 갱신하는 것보다 싸다(docSearch 주석 참고).
   const [isFindOpen, setIsFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
-  const [findScope, setFindScope] = useState<FindScope>('all');
+  // 범위: 원본만 / 결과만. 화면에는 그 자리에 있는 글자 이름(묵자·점자)으로 보인다.
+  const [findScope, setFindScope] = useState<FindScope>('result');
   const [findBrailleInput, setFindBrailleInput] = useState(false);
   const [findReplacement, setFindReplacement] = useState('');
   const [findIndex, setFindIndex] = useState(0);
@@ -769,18 +777,31 @@ const Semojum: React.FC = () => {
 
   // 커서가 놓인 줄의 블록 — 결과 패널 블록 버튼(추가·이동·삭제·대체 텍스트)의 대상.
   // 우클릭 메뉴만으로는 기능이 있는지조차 알기 어려웠다 (QA "블록 관련 버튼 생성").
-  // 찾기 결과 — 범위(원본만/결과만/전체)에 따라 훑을 곳이 달라진다.
+  // 이미지 점자 번역(c)의 원본은 그림이라 찾을 글자가 없다 — 잠긴 범위에 남지 않게 한다.
+  const effectiveFindScope = resolveScope(activeTab, findScope);
+  useEffect(() => {
+    if (effectiveFindScope !== findScope) setFindScope(effectiveFindScope);
+  }, [effectiveFindScope, findScope]);
+
+  // 찾기 결과 — 범위에 따라 훑을 곳이 달라진다.
   const findHits = useMemo(() => {
     const query = findQuery.trim();
     if (!isFindOpen || !query) return { grid: [], text: [] };
     return {
-      grid: findScope === 'original' ? [] : searchGrid(gridRows, query),
+      grid:
+        effectiveFindScope === 'original' ? [] : searchGrid(gridRows, query),
       text:
-        findScope === 'result'
+        effectiveFindScope === 'result'
           ? []
           : searchTextBlocks(currentOriginalTexts, query),
     };
-  }, [isFindOpen, findQuery, findScope, gridRows, currentOriginalTexts]);
+  }, [
+    isFindOpen,
+    findQuery,
+    effectiveFindScope,
+    gridRows,
+    currentOriginalTexts,
+  ]);
 
   // 이동 순서는 "원본 먼저, 그다음 결과" — 화면 왼쪽에서 오른쪽으로 읽는 순서다.
   const findTotal = findHits.text.length + findHits.grid.length;
@@ -1000,6 +1021,8 @@ const Semojum: React.FC = () => {
     }
     // 값을 비우는 것은 위의 scrollToRow 정리 effect가 맡는다(같은 줄 재선택 대비).
     setScrollToRow(firstRowIndexOfPage(gridRows, currentPage));
+    // 쪽 번호로 넘어온 경우다 — 원본도 그 쪽 맨 위부터 보여 준다.
+    setOriginalTopToken((v) => v + 1);
     // gridRows가 바뀔 때마다 스크롤하면 스트리밍 중 계속 튀므로 페이지만 본다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage]);
@@ -1503,10 +1526,85 @@ const Semojum: React.FC = () => {
     originalReloadToken,
   ]);
 
-  const { handleSelectJob } = useSavedJobs({
+  // 보고 있는 쪽의 앞뒤를 미리 받아 둔다.
+  //
+  // 복원한 작업은 쪽마다 서명 URL을 새로 받고 그 쪽 원본을 통째로 내려받는다. 원본
+  // 대조는 쪽을 차례로 넘기며 하는 일이라, 넘길 때마다 그 대기(테스터 PC에서 1~2초,
+  // 여는 순간은 5~10초)를 그대로 맞는다. 지금 쪽을 다 그린 뒤 조용히 이웃 쪽을 채워
+  // 두면 다음 넘김이 캐시에서 바로 나온다(2026-08-26 QA).
+  useEffect(() => {
+    if (!savedOriginalsByPage || !workingJobId || !auth.token) return;
+    const token = auth.token;
+    const jobId = workingJobId;
+    const total = fileState.totalPages;
+    let cancelled = false;
+
+    const warm = async (page: number) => {
+      if (page < 1 || (total > 0 && page > total)) return;
+      const key = `${jobId}:${page}`;
+      const cache = originalBlobCacheRef.current;
+      if (cache.has(key)) return;
+      try {
+        const fresh = await getJobPage(token, jobId, page);
+        const url = fresh.original?.url;
+        // 이미지 원본은 원격 URL을 그대로 쓰는 경로라 미리 받아도 소용이 없다.
+        if (!url || fresh.original?.type === 'image' || cancelled) return;
+        const res = await httpFetch(url, { method: 'GET' });
+        if (!res.ok || cancelled) return;
+        const buf = await res.arrayBuffer();
+        if (cancelled || cache.has(key)) return;
+        cache.set(key, new Blob([buf], { type: 'application/pdf' }));
+        while (cache.size > MAX_CACHED_ORIGINALS) {
+          const oldest = cache.keys().next().value;
+          if (oldest === undefined) break;
+          cache.delete(oldest);
+        }
+      } catch {
+        // 미리 받기는 실패해도 그만이다 — 그 쪽에 갈 때 정식 경로가 다시 받는다.
+      }
+    };
+
+    // 지금 쪽을 먼저 보여 준 다음에 시작한다(같은 회선을 두고 다투지 않게).
+    const id = window.setTimeout(() => {
+      void (async () => {
+        await warm(currentPage + 1);
+        await warm(currentPage - 1);
+      })();
+    }, 800);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, [
+    savedOriginalsByPage,
+    currentPage,
+    workingJobId,
+    auth.token,
+    fileState.totalPages,
+  ]);
+
+  const { handleSelectJob: loadSavedJob } = useSavedJobs({
     token: auth.token,
     onJobLoaded: handleJobLoaded,
+    onError: (message) => {
+      setIsRestoringJob(false);
+      setIsMyPageOpen(true);
+      setToast(message);
+    },
   });
+
+  // 마이페이지에서 파일을 고르면 **누르는 즉시** 불러오는 중 화면으로 넘어간다.
+  // 예전에는 쪽별 조회가 다 끝나야 화면이 바뀌어, 그동안(느린 PC에서 5~10초)
+  // 목록이 그대로 떠 있어 눌린 건지조차 알 수 없었다(2026-08-26 QA).
+  const handleSelectJob = useCallback(
+    (job: Parameters<typeof loadSavedJob>[0]) => {
+      setIsMyPageOpen(false);
+      setIsRestoringJob(true);
+      void loadSavedJob(job);
+    },
+    [loadSavedJob],
+  );
 
   // 명세 모드별 허용 파일: a(OCR)=PDF, b(점역)=TXT/HWP, c(통합)=PDF
   const acceptConfig = useMemo<Accept>((): Accept => {
@@ -1897,7 +1995,7 @@ const Semojum: React.FC = () => {
                         지원 형식: {TAB_ALLOWED_FILE_LABEL[activeTab]} · 최대
                         100MB
                       </p>
-                      {activeTab === TABS.BRAILLE && (
+                      {activeTab === TABS.OCR && (
                         <p className="text-[11px] text-gray-400 mt-1">
                           HWPX 형식은 아직 지원하지 않습니다. 한글에서
                           &ldquo;한글 문서(.hwp)&rdquo;로 저장해 주세요.
@@ -1954,6 +2052,7 @@ const Semojum: React.FC = () => {
                       onBlockClick={handleSelectFromOriginal}
                       hoveredBlockId={hoverBlockId}
                       onBlockHover={handleHoverBlock}
+                      scrollTopToken={originalTopToken}
                     />
                   )}
                 </div>
@@ -2522,6 +2621,7 @@ const Semojum: React.FC = () => {
             onBrailleInputChange={(brailleInput) =>
               dispatchAction({ type: 'find', patch: { brailleInput } })
             }
+            mode={activeTab}
             total={findTotal}
             current={findIndex}
             onStep={(delta) => dispatchAction({ type: 'findStep', delta })}

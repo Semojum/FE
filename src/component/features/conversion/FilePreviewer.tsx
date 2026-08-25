@@ -1,5 +1,6 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
+import { Loader2 } from 'lucide-react';
 import LatexRenderer from './LatexRenderer';
 import { findMath } from '../../../utils/mathText';
 import {
@@ -50,6 +51,9 @@ interface Props {
   // 마우스가 얹힌 블록 — 결과 격자와 같은 값을 공유해 양쪽에 같은 상자를 그린다.
   hoveredBlockId?: string | null;
   onBlockHover?: (id: string | null) => void;
+  // 원본을 맨 위로 올리라는 신호(쪽 번호로 넘겼을 때만 온다). 블록을 골라 넘어온
+  // 경우에는 오지 않는다 — 그때는 아래 BBoxOverlay가 고른 상자로 옮긴다.
+  scrollTopToken?: number;
 }
 
 // 원본 텍스트 한 블록을 그린다 — 찾기(Ctrl+F)에 걸린 구간에 노란 칠을 한다.
@@ -101,6 +105,20 @@ const renderWithFind = (
   return nodes;
 };
 
+// 원본을 그리는 동안 보여 주는 자리 표시. 쪽을 넘길 때 흰 종이만 남지 않게 한다.
+const PreviewLoading: React.FC<{ label?: string }> = ({
+  label = '불러오는 중...',
+}) => (
+  <div
+    role="status"
+    aria-live="polite"
+    className="flex h-[320px] w-[240px] flex-col items-center justify-center gap-2 text-gray-400"
+  >
+    <Loader2 className="h-6 w-6 animate-spin text-[#407FAC]" />
+    <p className="text-[12px]">{label}</p>
+  </div>
+);
+
 const FilePreviewer: React.FC<Props> = memo(
   ({
     state,
@@ -114,6 +132,7 @@ const FilePreviewer: React.FC<Props> = memo(
     onBlockClick,
     hoveredBlockId,
     onBlockHover,
+    scrollTopToken,
   }) => {
     const { previewUrl, fileType, currentPage, textContent, isRestoredPages } =
       state;
@@ -156,11 +175,13 @@ const FilePreviewer: React.FC<Props> = memo(
       setPageRendered(false);
     }, [currentPage, previewUrl]);
 
-    // 쪽을 넘기면 원본도 맨 위로 올린다. 결과 격자는 그 쪽 첫 줄로 올라가는데 원본만
-    // 앞 쪽에서 보던 자리에 남아 있어, 두 화면이 서로 다른 곳을 가리켰다(2026-08-25 요청).
+    // 쪽 번호로 넘기면 원본도 맨 위로 올린다. 결과 격자는 그 쪽 첫 줄로 올라가는데
+    // 원본만 앞 쪽에서 보던 자리에 남아 두 화면이 서로 다른 곳을 가리켰다(2026-08-25 요청).
+    // 블록을 골라 넘어온 경우에는 신호가 오지 않는다 — 그때는 고른 상자로 가야 한다.
     useEffect(() => {
+      if (scrollTopToken === undefined || scrollTopToken === 0) return;
       viewportElRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-    }, [currentPage]);
+    }, [scrollTopToken]);
 
     // 선택된 텍스트 블록으로 스크롤 이동
     useEffect(() => {
@@ -257,6 +278,10 @@ const FilePreviewer: React.FC<Props> = memo(
               <Document
                 file={previewUrl}
                 options={PDF_OPTIONS}
+                // react-pdf 기본 문구는 영어("Loading PDF…")다 — 앱의 다른 대기
+                // 표시와 말이 다르면 오류처럼 읽힌다(2026-08-26 요청).
+                loading={<PreviewLoading />}
+                error={<PreviewLoading label="원본을 불러오지 못했습니다" />}
                 // 마이페이지 복원본은 페이지별로 분리된 단일 페이지 PDF이므로 총 페이지 수를
                 // 덮어쓰지 않는다(총 페이지는 작업 메타에서 이미 설정됨).
                 onLoadSuccess={({ numPages }) =>
@@ -281,6 +306,7 @@ const FilePreviewer: React.FC<Props> = memo(
                   renderTextLayer={false}
                   renderAnnotationLayer={false}
                   onRenderSuccess={() => setPageRendered(true)}
+                  loading={<PreviewLoading />}
                 />
               </Document>
             )}
