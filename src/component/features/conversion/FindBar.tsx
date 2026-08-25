@@ -27,11 +27,14 @@ export const scopeLabels = (
 });
 
 // 그 모드에 없는 것은 잠근다.
-//  a(초안 생성)      원본·결과 모두 묵자 → 점자로 입력할 것이 없다
-//  b(텍스트 점자 번역) 원본은 묵자, 결과는 점자 → 둘 다
-//  c(이미지 점자 번역) 원본이 그림이라 찾을 묵자가 없다
-export const canSearchOriginal = (mode: ConversionTab) =>
-  mode !== TABS.INTEGRATED;
+//  a(초안 생성)      원본이 PDF다 — 찾아도 그 자리를 짚어 줄 수 없다. 결과(묵자)만.
+//  b(텍스트 점자 번역) 원본은 글로 보인다 → 원본(묵자)·결과(점자) 둘 다
+//  c(이미지 점자 번역) 원본이 그림이다 → 결과(점자)만
+//
+// 원본 범위는 원본이 **글로 보이는** 모드에서만 쓸 수 있다. 예전에는 초안 생성에서도
+// 열어 뒀는데, 두 버튼이 나란히 "묵자 / 묵자"로 떠서 무엇이 다른지 알 수 없었다
+// (2026-08-26 QA). 게다가 그 모드의 원본은 PDF라 찾은 자리를 보여 주지도 못한다.
+export const canSearchOriginal = (mode: ConversionTab) => mode === TABS.BRAILLE;
 export const canSearchBraille = (mode: ConversionTab) => mode !== TABS.OCR;
 
 // 잠긴 범위에 남아 있지 않게 한다(탭을 옮기면 바뀔 수 있다).
@@ -150,51 +153,42 @@ const FindBar: React.FC<Props> = ({
           aria-label="찾을 범위"
           className="flex gap-0.5 rounded-[7px] bg-[#f0f4f8] p-[3px]"
         >
-          {(Object.keys(labels) as FindScope[]).map((s) => (
-            <button
-              key={s}
-              type="button"
-              role="radio"
-              aria-checked={scope === s}
-              disabled={!available[s]}
-              title={
-                available[s]
-                  ? undefined
-                  : '이 모드의 원본은 그림이라 글자를 찾을 수 없습니다'
-              }
-              onClick={() => onScopeChange(s)}
-              className={`rounded-[5px] px-2 py-0.5 text-[11px] font-bold transition-colors ${
-                scope === s
-                  ? 'bg-white text-[#5b8ce6]'
-                  : 'text-gray-500 hover:text-[#5b8ce6]'
-              } disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:text-gray-300`}
-            >
-              {labels[s]}
-            </button>
-          ))}
+          {/* 그 모드에 없는 범위는 아예 내보이지 않는다. 잠가서 남겨 두면 초안 생성에서
+              "묵자 / 묵자"가 나란히 떠 무엇이 다른지 알 수 없었다(2026-08-26 QA). */}
+          {(Object.keys(labels) as FindScope[])
+            .filter((s) => available[s])
+            .map((s) => (
+              <button
+                key={s}
+                type="button"
+                role="radio"
+                aria-checked={scope === s}
+                onClick={() => onScopeChange(s)}
+                className={`rounded-[5px] px-2 py-0.5 text-[11px] font-bold transition-colors ${
+                  scope === s
+                    ? 'bg-white text-[#5b8ce6]'
+                    : 'text-gray-500 hover:text-[#5b8ce6]'
+                }`}
+              >
+                {labels[s]}
+              </button>
+            ))}
         </div>
 
-        <label
-          title={
-            canSearchBraille(mode)
-              ? '점자를 직접 찍어 찾습니다 — 판면과 같은 방식(F D S · J K L 함께 누르고 떼기)'
-              : '이 모드에는 점자가 없습니다'
-          }
-          className={`flex items-center gap-1 text-[11px] font-bold ${
-            canSearchBraille(mode)
-              ? 'cursor-pointer text-gray-500'
-              : 'cursor-not-allowed text-gray-300'
-          }`}
-        >
-          <input
-            type="checkbox"
-            checked={brailleInput}
-            disabled={!canSearchBraille(mode)}
-            onChange={(e) => onBrailleInputChange(e.target.checked)}
-            className="size-3 accent-[#5b8ce6]"
-          />
-          점자로 입력
-        </label>
+        {canSearchBraille(mode) && (
+          <label
+            title="점자를 직접 찍어 찾습니다 — 판면과 같은 방식(F D S · J K L 함께 누르고 떼기)"
+            className="flex cursor-pointer items-center gap-1 text-[11px] font-bold text-gray-500"
+          >
+            <input
+              type="checkbox"
+              checked={brailleInput}
+              onChange={(e) => onBrailleInputChange(e.target.checked)}
+              className="size-3 accent-[#5b8ce6]"
+            />
+            점자로 입력
+          </label>
+        )}
 
         <button
           type="button"

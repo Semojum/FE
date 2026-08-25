@@ -64,22 +64,20 @@ describe('FindBar', () => {
     expect(screen.getByRole('radio', { name: '점자' })).toBeTruthy();
   });
 
-  it('초안 생성에서는 결과도 묵자로 보이고 점자 입력을 잠근다', () => {
-    setup({ mode: TABS.OCR });
-    expect(screen.getAllByRole('radio', { name: '묵자' })).toHaveLength(2);
-    expect(
-      (screen.getByLabelText('점자로 입력') as HTMLInputElement).disabled,
-    ).toBe(true);
+  // 초안 생성은 원본도 결과도 묵자라, 원본 범위까지 열어 두면 "묵자 / 묵자"가 나란히
+  // 떠서 무엇이 다른지 알 수 없다. 게다가 그 모드의 원본은 PDF라 찾은 자리를 못 짚는다.
+  it('초안 생성에서는 결과(묵자) 하나만 남고 점자 입력이 사라진다', () => {
+    setup({ mode: TABS.OCR, scope: 'result' as const });
+    expect(screen.getAllByRole('radio')).toHaveLength(1);
+    expect(screen.getByRole('radio', { name: '묵자' })).toBeTruthy();
+    expect(screen.queryByLabelText('점자로 입력')).toBeNull();
   });
 
-  it('이미지 점자 번역에서는 원본(묵자) 범위를 잠근다', () => {
+  it('이미지 점자 번역에서는 결과(점자) 하나만 남는다', () => {
     setup({ mode: TABS.INTEGRATED });
-    expect(
-      screen.getByRole('radio', { name: '묵자' }).hasAttribute('disabled'),
-    ).toBe(true);
-    expect(
-      (screen.getByLabelText('점자로 입력') as HTMLInputElement).disabled,
-    ).toBe(false);
+    expect(screen.getAllByRole('radio')).toHaveLength(1);
+    expect(screen.getByRole('radio', { name: '점자' })).toBeTruthy();
+    expect(screen.queryByLabelText('점자로 입력')).toBeTruthy();
   });
 
   // 입력 방식은 판면 격자(출력란)와 같다 — 함께 누르고 **떼는 순간** 한 글자가 들어간다.

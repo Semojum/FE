@@ -36,13 +36,17 @@ const originalTextsFromOriginal = (
 
 interface UseSavedJobsOptions {
   token: string | null;
+  // 직전에 보던 쪽 하나만 먼저 넘긴다 — 나머지는 뒤이어 onPagesFilled로 온다.
   onJobLoaded: (job: JobDetail) => void;
+  // 나머지 쪽이 다 도착했을 때. 이미 화면에 있는 쪽은 덮지 않는다(편집 중일 수 있다).
+  onPagesFilled?: (job: JobDetail) => void;
   onError?: (message: string) => void;
 }
 
 export const useSavedJobs = ({
   token,
   onJobLoaded,
+  onPagesFilled,
   onError,
 }: UseSavedJobsOptions) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -69,11 +73,64 @@ export const useSavedJobs = ({
         // 예전에는 1쪽부터 마지막 쪽까지 **한 번에 하나씩** 기다렸다. 왕복 한 번이
         // 0.7~1초쯤이라 10쪽짜리는 열기만 5~10초가 걸렸다(2026-08-26 QA). 쪽끼리는
         // 서로 기다릴 이유가 없다. 서버·회선을 한꺼번에 때리지 않도록 몇 개씩만 겹친다.
+        //
+        // 게다가 사람이 기다리는 건 "직전에 보던 쪽"이다. 그 쪽 하나를 먼저 받아
+        // 화면에 올리고(왕복 1번 ≈ 1초), 나머지는 뒤에서 채운다.
         const CONCURRENCY = 5;
+        const firstPage = Math.min(
+          Math.max(1, job.startPage ?? 1),
+          Math.max(1, job.totalPages),
+        );
         const pages = Array.from({ length: job.totalPages }, (_, i) => i + 1);
         const results: Array<
           [number, Awaited<ReturnType<typeof getJobPage>>] | null
         > = new Array(pages.length).fill(null);
+
+        // 이 쪽만 먼저 받아 바로 보여 준다.
+        const meta = {
+          jobId: job.jobId,
+          mode: tab,
+          totalPages: job.totalPages,
+          startPage: firstPage,
+          thumbnailUrl: job.thumbnailUrl ?? undefined,
+        };
+        const absorb = (
+          page: number,
+          pageData: Awaited<ReturnType<typeof getJobPage>>,
+        ) => {
+          const mapped = mapPageResult(tab, pageData.result ?? {});
+          blocksByPage[page] = mapped.blocks;
+          bboxDataByPage[page] = mapped.bboxes;
+          // text_list 기반 원본이 비면(점역 저장본) original.lines로 폴백한다.
+          originalTextsByPage[page] =
+            mapped.originalTexts.length > 0
+              ? mapped.originalTexts
+              : originalTextsFromOriginal(pageData.original, page);
+          if (pageData.original) originalByPage[page] = pageData.original;
+          if (mapped.imgResolution) imgResolution = mapped.imgResolution;
+          // failedPages·insertPageNumber·originalFileName은 쪽마다 같은 값이 내려온다.
+          failedPages = pageData.failedPages ?? failedPages;
+          insertPageNumber = pageData.insertPageNumber ?? insertPageNumber;
+          originalFileName = pageData.originalFileName || originalFileName;
+        };
+
+        try {
+          absorb(firstPage, await getJobPage(token, job.jobId, firstPage));
+          onJobLoaded({
+            ...meta,
+            failedPages,
+            insertPageNumber,
+            originalFileName: originalFileName || undefined,
+            blocksByPage: { ...blocksByPage },
+            bboxDataByPage: { ...bboxDataByPage },
+            originalTextsByPage: { ...originalTextsByPage },
+            originalByPage: { ...originalByPage },
+            imgResolution,
+          });
+        } catch (e) {
+          // 그 쪽에 결과가 없으면(JOB4001) 그냥 아래 전체 조회에 맡긴다.
+          if (!(e instanceof ApiError && e.code === 'JOB4001')) throw e;
+        }
 
         let next = 0;
         const worker = async () => {
@@ -82,6 +139,7 @@ export const useSavedJobs = ({
             next += 1;
             if (idx >= pages.length) return;
             const page = pages[idx];
+            if (page === firstPage) continue; // 이미 받아서 보여 줬다
             try {
               results[idx] = [page, await getJobPage(token, job.jobId, page)];
             } catch (e) {
@@ -99,32 +157,14 @@ export const useSavedJobs = ({
         // 쪽 번호 순서대로 정리한다 — 받은 순서는 뒤섞일 수 있다.
         for (const entry of results) {
           if (!entry) continue;
-          const [page, pageData] = entry;
-          const mapped = mapPageResult(tab, pageData.result ?? {});
-          blocksByPage[page] = mapped.blocks;
-          bboxDataByPage[page] = mapped.bboxes;
-          // text_list 기반 원본이 비면(점역 저장본) original.lines로 폴백한다.
-          originalTextsByPage[page] =
-            mapped.originalTexts.length > 0
-              ? mapped.originalTexts
-              : originalTextsFromOriginal(pageData.original, page);
-          if (pageData.original) originalByPage[page] = pageData.original;
-          if (mapped.imgResolution) imgResolution = mapped.imgResolution;
-          // failedPages·insertPageNumber·originalFileName은 페이지마다 같은 값이 내려온다.
-          failedPages = pageData.failedPages ?? failedPages;
-          insertPageNumber = pageData.insertPageNumber ?? insertPageNumber;
-          originalFileName = pageData.originalFileName || originalFileName;
+          absorb(entry[0], entry[1]);
         }
 
-        onJobLoaded({
-          jobId: job.jobId,
-          mode: tab,
-          totalPages: job.totalPages,
+        (onPagesFilled ?? onJobLoaded)({
+          ...meta,
           failedPages,
           insertPageNumber,
           originalFileName: originalFileName || undefined,
-          startPage: job.startPage ?? 1,
-          thumbnailUrl: job.thumbnailUrl ?? undefined,
           blocksByPage,
           bboxDataByPage,
           originalTextsByPage,

@@ -267,6 +267,8 @@ const Semojum: React.FC = () => {
   // 블록을 골라 넘어온 경우에는 그 블록 자리로 가야 하므로 건드리면 안 된다
   // (2026-08-26 QA: 우측에서 아래쪽 블록을 고르면 좌측이 위로 튀어 안 보였다).
   const [originalTopToken, setOriginalTopToken] = useState(0);
+  // 나머지 쪽이 채워져 판면 번호가 다시 매겨졌을 때 보던 자리로 되돌리는 신호.
+  const [realignToken, setRealignToken] = useState(0);
   // 취소 처리 — "전송 중"(업로드 응답 전)에 X를 누르면 아직 jobId가 없어 취소 API를
   // 부를 수가 없다. 그래서 업로드마다 세대 번호를 매기고, 취소하면 세대를 넘긴다.
   // 응답이 돌아왔을 때 세대가 바뀌어 있으면 붙이지 않고 그 자리에서 취소한다.
@@ -1023,9 +1025,18 @@ const Semojum: React.FC = () => {
     setScrollToRow(firstRowIndexOfPage(gridRows, currentPage));
     // 쪽 번호로 넘어온 경우다 — 원본도 그 쪽 맨 위부터 보여 준다.
     setOriginalTopToken((v) => v + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     // gridRows가 바뀔 때마다 스크롤하면 스트리밍 중 계속 튀므로 페이지만 본다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage]);
+
+  // 나머지 쪽이 채워지면 판면 번호가 다시 매겨진다 — 보던 쪽 첫 줄로 되돌린다.
+  // (없으면 먼저 뜬 쪽이 판면 1쪽이었다가 갑자기 한참 아래로 밀린다.)
+  useEffect(() => {
+    if (realignToken === 0 || gridRows.length === 0) return;
+    setScrollToRow(firstRowIndexOfPage(gridRows, currentPageRef.current));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [realignToken]);
 
   // 메인 측에서 직접 호출되는 액션 처리기. 팝업은 BroadcastChannel을 통해 메인에 위임.
   const applyAction = useCallback(
@@ -1584,9 +1595,45 @@ const Semojum: React.FC = () => {
     fileState.totalPages,
   ]);
 
+  // 뒤이어 도착한 나머지 쪽을 채운다. 화면에 이미 있는 쪽은 건드리지 않는다 —
+  // 먼저 뜬 쪽을 사용자가 벌써 고치고 있을 수 있다.
+  const handlePagesFilled = useCallback(
+    (job: JobDetail) => {
+      const keepExisting = <T,>(
+        prev: Record<number, T>,
+        incoming: Record<number, T>,
+      ): Record<number, T> => ({ ...incoming, ...prev });
+
+      setAllBlocks(keepExisting(blocksByPage, job.blocksByPage));
+      editor.registerServerBlocks(Object.values(job.blocksByPage).flat());
+      setBboxDataByPage((prev) => keepExisting(prev, job.bboxDataByPage));
+      setOriginalTextsByPage((prev) =>
+        keepExisting(prev, job.originalTextsByPage),
+      );
+      const incomingOriginals = job.originalByPage ?? {};
+      setSavedOriginalsByPage((prev) =>
+        prev ? keepExisting(prev, incomingOriginals) : incomingOriginals,
+      );
+      setPageStatuses((prev) => {
+        const next = { ...prev };
+        for (let p = 1; p <= job.totalPages; p += 1) {
+          if (!next[p]) next[p] = 'COMPLETED';
+        }
+        (job.failedPages ?? []).forEach((p) => {
+          next[p] = 'BLOCKED';
+        });
+        return next;
+      });
+      // 앞뒤 쪽이 채워지며 판면 번호가 다시 매겨진다 — 보던 자리로 되돌린다.
+      setRealignToken((v) => v + 1);
+    },
+    [blocksByPage, editor, setAllBlocks],
+  );
+
   const { handleSelectJob: loadSavedJob } = useSavedJobs({
     token: auth.token,
     onJobLoaded: handleJobLoaded,
+    onPagesFilled: handlePagesFilled,
     onError: (message) => {
       setIsRestoringJob(false);
       setIsMyPageOpen(true);
