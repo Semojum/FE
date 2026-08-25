@@ -315,6 +315,13 @@ const Semojum: React.FC = () => {
     null,
   );
   const [originalReloadToken, setOriginalReloadToken] = useState(0);
+  // 복원한 작업의 쪽별 원본 PDF 바이트. 쪽을 넘길 때마다 서명 URL을 새로 받고
+  // 3MB짜리를 다시 내려받느라 쪽마다 2초씩 기다렸다(2026-08-25 실측).
+  // URL이 아니라 **바이트**를 들고 있는다 — 서명 URL만 만료되지 미 받아 둔 내용은
+  // 그대로 쓸 수 있고, blob URL은 쓸 때마다 새로 만들어 기존 revoke 규칙을 건드리지
+  // 않는다. 메모리 때문에 최근 몇 쪽만 남긴다.
+  const originalBlobCacheRef = useRef<Map<string, Blob>>(new Map());
+  const MAX_CACHED_ORIGINALS = 8;
 
   // 탭별 작업물 보관소. 탭을 떠날 때 현재 상태를 저장하고, 돌아오면 복원한다.
   const [tabSnapshots, setTabSnapshots] = useState<
@@ -427,6 +434,8 @@ const Semojum: React.FC = () => {
 
   const handleReset = useCallback(() => {
     clearWorkspace();
+    // 받아 둔 쪽별 원본도 버린다 — 다음 작업의 같은 쪽 번호와 섞이면 안 된다.
+    originalBlobCacheRef.current.clear();
     lastUploadedFileRef.current = null;
     // 현재 탭의 보관된 작업물도 비운다(사용자가 명시적으로 지움).
     setTabSnapshots((prev) => ({ ...prev, [activeTab]: undefined }));
@@ -1392,6 +1401,20 @@ const Semojum: React.FC = () => {
   // 페이지 조회로 새 URL을 받는다. PDF는 그 URL의 바이트를 받아 blob으로 렌더한다.
   useEffect(() => {
     if (!savedOriginalsByPage) return;
+
+    // 이미 받아 둔 쪽이면 네트워크를 타지 않는다.
+    const cacheKey = `${workingJobId ?? 'none'}:${currentPage}`;
+    const cachedBlob = originalBlobCacheRef.current.get(cacheKey);
+    if (cachedBlob) {
+      setRestoredPreview({
+        fileType: 'pdf',
+        previewUrl: URL.createObjectURL(cachedBlob),
+        isRestoredPages: true,
+      });
+      setIsRestoringJob(false);
+      return;
+    }
+
     const cached = savedOriginalsByPage[currentPage];
     // 이 페이지의 원본 주소를 아직 모르면 작업 조회로 받아 온다. 둘 다 없으면
     // 기다릴 것이 없으니 진행 표시를 내린다(그대로 두면 화면이 갇힌다).
@@ -1437,9 +1460,16 @@ const Semojum: React.FC = () => {
         if (!res.ok) throw new Error(`원본 PDF 로드 실패: ${res.status}`);
         const buf = await res.arrayBuffer();
         if (cancelled) return;
-        const blobUrl = URL.createObjectURL(
-          new Blob([buf], { type: 'application/pdf' }),
-        );
+        const blob = new Blob([buf], { type: 'application/pdf' });
+        // 다음에 이 쪽으로 돌아오면 바로 그린다. 오래된 쪽부터 버린다.
+        const cache = originalBlobCacheRef.current;
+        cache.set(cacheKey, blob);
+        while (cache.size > MAX_CACHED_ORIGINALS) {
+          const oldest = cache.keys().next().value;
+          if (oldest === undefined) break;
+          cache.delete(oldest);
+        }
+        const blobUrl = URL.createObjectURL(blob);
         if (cancelled) {
           URL.revokeObjectURL(blobUrl); // 적용 전 취소되면 누수 방지
           return;
