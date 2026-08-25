@@ -6,6 +6,7 @@ import {
   readFileSync,
 } from 'node:fs';
 import { extname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -44,8 +45,12 @@ export const alias = {
 const PDFJS_ASSET_DIRS = ['cmaps', 'standard_fonts'] as const;
 
 const pdfjsAssets = (): Plugin => {
+  // 윈도우에서는 URL.pathname이 "/D:/a/FE/..." 로 나와 join이 드라이브를 겹쳐 붙인다
+  // ("D:\\D:\\a\\...") — 파일을 읽을 때는 반드시 fileURLToPath로 바꿔 쓴다.
   const rootOf = (dir: string) =>
-    new URL(`./node_modules/pdfjs-dist/${dir}/`, import.meta.url).pathname;
+    fileURLToPath(
+      new URL(`./node_modules/pdfjs-dist/${dir}/`, import.meta.url),
+    );
 
   return {
     name: 'semojum:pdfjs-assets',
