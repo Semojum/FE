@@ -1,6 +1,6 @@
 {
   "productName": "Semojum",
-  "version": "3.0.25",
+  "version": "3.0.26",
   "identifier": "com.braillemate.app",
   "build": {
     "beforeDevCommand": "bun run dev",

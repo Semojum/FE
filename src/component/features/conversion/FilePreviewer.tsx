@@ -24,10 +24,16 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 //
 // 이 객체는 반드시 모듈 수준 상수여야 한다 — react-pdf는 options의 참조가 바뀌면
 // 문서를 처음부터 다시 읽는다(렌더할 때마다 새 객체를 넘기면 무한 재로딩).
+// disableFontFace: 임베드 글꼴을 @font-face로 등록하지 않고 글자 외곽선을 직접 그린다.
+// 문제집 PDF에는 pdf.js의 글꼴 검사를 통과하지 못하는 글꼴이 섞여 있고("Invalid font
+// data in ArrayBuffer"), 그 글꼴로 찍힌 글자가 통째로 엑스박스로 나왔다(2026-08-25 QA).
+// 외곽선으로 그리면 그 글꼴도 제대로 나온다. 같은 쪽 실측 153ms vs 145ms로 속도 차이는
+// 없었다.
 const PDF_OPTIONS = {
   cMapUrl: '/pdfjs/cmaps/',
   cMapPacked: true,
   standardFontDataUrl: '/pdfjs/standard_fonts/',
+  disableFontFace: true,
 };
 
 interface Props {
@@ -117,6 +123,9 @@ const FilePreviewer: React.FC<Props> = memo(
     // 원본 잘려서 보임"). 넓을 때는 여백을 남기지 않고 더 크게 그린다.
     const [pageWidth, setPageWidth] = useState(0);
     const resizeObserverRef = useRef<ResizeObserver | null>(null);
+    // 이 쪽이 캔버스에 다 그려졌는지. 그리기 전에는 원본이 흰 종이라, 그 위에 상자만
+    // 먼저 떠서 "빈 화면에 네모가 파바박" 튀었다(2026-08-25 QA). 다 그려진 뒤에 얹는다.
+    const [pageRendered, setPageRendered] = useState(false);
 
     // 콜백 ref로 "지금 붙어 있는 노드"를 관찰한다.
     // 예전에는 effect가 [previewUrl, fileType]에 걸려 있었는데, 미리보기 칸은
@@ -124,9 +133,11 @@ const FilePreviewer: React.FC<Props> = memo(
     // 이미 떨어져 나간 옛 노드로 남고, 그 사이에 잰 폭(패널이 아직 좁던 순간의 값)이
     // 그대로 굳어 원본 PDF가 손바닥만 하게 그려졌다 — 다른 탭에 갔다 mode a로
     // 돌아오면 원본이 깨져 보이던 원인(2026-08-17 QA 영상).
+    const viewportElRef = useRef<HTMLDivElement | null>(null);
     const viewportRef = useCallback((el: HTMLDivElement | null) => {
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
+      viewportElRef.current = el;
       if (!el) return;
       const measure = () => setPageWidth(el.clientWidth);
       measure();
@@ -138,6 +149,18 @@ const FilePreviewer: React.FC<Props> = memo(
     }, []);
 
     useEffect(() => () => resizeObserverRef.current?.disconnect(), []);
+
+    // 쪽이나 파일이 바뀌면 "아직 안 그려짐"으로 되돌린다. react-pdf의 콜백에 기대면
+    // 같은 문서에서 쪽 번호만 바뀌는 경로(방금 올린 작업)에서 초기화가 안 될 수 있다.
+    useEffect(() => {
+      setPageRendered(false);
+    }, [currentPage, previewUrl]);
+
+    // 쪽을 넘기면 원본도 맨 위로 올린다. 결과 격자는 그 쪽 첫 줄로 올라가는데 원본만
+    // 앞 쪽에서 보던 자리에 남아 있어, 두 화면이 서로 다른 곳을 가리켰다(2026-08-25 요청).
+    useEffect(() => {
+      viewportElRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    }, [currentPage]);
 
     // 선택된 텍스트 블록으로 스크롤 이동
     useEffect(() => {
@@ -245,21 +268,34 @@ const FilePreviewer: React.FC<Props> = memo(
                   pageNumber={isRestoredPages ? 1 : currentPage}
                   // p-2(8px×2)를 뺀 실제 그릴 수 있는 폭. 아직 측정 전이면 종전 값(500).
                   width={pageWidth > 0 ? Math.max(240, pageWidth - 16) : 500}
+                  // 캔버스 해상도 상한. 기본값은 기기 배율(고DPI에서 2~3배)이라
+                  // 고화질 문서에서 캔버스가 수천만 픽셀이 되고, 그리기·합성이 GPU에
+                  // 걸려 창 전환까지 굼떴다(2026-08-25 QA: RTX 2060에서 렉).
+                  // 원본 대조용 미리보기에는 2배면 충분하다.
+                  devicePixelRatio={Math.min(
+                    2,
+                    typeof window === 'undefined'
+                      ? 1
+                      : window.devicePixelRatio || 1,
+                  )}
                   renderTextLayer={false}
                   renderAnnotationLayer={false}
+                  onRenderSuccess={() => setPageRendered(true)}
                 />
               </Document>
             )}
 
-            {/* ✅ BBoxOverlay에 클릭 핸들러 전달 */}
-            <BBoxOverlay
-              bboxes={bboxes}
-              selectedId={selectedBlockId}
-              originalResolution={imageResolution}
-              onBlockClick={onBlockClick}
-              hoveredId={hoveredBlockId}
-              onBlockHover={onBlockHover}
-            />
+            {/* 페이지가 다 그려진 뒤에만 상자를 얹는다 (위 pageRendered 주석 참고) */}
+            {(fileType === 'image' || pageRendered) && (
+              <BBoxOverlay
+                bboxes={bboxes}
+                selectedId={selectedBlockId}
+                originalResolution={imageResolution}
+                onBlockClick={onBlockClick}
+                hoveredId={hoveredBlockId}
+                onBlockHover={onBlockHover}
+              />
+            )}
           </div>
         </div>
       </div>

@@ -1,5 +1,9 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { codesToCell, isDotCode } from '../../../utils/brailleInput';
+import {
+  codesToCell,
+  isDotCode,
+  isBrailleText,
+} from '../../../utils/brailleInput';
 
 // 찾기·바꾸기 입력칸. "점자로 입력"을 켜면 6점 입력으로 바뀐다.
 //
@@ -127,6 +131,13 @@ const DotInput: React.FC<Props> = ({
     }
   };
 
+  // 점자 모드에서 받아들일 글자 — 점형(U+2800~U+28FF)과 빈 칸뿐이다.
+  // 한/영 상태가 한글이면 IME가 keydown을 가로채므로 위의 문자키 차단이 통하지 않고,
+  // 조합 결과가 input 값으로 들어와 점자와 한글이 섞여 나왔다(2026-08-25 QA).
+  // 판면 격자는 조합 이벤트에서 같은 이유로 일찍 빠져나온다 — 여기도 같게 맞춘다.
+  const keepBrailleOnly = (text: string) =>
+    [...text].filter((ch) => isBrailleText(ch) || ch === ' ').join('');
+
   const handleKeyUp = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!brailleInput || !isDotCode(e.code)) return;
     e.preventDefault();
@@ -146,18 +157,32 @@ const DotInput: React.FC<Props> = ({
         brailleInput ? 'F D S · J K L 함께 눌러 점 찍기' : placeholder
       }
       onChange={(e) => {
-        // 점자 모드에서 값이 바뀌는 경로는 붙여넣기·지우기뿐이다(문자키는 위에서 막았다).
-        emitted.current = e.target.value;
-        setDraft(e.target.value);
-        onChange(e.target.value);
+        // 점자 모드에서 값이 바뀌는 경로는 붙여넣기·지우기·IME 조합이다.
+        // 조합으로 들어온 한글은 여기서 걸러 낸다(문자키는 keydown에서 막았다).
+        const next = brailleInput
+          ? keepBrailleOnly(e.target.value)
+          : e.target.value;
+        emitted.current = next;
+        setDraft(next);
+        onChange(next);
       }}
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}
       onCompositionStart={() => {
         composing.current = true;
       }}
-      onCompositionEnd={() => {
+      onCompositionEnd={(e) => {
         composing.current = false;
+        // 점자 모드에서는 조합 결과를 넣지 않는다. 확정된 글자가 input에 남아 있으므로
+        // 점형만 남기고 되돌린다(막지 않으면 "⠁가⠃"처럼 섞인다).
+        if (!brailleInput) return;
+        const el = e.currentTarget;
+        const kept = keepBrailleOnly(el.value);
+        if (kept === el.value) return;
+        el.value = kept;
+        emitted.current = kept;
+        setDraft(kept);
+        onChange(kept);
       }}
       className={`h-[26px] rounded-[6px] border border-[#e2e8f0] px-2 text-[12px] text-gray-700 outline-none focus:border-[#5b8ce6] ${className}`}
     />
