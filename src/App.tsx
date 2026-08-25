@@ -1109,6 +1109,13 @@ const Semojum: React.FC = () => {
     footerText,
   ]);
 
+  // 격자 우클릭 위치. 인라인 화살표로 넘기면 렌더마다 새 함수가 되어 격자 메모가
+  // 깨진다 — 판면이 수만 칸이라 그 한 번이 그대로 멈춤으로 보인다.
+  const handleGridContextMenu = useCallback(
+    (rowIndex: number, x: number, y: number) => setGridMenu({ rowIndex, x, y }),
+    [],
+  );
+
   const handleTabChange = (tab: ConversionTab) => {
     if (tab === activeTab) return;
     // 변환이 진행 중이면 바로 이동해 작업이 끊기지 않도록 먼저 확인을 받는다.
@@ -2237,9 +2244,7 @@ const Semojum: React.FC = () => {
                       highlightBlockId={selectedBlockId}
                       onCaretChange={handleCaretChange}
                       onEditRow={handleEditRow}
-                      onContextMenu={(rowIndex, x, y) =>
-                        setGridMenu({ rowIndex, x, y })
-                      }
+                      onContextMenu={handleGridContextMenu}
                       hoverBlockId={hoverBlockId}
                       onHoverBlockChange={handleHoverBlock}
                       onVisiblePageChange={setVisibleOutputPage}
