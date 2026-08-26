@@ -3,6 +3,7 @@ import {
   detectFileType,
   isFileAllowedForTab,
   fileValidationMessage,
+  fileSizeMessage,
   TAB_ALLOWED_FILE_TYPES,
 } from '../fileValidation';
 import { TABS } from '../../types';
@@ -70,5 +71,22 @@ describe('fileValidationMessage', () => {
     expect(fileValidationMessage(TABS.BRAILLE)).toBe(
       '텍스트 점자 번역 모드는 TXT 파일만 지원합니다.',
     );
+  });
+});
+
+// 용량 초과는 **받는 자리에서** 걸러야 한다. 예전에는 업로드 단계에서만 봐서, 상한을
+// 넘긴 파일이 화면에 올라간 뒤 이유 없는 "업로드 실패"만 떴다(2026-08-26 통합시험).
+describe('fileSizeMessage', () => {
+  const sized = (mib: number) =>
+    ({ size: mib * 1024 * 1024, name: 'a.pdf' }) as File;
+
+  it('95MiB 이하는 통과시킨다', () => {
+    expect(fileSizeMessage(sized(95))).toBeNull();
+  });
+
+  it('넘기면 실제 상한과 넣은 크기를 함께 알린다', () => {
+    const msg = fileSizeMessage(sized(108));
+    expect(msg).toContain('95MB');
+    expect(msg).toContain('108MB');
   });
 });

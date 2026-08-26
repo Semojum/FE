@@ -34,9 +34,13 @@ export const fileValidationMessage = (tab: ConversionTab): string =>
 // 겹쳐 경계가 애매하므로, 명세 권고대로 FE 임계값은 95MB로 잡는다.
 export const MAX_UPLOAD_BYTES = 95 * 1024 * 1024;
 
+// 실제 임계값(95MiB)을 그대로 알린다. "100MB까지"라고만 적어 두면 97MB 파일이 왜
+// 막히는지 알 수 없다(2026-08-26 통합시험).
 export const fileSizeMessage = (file: File): string | null =>
   file.size > MAX_UPLOAD_BYTES
-    ? '업로드할 수 있는 파일 크기는 100MB까지입니다.'
+    ? `업로드할 수 있는 파일 크기는 95MB까지입니다. (넣으신 파일 ${Math.round(
+        file.size / 1024 / 1024,
+      )}MB)`
     : null;
 
 // 꼬리말(묵자)은 Job 생성 multipart의 선택 항목. 200자를 넘기면 서버가 COMMON4000을

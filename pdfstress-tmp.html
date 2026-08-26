@@ -1,0 +1,152 @@
+<!doctype html><meta charset="utf-8"><title>대용량 PDF 스트레스</title>
+<body style="font:12px/1.6 monospace"><pre id="out">준비 중…</pre><canvas id="c" style="width:200px;border:1px solid #ccc"></canvas>
+<script type="module">
+import * as pdfjs from 'pdfjs-dist';
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+const out = document.getElementById('out');
+const log = (s) => { out.textContent += '\n' + s; console.log('[STRESS]', s); };
+out.textContent = '';
+const OPTS = { cMapUrl: '/pdfjs/cmaps/', cMapPacked: true, standardFontDataUrl: '/pdfjs/standard_fonts/', disableFontFace: true };
+const mem = () => performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1e6) : -1;
+
+window.__run = async (url, label) => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const t0 = performance.now();
+  const buf = await (await fetch(url)).arrayBuffer();
+  const fetched = performance.now() - t0;
+  const t1 = performance.now();
+  const doc = await pdfjs.getDocument({ data: buf, ...OPTS }).promise;
+  const opened = performance.now() - t1;
+  const renders = [];
+  for (const n of [1, Math.ceil(doc.numPages / 2), doc.numPages]) {
+    const page = await doc.getPage(n);
+    const base = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: (620 * 2) / base.width }); // 앱과 같은 폭·배율
+    canvas.width = vp.width; canvas.height = vp.height;
+    const a = performance.now();
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    renders.push({ 쪽: n, ms: Math.round(performance.now() - a) });
+  }
+  log(`${label}  받기 ${fetched.toFixed(0)}ms · 열기 ${opened.toFixed(0)}ms · ${doc.numPages}쪽`);
+  log(`   렌더 ${renders.map(r => `p${r.쪽} ${r.ms}ms`).join(' · ')}  힙 ${mem()}MB  캔버스 ${canvas.width}x${canvas.height}`);
+  await doc.destroy();
+  return { fetched, opened, renders };
+};
+// 워커(파싱·디코드) / 메인(그리기)로 나눠 재는 진단
+window.__split = async (url) => {
+  const longs = [];
+  new PerformanceObserver((l) => { for (const e of l.getEntries()) longs.push(Math.round(e.duration)); })
+    .observe({ entryTypes: ['longtask'] });
+  const buf = await (await fetch(url)).arrayBuffer();
+  const doc = await pdfjs.getDocument({ data: buf, ...OPTS }).promise;
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const rows = [];
+  for (const n of [1, 2, doc.numPages]) {
+    const page = await doc.getPage(n);
+    longs.length = 0;
+    const a = performance.now();
+    await page.getOperatorList();
+    const ops = Math.round(performance.now() - a);
+    const opsLong = longs.reduce((s, x) => s + x, 0);
+    const base = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: (620 * 2) / base.width });
+    canvas.width = vp.width; canvas.height = vp.height;
+    longs.length = 0;
+    const b = performance.now();
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    rows.push({ 쪽: n, 워커ms: ops, 워커중_메인멈춤: opsLong,
+                그리기ms: Math.round(performance.now() - b),
+                그리기중_메인멈춤: longs.reduce((s, x) => s + x, 0) });
+  }
+  await doc.destroy();
+  return rows;
+};
+
+// 쪽을 계속 넘기며 메모리·오류를 지켜본다 (실사용에서 가장 흔한 조작)
+window.__walk = async (url, pages) => {
+  const errs = [];
+  window.addEventListener('error', (e) => errs.push(String(e.message)));
+  const buf = await (await fetch(url)).arrayBuffer();
+  const doc = await pdfjs.getDocument({ data: buf, ...OPTS }).promise;
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const samples = [];
+  const t0 = performance.now();
+  for (let i = 0; i < pages; i++) {
+    const n = (i % doc.numPages) + 1;
+    const page = await doc.getPage(n);
+    const base = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: (620 * 2) / base.width });
+    canvas.width = vp.width; canvas.height = vp.height;
+    try {
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    } catch (e) {
+      errs.push(`p${n}: ${e}`);
+    }
+    page.cleanup();
+    if (i % 5 === 4) samples.push({ 넘긴쪽수: i + 1, 힙MB: mem(), 누적초: +((performance.now() - t0) / 1000).toFixed(1) });
+  }
+  await doc.destroy();
+  return { samples, 오류: errs, 쪽당평균ms: Math.round((performance.now() - t0) / pages) };
+};
+
+// 워커·그리기를 빠르게 할 후보를 견줘 본다
+window.__cmp = async (url) => {
+  const canvas = document.getElementById('c');
+  const cases = [
+    ['A 현재(DPR2)', {}, 2],
+    ['B enableHWA', { enableHWA: true }, 2],
+    ['C DPR1', {}, 1],
+    ['D HWA+DPR1', { enableHWA: true }, 1],
+  ];
+  const rows = [];
+  for (const [label, extra, dpr] of cases) {
+    const buf = await (await fetch(url)).arrayBuffer();
+    const doc = await pdfjs.getDocument({ data: buf, ...OPTS, ...extra }).promise;
+    const page = await doc.getPage(2);
+    const a = performance.now();
+    await page.getOperatorList();
+    const 워커 = Math.round(performance.now() - a);
+    const base = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: (620 * dpr) / base.width });
+    canvas.width = vp.width; canvas.height = vp.height;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    const b = performance.now();
+    await page.render({ canvasContext: ctx, viewport: vp, ...extra }).promise;
+    rows.push({ 설정: label, 워커ms: 워커, 그리기ms: Math.round(performance.now() - b), 캔버스: `${vp.width|0}x${vp.height|0}` });
+    await doc.destroy();
+  }
+  return rows;
+};
+
+// 미리 파싱해 두면 쪽 전환이 빨라지는가
+window.__warm = async (url) => {
+  const canvas = document.getElementById('c');
+  const buf = await (await fetch(url)).arrayBuffer();
+  const doc = await pdfjs.getDocument({ data: buf, ...OPTS }).promise;
+  const draw = async (n) => {
+    const page = await doc.getPage(n);
+    const base = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: (620 * 2) / base.width });
+    canvas.width = vp.width; canvas.height = vp.height;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    const t = performance.now();
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    return Math.round(performance.now() - t);
+  };
+  const 차가운쪽 = await draw(3);                       // 준비 없이
+  const p5 = await doc.getPage(5);
+  const t = performance.now();
+  await p5.getOperatorList();                            // 미리 파싱
+  const 미리파싱ms = Math.round(performance.now() - t);
+  const 데운쪽 = await draw(5);                          // 준비된 뒤
+  const 재방문 = await draw(3);                          // 이미 그린 쪽 다시
+  await doc.destroy();
+  return { '준비 없이 그리기ms': 차가운쪽, 미리파싱ms, '미리 파싱한 뒤 그리기ms': 데운쪽, '이미 본 쪽 다시 그리기ms': 재방문 };
+};
+
+log('준비됨 — __run(url, label) 호출');
+</script>

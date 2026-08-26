@@ -3,6 +3,7 @@ import { ConversionTab, FileState, FileType } from '../types';
 import { parseHwpToText } from '../component/shared/HwpParser';
 import {
   detectFileType,
+  fileSizeMessage,
   fileValidationMessage,
   isFileAllowedForTab,
 } from '../utils/fileValidation';
@@ -34,6 +35,18 @@ export const useFileHandler = () => {
         setFileState((prev) => {
           if (prev.previewUrl) URL.revokeObjectURL(prev.previewUrl);
           return { ...EMPTY_STATE, error: fileValidationMessage(activeTab) };
+        });
+        return;
+      }
+
+      // 용량은 **받는 자리에서** 거른다. 예전에는 업로드 단계에서만 봐서, 상한을 넘긴
+      // 파일도 일단 화면에 올라간 뒤 이유 없는 "업로드 실패"만 떴다 — 파일명이 상단과
+      // 원본 칸에 그대로 남고 미리보기는 계속 도는 상태로 갇혔다(2026-08-26 통합시험).
+      const sizeError = fileSizeMessage(file);
+      if (sizeError) {
+        setFileState((prev) => {
+          if (prev.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+          return { ...EMPTY_STATE, error: sizeError };
         });
         return;
       }

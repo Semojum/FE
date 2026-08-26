@@ -30,6 +30,18 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 // data in ArrayBuffer"), 그 글꼴로 찍힌 글자가 통째로 엑스박스로 나왔다(2026-08-25 QA).
 // 외곽선으로 그리면 그 글꼴도 제대로 나온다. 같은 쪽 실측 153ms vs 145ms로 속도 차이는
 // 없었다.
+// 미리 그리기에 쓰는 최소한의 문서 모양(react-pdf가 넘겨 주는 pdf.js 프록시).
+interface PdfDocumentLike {
+  numPages: number;
+  getPage: (n: number) => Promise<{
+    getViewport: (o: { scale: number }) => { width: number; height: number };
+    render: (o: {
+      canvasContext: CanvasRenderingContext2D;
+      viewport: { width: number; height: number };
+    }) => { promise: Promise<void> };
+  }>;
+}
+
 const PDF_OPTIONS = {
   cMapUrl: '/pdfjs/cmaps/',
   cMapPacked: true,
@@ -151,6 +163,8 @@ const FilePreviewer: React.FC<Props> = memo(
     // 이 쪽이 캔버스에 다 그려졌는지. 그리기 전에는 원본이 흰 종이라, 그 위에 상자만
     // 먼저 떠서 "빈 화면에 네모가 파바박" 튀었다(2026-08-25 QA). 다 그려진 뒤에 얹는다.
     const [pageRendered, setPageRendered] = useState(false);
+    // 라이브 업로드본의 <Document>. 이웃 쪽을 미리 그려 두는 데 쓴다.
+    const livePdfRef = useRef<PdfDocumentLike | null>(null);
 
     // 복원본(마이페이지) PDF 이중 버퍼.
     //
@@ -221,6 +235,65 @@ const FilePreviewer: React.FC<Props> = memo(
     useEffect(() => {
       setPageRendered(false);
     }, [currentPage, previewUrl]);
+
+    // p-2(8px×2)를 뺀 실제 그릴 수 있는 폭과 캔버스 배율 상한. 본 렌더와 미리 그리기가
+    // 같은 값을 써야 디코드 캐시가 그대로 쓰인다.
+    const pageRenderWidth = pageWidth > 0 ? Math.max(240, pageWidth - 16) : 500;
+    const pageDevicePixelRatio = Math.min(
+      2,
+      typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1,
+    );
+
+    // 이웃 쪽을 화면 밖에서 미리 한 번 그려 둔다 (라이브 업로드본 전용).
+    //
+    // 고화질 스캔본은 쪽 하나가 4959×7017쯤 되어 처음 그릴 때 500~900ms가 걸린다.
+    // pdf.js는 이미 네이티브 디코더(WebCodecs)를 쓰므로 옵션으로는 더 줄지 않는다
+    // (enableHWA·배율을 낮춰도 오차 범위였다). 대신 **디코드 결과를 문서 안에 캐시**해
+    // 두기 때문에 한 번 그린 쪽은 다시 그릴 때 40ms대로 끝난다(실측 497ms → 43ms).
+    // 그래서 지금 쪽을 다 그린 뒤 앞뒤 쪽을 조용히 한 번 그려 두면, 넘기는 순간에는
+    // 캐시만 쓰게 된다. 실패해도 그만이다 — 그 쪽으로 갈 때 정식 경로가 다시 그린다.
+    //
+    // 복원본은 쪽마다 다른 단일 페이지 PDF라 이웃이 없다(그쪽은 이중 슬롯이 맡는다).
+    useEffect(() => {
+      const pdf = livePdfRef.current;
+      if (isRestoredPages || !pdf || !pageRendered || pageWidth <= 0) return;
+      let cancelled = false;
+      const timer = window.setTimeout(() => {
+        void (async () => {
+          for (const n of [currentPage + 1, currentPage - 1]) {
+            if (cancelled || n < 1 || n > pdf.numPages) continue;
+            try {
+              const page = await pdf.getPage(n);
+              if (cancelled) return;
+              const base = page.getViewport({ scale: 1 });
+              const viewport = page.getViewport({
+                scale: (pageRenderWidth * pageDevicePixelRatio) / base.width,
+              });
+              const canvas = document.createElement('canvas');
+              canvas.width = viewport.width;
+              canvas.height = viewport.height;
+              const ctx = canvas.getContext('2d', { alpha: false });
+              if (!ctx || cancelled) return;
+              await page.render({ canvasContext: ctx, viewport }).promise;
+            } catch {
+              // 미리 그리기 실패는 삼킨다.
+            }
+          }
+        })();
+        // 지금 쪽을 다 그리고 사용자가 읽는 사이에 시작한다(같은 일꾼을 두고 다투지 않게).
+      }, 600);
+      return () => {
+        cancelled = true;
+        window.clearTimeout(timer);
+      };
+    }, [
+      currentPage,
+      pageRendered,
+      pageWidth,
+      pageRenderWidth,
+      pageDevicePixelRatio,
+      isRestoredPages,
+    ]);
 
     // 쪽 번호로 넘기면 원본도 맨 위로 올린다. 결과 격자는 그 쪽 첫 줄로 올라가는데
     // 원본만 앞 쪽에서 보던 자리에 남아 두 화면이 서로 다른 곳을 가리켰다(2026-08-25 요청).
@@ -321,11 +394,6 @@ const FilePreviewer: React.FC<Props> = memo(
       { id: 'a' as const, url: slotA },
       { id: 'b' as const, url: slotB },
     ];
-    const pageRenderWidth = pageWidth > 0 ? Math.max(240, pageWidth - 16) : 500;
-    const pageDevicePixelRatio = Math.min(
-      2,
-      typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1,
-    );
 
     return (
       <div className="w-full h-full flex flex-col bg-gray-50 rounded-2xl overflow-hidden relative">
@@ -410,7 +478,10 @@ const FilePreviewer: React.FC<Props> = memo(
                 // 표시와 말이 다르면 오류처럼 읽힌다(2026-08-26 요청).
                 loading={<PreviewLoading />}
                 error={<PreviewLoading label="원본을 불러오지 못했습니다" />}
-                onLoadSuccess={({ numPages }) => onLoadSuccess(numPages)}
+                onLoadSuccess={(pdf) => {
+                  livePdfRef.current = pdf as unknown as PdfDocumentLike;
+                  onLoadSuccess(pdf.numPages);
+                }}
                 className="flex justify-center"
               >
                 <Page
