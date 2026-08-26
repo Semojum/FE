@@ -173,6 +173,34 @@ describe('FindBar', () => {
     expect(props.onReplacementChange).toHaveBeenLastCalledWith('⠋');
   });
 
+  // 저장된 작업은 직전 보던 쪽 하나가 먼저 오고 나머지는 뒤에서 채워진다. 그동안
+  // 건수는 부분 결과이고(12쪽짜리 실측: 한동안 첫 쪽 52건만), 그때 모두 바꾸기를
+  // 누르면 안 온 쪽은 안 바뀐 채 남는다(2026-08-26 QA) — 표시하고 잠근다.
+  it('쪽을 받는 중이면 알리고 모두 바꾸기만 잠근다', () => {
+    setup({ query: '굴절', total: 2, mode: TABS.OCR, filling: true });
+
+    expect(screen.getByText('쪽 불러오는 중')).toBeTruthy();
+    expect(screen.getByText('모두 바꾸기').closest('button')?.disabled).toBe(
+      true,
+    );
+    // 한 건 바꾸기는 눈에 보이는 결과에만 적용되므로 그대로 쓸 수 있다.
+    expect(screen.getByText('바꾸기').closest('button')?.disabled).toBe(false);
+    expect(
+      screen.getByText(
+        '쪽을 아직 불러오는 중입니다 — 다 오면 모두 바꾸기가 열립니다',
+      ),
+    ).toBeTruthy();
+  });
+
+  it('쪽이 다 오면 알림이 사라지고 모두 바꾸기가 열린다', () => {
+    setup({ query: '굴절', total: 2, mode: TABS.OCR, filling: false });
+
+    expect(screen.queryByText('쪽 불러오는 중')).toBeNull();
+    expect(screen.getByText('모두 바꾸기').closest('button')?.disabled).toBe(
+      false,
+    );
+  });
+
   // 펼침이 기본이지만 접을 수는 있어야 한다(2026-08-26 QA로 기본값만 뒤집었다).
   it('접기 단추로 바꾸기 줄을 숨길 수 있다', async () => {
     setup({ query: '굴절', total: 2 });

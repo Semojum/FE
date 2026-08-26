@@ -109,6 +109,55 @@ describe('useSavedJobs · 두 단계 복원', () => {
     expect(peak).toBeGreaterThan(1);
   });
 
+  // 채우기가 끝나기 전에 다른 작업을 열면 이전 작업의 늦은 쪽들이 새 작업 화면에
+  // 합쳐졌다(2026-08-26 QA 실측: 2쪽짜리 점역 작업이 "변환 완료 12/2"가 되고
+  // 원본 미리보기까지 다른 작업 것으로 바뀜). 나중에 연 작업이 이겨야 한다.
+  it('채우기 중에 다른 작업을 열면 이전 작업의 늦은 응답은 버린다', async () => {
+    // 이전 작업(job_old)의 나머지 쪽은 새 작업이 열린 뒤에야 도착하게 붙잡아 둔다.
+    const held: Array<() => void> = [];
+    getJobPage.mockImplementation((_t, jobId: string, page: number) => {
+      if (jobId === 'job_old' && page > 1) {
+        return new Promise((resolve) => {
+          held.push(() => resolve(pageResponse(page)));
+        });
+      }
+      return Promise.resolve(pageResponse(page));
+    });
+    const onJobLoaded = vi.fn();
+    const onPagesFilled = vi.fn();
+
+    const { result } = renderHook(() =>
+      useSavedJobs({ token: 't', onJobLoaded, onPagesFilled }),
+    );
+
+    let oldOpen: Promise<void> = Promise.resolve();
+    await act(async () => {
+      oldOpen = result.current.handleSelectJob(
+        job({ jobId: 'job_old', totalPages: 3 }),
+      );
+      // 첫 쪽이 화면에 오를 때까지만 기다린다(나머지 쪽은 붙잡혀 있다).
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await result.current.handleSelectJob(
+        job({ jobId: 'job_new', totalPages: 1 }),
+      );
+    });
+
+    // 이전 작업의 나머지 쪽이 이제야 도착한다.
+    await act(async () => {
+      held.forEach((release) => release());
+      await oldOpen;
+    });
+
+    // 채우기 콜백은 나중에 연 작업 것만 올라와야 한다.
+    const filledJobs = onPagesFilled.mock.calls.map(([j]) => j.jobId);
+    expect(filledJobs).toEqual(['job_new']);
+    // 진행 표시도 내려가 있어야 한다(이전 열기가 새 열기의 표시를 끄면 안 된다).
+    expect(result.current.isLoading).toBe(false);
+  });
+
   it('startPage가 없으면 1쪽을 먼저 보여 준다', async () => {
     getJobPage.mockImplementation((_t, _j, page: number) =>
       Promise.resolve(pageResponse(page)),

@@ -134,8 +134,14 @@ const FilePreviewer: React.FC<Props> = memo(
     onBlockHover,
     scrollTopToken,
   }) => {
-    const { previewUrl, fileType, currentPage, textContent, isRestoredPages } =
-      state;
+    const {
+      previewUrl,
+      fileType,
+      currentPage,
+      textContent,
+      isRestoredPages,
+      previewPage,
+    } = state;
     const activeTextRef = useRef<HTMLDivElement>(null);
     // PDF 페이지 폭은 패널 폭에 맞춘다. 예전에는 500px 고정이라 패널이 그보다 좁으면
     // 가운데 정렬된 페이지의 좌우가 잘려 나갔다(문제 번호가 안 보였다 — QA "mode A 좌측
@@ -145,6 +151,47 @@ const FilePreviewer: React.FC<Props> = memo(
     // 이 쪽이 캔버스에 다 그려졌는지. 그리기 전에는 원본이 흰 종이라, 그 위에 상자만
     // 먼저 떠서 "빈 화면에 네모가 파바박" 튀었다(2026-08-25 QA). 다 그려진 뒤에 얹는다.
     const [pageRendered, setPageRendered] = useState(false);
+
+    // 복원본(마이페이지) PDF 이중 버퍼.
+    //
+    // 복원한 작업의 원본은 쪽마다 다른 단일 페이지 PDF(url)다. <Document>의 file을
+    // 그냥 갈아 끼우면 문서를 새로 읽는 동안 이전 쪽 → 흰 화면 → "불러오는 중" →
+    // 흰 화면 → 새 쪽 순서로 깜빡여 오류처럼 보였다(2026-08-26 QA). 새 쪽은 보이지
+    // 않는 슬롯에서 캔버스까지 다 그린 뒤 한 번에 보이는 슬롯과 바꾼다. 같은 슬롯이
+    // 숨김→표시로만 바뀌므로 다시 읽는 일이 없고, 바꾸기 전까지는 이전 쪽이 남는다.
+    const [slotA, setSlotA] = useState<string | null>(null);
+    const [slotB, setSlotB] = useState<string | null>(null);
+    const [visibleSlot, setVisibleSlot] = useState<'a' | 'b'>('a');
+    const previewUrlRef = useRef(previewUrl);
+    previewUrlRef.current = previewUrl;
+
+    useEffect(() => {
+      if (!isRestoredPages || fileType !== 'pdf' || !previewUrl) {
+        // 복원 PDF 경로가 아니면(라이브 업로드·초기화) 슬롯을 비워 이전 쪽이 남지 않게.
+        setSlotA(null);
+        setSlotB(null);
+        return;
+      }
+      const shown = visibleSlot === 'a' ? slotA : slotB;
+      if (shown === previewUrl) {
+        // 이미 화면에 있는 쪽 — 빠르게 오가다 남은 준비 슬롯은 버린다.
+        if (visibleSlot === 'a') setSlotB(null);
+        else setSlotA(null);
+        return;
+      }
+      if (visibleSlot === 'a') setSlotB(previewUrl);
+      else setSlotA(previewUrl);
+    }, [isRestoredPages, fileType, previewUrl, visibleSlot, slotA, slotB]);
+
+    // 준비 슬롯이 다 그려지면 화면에 올린다. 그리는 사이 또 다른 쪽으로 넘어갔으면
+    // (previewUrl이 벌써 바뀌었으면) 이 결과는 버린다 — 다음 effect가 다시 준비한다.
+    const promoteSlot = useCallback((slot: 'a' | 'b', url: string) => {
+      if (url !== previewUrlRef.current) return;
+      setVisibleSlot(slot);
+      if (slot === 'a') setSlotB(null);
+      else setSlotA(null);
+      setPageRendered(true);
+    }, []);
 
     // 콜백 ref로 "지금 붙어 있는 노드"를 관찰한다.
     // 예전에는 effect가 [previewUrl, fileType]에 걸려 있었는데, 미리보기 칸은
@@ -261,6 +308,25 @@ const FilePreviewer: React.FC<Props> = memo(
     // 2. 이미지 및 PDF 미리보기
     if (!previewUrl) return null;
 
+    // 복원본 슬롯 파생값 — 보이는 쪽 / 준비 중인 쪽 / 전환 중 여부.
+    // 쪽을 넘기면 currentPage는 바로 바뀌지만 원본은 내려받은 뒤에야 도착하므로
+    // (previewPage가 아직 이전 쪽), 그 구간도 "전환 중"으로 본다.
+    const shownSlotUrl = visibleSlot === 'a' ? slotA : slotB;
+    const pendingSlotUrl = visibleSlot === 'a' ? slotB : slotA;
+    const isSwitchingPage =
+      !!isRestoredPages &&
+      (!!pendingSlotUrl ||
+        (previewPage !== undefined && previewPage !== currentPage));
+    const restoredSlots = [
+      { id: 'a' as const, url: slotA },
+      { id: 'b' as const, url: slotB },
+    ];
+    const pageRenderWidth = pageWidth > 0 ? Math.max(240, pageWidth - 16) : 500;
+    const pageDevicePixelRatio = Math.min(
+      2,
+      typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1,
+    );
+
     return (
       <div className="w-full h-full flex flex-col bg-gray-50 rounded-2xl overflow-hidden relative">
         <div
@@ -274,6 +340,68 @@ const FilePreviewer: React.FC<Props> = memo(
                 alt="Preview"
                 className="max-w-full h-auto object-contain block"
               />
+            ) : isRestoredPages ? (
+              // 복원본: 이중 버퍼 슬롯(위 slotA/slotB 주석 참고). 준비 슬롯은 보이지
+              // 않게 겹쳐 그리고, 캔버스가 완성되면 promoteSlot이 한 번에 바꾼다.
+              <>
+                {restoredSlots.map(({ id, url }) =>
+                  url ? (
+                    <div
+                      key={id}
+                      aria-hidden={visibleSlot !== id || undefined}
+                      className={
+                        visibleSlot === id
+                          ? `transition-opacity duration-150 ${
+                              isSwitchingPage ? 'opacity-50' : ''
+                            }`
+                          : 'pointer-events-none absolute inset-0 overflow-hidden opacity-0'
+                      }
+                    >
+                      <Document
+                        file={url}
+                        options={PDF_OPTIONS}
+                        // react-pdf 기본 문구는 영어("Loading PDF…")다 — 앱의 다른
+                        // 대기 표시와 말이 다르면 오류처럼 읽힌다(2026-08-26 요청).
+                        loading={visibleSlot === id ? <PreviewLoading /> : null}
+                        error={
+                          <PreviewLoading label="원본을 불러오지 못했습니다" />
+                        }
+                        // 문서가 아예 안 읽혀도 승격한다 — 오류 안내가 보이려면
+                        // 이 슬롯이 화면에 나와야 한다.
+                        onLoadError={() => promoteSlot(id, url)}
+                        className="flex justify-center"
+                      >
+                        <Page
+                          pageNumber={1}
+                          width={pageRenderWidth}
+                          devicePixelRatio={pageDevicePixelRatio}
+                          renderTextLayer={false}
+                          renderAnnotationLayer={false}
+                          onRenderSuccess={() => promoteSlot(id, url)}
+                          loading={
+                            visibleSlot === id ? <PreviewLoading /> : null
+                          }
+                        />
+                      </Document>
+                    </div>
+                  ) : null,
+                )}
+                {/* 첫 진입 — 아직 보여 줄 쪽이 없다 */}
+                {!shownSlotUrl && <PreviewLoading />}
+                {/* 다음 쪽을 준비하는 동안 이전 쪽 위에 작게 알린다 */}
+                {shownSlotUrl && isSwitchingPage && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="absolute inset-x-0 top-3 z-10 flex justify-center"
+                  >
+                    <span className="flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-[12px] font-medium text-gray-500 shadow-sm">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-[#407FAC]" />
+                      원본 불러오는 중...
+                    </span>
+                  </div>
+                )}
+              </>
             ) : (
               <Document
                 file={previewUrl}
@@ -282,27 +410,18 @@ const FilePreviewer: React.FC<Props> = memo(
                 // 표시와 말이 다르면 오류처럼 읽힌다(2026-08-26 요청).
                 loading={<PreviewLoading />}
                 error={<PreviewLoading label="원본을 불러오지 못했습니다" />}
-                // 마이페이지 복원본은 페이지별로 분리된 단일 페이지 PDF이므로 총 페이지 수를
-                // 덮어쓰지 않는다(총 페이지는 작업 메타에서 이미 설정됨).
-                onLoadSuccess={({ numPages }) =>
-                  !isRestoredPages && onLoadSuccess(numPages)
-                }
+                onLoadSuccess={({ numPages }) => onLoadSuccess(numPages)}
                 className="flex justify-center"
               >
                 <Page
-                  pageNumber={isRestoredPages ? 1 : currentPage}
+                  pageNumber={currentPage}
                   // p-2(8px×2)를 뺀 실제 그릴 수 있는 폭. 아직 측정 전이면 종전 값(500).
-                  width={pageWidth > 0 ? Math.max(240, pageWidth - 16) : 500}
+                  width={pageRenderWidth}
                   // 캔버스 해상도 상한. 기본값은 기기 배율(고DPI에서 2~3배)이라
                   // 고화질 문서에서 캔버스가 수천만 픽셀이 되고, 그리기·합성이 GPU에
                   // 걸려 창 전환까지 굼떴다(2026-08-25 QA: RTX 2060에서 렉).
                   // 원본 대조용 미리보기에는 2배면 충분하다.
-                  devicePixelRatio={Math.min(
-                    2,
-                    typeof window === 'undefined'
-                      ? 1
-                      : window.devicePixelRatio || 1,
-                  )}
+                  devicePixelRatio={pageDevicePixelRatio}
                   renderTextLayer={false}
                   renderAnnotationLayer={false}
                   onRenderSuccess={() => setPageRendered(true)}

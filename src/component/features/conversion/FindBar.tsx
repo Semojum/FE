@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, Loader2, X } from 'lucide-react';
 import DotInput from './DotInput';
 import { ConversionTab, TABS } from '../../../types';
 
@@ -55,6 +55,9 @@ interface Props {
   mode: ConversionTab;
   total: number;
   current: number; // 0-based. total이 0이면 무시된다.
+  // 저장된 작업(마이페이지)의 나머지 쪽을 아직 받는 중 — 건수가 부분 결과다.
+  // 표시로 알리고, 모두 바꾸기는 다 올 때까지 잠근다(안 온 쪽은 안 바뀌므로).
+  filling?: boolean;
   onStep: (delta: 1 | -1) => void;
   onClose: () => void;
   // 열려 있는 상태에서 Ctrl+F를 다시 누르면 입력창으로 돌아온다(브라우저와 같은 습관).
@@ -76,6 +79,7 @@ const FindBar: React.FC<Props> = ({
   mode,
   total,
   current,
+  filling = false,
   onStep,
   onClose,
   focusToken = 0,
@@ -128,6 +132,16 @@ const FindBar: React.FC<Props> = ({
         <span className="min-w-[46px] text-center text-[11.5px] text-gray-500">
           {query.trim() ? `${total === 0 ? 0 : current + 1}/${total}` : '0/0'}
         </span>
+
+        {filling && (
+          <span
+            role="status"
+            className="flex items-center gap-1 whitespace-nowrap text-[10.5px] font-medium text-gray-400"
+          >
+            <Loader2 size={11} className="animate-spin text-[#5b8ce6]" />쪽
+            불러오는 중
+          </span>
+        )}
 
         <button
           type="button"
@@ -222,7 +236,7 @@ const FindBar: React.FC<Props> = ({
           </button>
           <button
             type="button"
-            disabled={!canReplace}
+            disabled={!canReplace || filling}
             onClick={onReplaceAll}
             className="rounded-[6px] bg-[#f47726] px-2.5 py-1 text-[11px] font-bold text-white transition-colors hover:brightness-95 disabled:opacity-40"
           >
@@ -231,7 +245,9 @@ const FindBar: React.FC<Props> = ({
           <span className="text-[10.5px] text-gray-400">
             {scope === 'original'
               ? `원본은 바꿀 수 없습니다 — 범위를 ${labels.result}로 바꿔 주세요`
-              : '결과(출력)만 바뀝니다'}
+              : filling
+                ? '쪽을 아직 불러오는 중입니다 — 다 오면 모두 바꾸기가 열립니다'
+                : '결과(출력)만 바뀝니다'}
           </span>
         </div>
       )}

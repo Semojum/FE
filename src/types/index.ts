@@ -36,6 +36,10 @@ export interface FileState {
   // true면 미리보기를 (currentPage가 아닌) 1페이지로 렌더하고, 총 페이지 수를
   // 이 미리보기의 onLoadSuccess로 덮어쓰지 않는다.
   isRestoredPages?: boolean;
+  // 지금 previewUrl이 몇 쪽의 원본인지(복원본 전용). 쪽을 넘기면 currentPage는
+  // 바로 바뀌지만 원본은 내려받은 뒤에야 도착한다 — 그 사이를 미리보기가
+  // "이전 쪽을 흐리게 + 불러오는 중"으로 표시하는 데 쓴다.
+  previewPage?: number;
 }
 
 export interface PaginationProps {

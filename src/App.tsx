@@ -99,6 +99,7 @@ import { hasMath } from './utils/mathText';
 import { replaceRanges, searchGrid, searchTextBlocks } from './utils/docSearch';
 import { saveBlob } from './utils/download';
 import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
+import { isTextOriginal, renderableOriginals } from './utils/pageOriginals';
 import { onAppClose } from './utils/appLifecycle';
 import { loadBrailleDefaults } from './utils/brailleDefaults';
 import {
@@ -292,6 +293,9 @@ const Semojum: React.FC = () => {
   const stepFindRef = useRef<((delta: 1 | -1) => void) | null>(null);
   const replaceCurrentRef = useRef<(() => void) | null>(null);
   const replaceAllRef = useRef<(() => void) | null>(null);
+  // 저장된 작업의 나머지 쪽이 아직 오는 중인지 — 모두 바꾸기 가드가 읽는다.
+  // (useSavedJobs는 한참 아래에서 만들어져, 위쪽의 콜백이 state를 바로 읽을 수 없다.)
+  const isFillingSavedPagesRef = useRef(false);
   // 손으로 고친 블록(`페이지:블록id`) — 대체 텍스트 적용 전 확인 여부를 가른다.
   const [editedBlocks, setEditedBlocks] = useState<Set<string>>(new Set());
   // 대체 초안 피커를 연 블록 — 어느 페이지의 블록인지까지 들고 있는다.
@@ -303,6 +307,10 @@ const Semojum: React.FC = () => {
 
   // 페이지 일괄 저장(PUT) 대상 Job ID. 라이브 업로드/마이페이지 복원/탭 복원 시 갱신된다.
   const [workingJobId, setWorkingJobId] = useState<string | null>(null);
+  // 비동기 콜백(늦게 도착한 쪽 채우기)이 최신 값을 읽을 수 있게 비춰 둔다 —
+  // 오래된 클로저의 state는 다른 작업을 여는 사이 낡아 있을 수 있다.
+  const workingJobIdRef = useRef<string | null>(null);
+  workingJobIdRef.current = workingJobId;
   // 페이지별 변환 상태 — page_done/job_done의 BLOCKED 페이지를 안내하는 데 쓴다.
   const [pageStatuses, setPageStatuses] = useState<
     Record<number, PageEventStatus>
@@ -332,6 +340,16 @@ const Semojum: React.FC = () => {
   // 않는다. 메모리 때문에 최근 몇 쪽만 남긴다.
   const originalBlobCacheRef = useRef<Map<string, Blob>>(new Map());
   const MAX_CACHED_ORIGINALS = 8;
+  // 미리보기 세대 — 작업을 갈아탈 때마다 올린다. 이전 작업의 원본 다운로드가
+  // 취소 확인(cancelled)을 통과한 직후에 완료되면 새 작업의 미리보기를 덮었다
+  // (2026-08-26 QA: 점역 작업을 열었는데 왼쪽에 직전 작업의 PDF가 떴다).
+  const previewEpochRef = useRef(0);
+  // 페이지 원본 URL(서명 링크)을 받은 시각. 서명 URL은 15분이면 만료되므로(BE
+  // 2026-08-09) 받은 지 오래됐으면 시도하지 않고 바로 재발급받는다. 반대로 방금
+  // 받은 URL은 그대로 쓴다 — 예전에는 매번 페이지 조회로 새 URL부터 받아, 열 때와
+  // 쪽 넘김마다 왕복 하나(0.7~1초)를 그냥 버렸다(2026-08-26 QA: 왼쪽 로딩 지연).
+  const savedOriginalsAtRef = useRef(0);
+  const ORIGINAL_URL_TTL_MS = 10 * 60_000;
 
   // 탭별 작업물 보관소. 탭을 떠날 때 현재 상태를 저장하고, 돌아오면 복원한다.
   const [tabSnapshots, setTabSnapshots] = useState<
@@ -422,6 +440,8 @@ const Semojum: React.FC = () => {
 
   // 화면 상태를 빈 값으로 초기화 (스냅샷/ref는 건드리지 않음 — 호출부에서 처리)
   const clearWorkspace = useCallback(() => {
+    // 진행 중이던 이전 작업의 원본 다운로드가 새 화면을 덮지 못하게 세대를 올린다.
+    previewEpochRef.current += 1;
     resetFile();
     resetAllBlocks();
     resetUpload();
@@ -893,10 +913,14 @@ const Semojum: React.FC = () => {
     if (activeGridHit) replaceHits([activeGridHit]);
   }, [activeGridHit, replaceHits]);
 
-  const replaceAll = useCallback(
-    () => replaceHits(findHits.grid),
-    [findHits.grid, replaceHits],
-  );
+  const replaceAll = useCallback(() => {
+    // 저장된 작업의 쪽을 아직 받는 중이면 막는다 — 지금 바꾸면 메모리에 있는
+    // 쪽만 바뀌고, 뒤이어 도착하는 쪽은 원문 그대로 남는다(2026-08-26 QA:
+    // 12쪽짜리를 열자마자 찾으면 한동안 첫 쪽 52건만 잡히던 실측). 팝업(결과
+    // 전용 창)에서 오는 호출도 이 길을 지나므로 버튼 잠금만으로는 부족하다.
+    if (isFillingSavedPagesRef.current) return;
+    replaceHits(findHits.grid);
+  }, [findHits.grid, replaceHits]);
 
   const stepFind = useCallback(
     (delta: 1 | -1) => {
@@ -1399,9 +1423,14 @@ const Semojum: React.FC = () => {
         // 점역은 페이지별 originalTextsByPage로 원본을 표시하므로 페이지별 원본 경로는 미사용.
         setSavedOriginalsByPage(null);
       } else {
-        // 이미지 모드(a/c): 페이지별 원본 PDF가 있으면 1페이지 원본을 띄우고, 페이지 전환은
+        // 이미지 모드(a/c): 페이지별 원본이 있으면 그 원본을 띄우고, 페이지 전환은
         // 아래 effect가 처리한다. 원본이 없으면 썸네일(페이지 고정)로 폴백.
-        const first = job.originalByPage?.[1];
+        //
+        // 열 때는 직전에 보던 쪽 하나만 먼저 도착하므로 그 쪽을 봐야 한다 — 1쪽만
+        // 보면 뒤쪽을 보다 연 작업이 전부 "원본 없음"으로 빠져, 나머지 쪽 조회가
+        // 다 끝날 때까지 왼쪽 원본이 안 떴다(2026-08-26 QA: 무거운 파일 열기 지연).
+        const first =
+          job.originalByPage?.[job.startPage ?? 1] ?? job.originalByPage?.[1];
         if (first?.url) {
           const ft: FileType = first.type === 'image' ? 'image' : 'pdf';
           setRestoredPreview({
@@ -1410,7 +1439,9 @@ const Semojum: React.FC = () => {
             // httpFetch로 받아 blob URL을 채운다(여기선 빈 값으로 두어 hasInputPreview만 켬).
             previewUrl: ft === 'image' ? first.url : null,
             isRestoredPages: true,
+            previewPage: job.startPage ?? 1,
           });
+          savedOriginalsAtRef.current = Date.now();
           setSavedOriginalsByPage(job.originalByPage ?? null);
         } else {
           setRestoredPreview({
@@ -1444,12 +1475,19 @@ const Semojum: React.FC = () => {
         fileType: 'pdf',
         previewUrl: URL.createObjectURL(cachedBlob),
         isRestoredPages: true,
+        previewPage: currentPage,
       });
       setIsRestoringJob(false);
       return;
     }
 
     const cached = savedOriginalsByPage[currentPage];
+    // 텍스트 원본(점역 b — url 없이 lines만)은 왼쪽이 원본 텍스트를 직접 그린다.
+    // PDF 원본을 찾을 일이 아니다 — 여기서 오류를 내면 텍스트 미리보기를 덮는다.
+    if (isTextOriginal(cached)) {
+      setIsRestoringJob(false);
+      return;
+    }
     // 이 페이지의 원본 주소를 아직 모르면 작업 조회로 받아 온다. 둘 다 없으면
     // 기다릴 것이 없으니 진행 표시를 내린다(그대로 두면 화면이 갇힌다).
     const canRefetch = !!workingJobId && !!auth.token;
@@ -1459,41 +1497,34 @@ const Semojum: React.FC = () => {
     }
 
     let cancelled = false;
+    // cancelled는 cleanup이 돌아야 켜진다 — 확인을 통과한 직후 새 작업이 열리는
+    // 틈이 있다. 세대 번호를 함께 봐서 그 틈으로 새 화면을 덮지 못하게 한다.
+    const previewEpoch = previewEpochRef.current;
+    const stale = () => cancelled || previewEpochRef.current !== previewEpoch;
     setOriginalLoadError(null);
 
     (async () => {
-      try {
-        // 만료됐을 수 있는 캐시 URL 대신 지금 발급된 URL을 쓴다.
-        let orig = cached;
-        if (canRefetch && auth.token && workingJobId) {
-          try {
-            const fresh = await getJobPage(
-              auth.token,
-              workingJobId,
-              currentPage,
-            );
-            if (fresh.original?.url) orig = fresh.original;
-          } catch {
-            // 재조회가 안 되면 가지고 있던 URL로 그대로 시도한다.
-          }
-        }
-        if (cancelled) return;
-        if (!orig?.url) throw new Error('원본 주소를 받지 못했습니다.');
-
+      // 원본 하나를 화면에 올린다. 실패(만료 403 등)면 false — 새 URL로 다시 시도.
+      const show = async (
+        orig: JobPageOriginal | null | undefined,
+      ): Promise<boolean> => {
+        if (!orig?.url) return false;
         if (orig.type === 'image') {
-          setRestoredPreview({
-            fileType: 'image',
-            previewUrl: orig.url,
-            isRestoredPages: true,
-          });
-          setIsRestoringJob(false);
-          return;
+          if (!stale()) {
+            setRestoredPreview({
+              fileType: 'image',
+              previewUrl: orig.url,
+              isRestoredPages: true,
+              previewPage: currentPage,
+            });
+            setIsRestoringJob(false);
+          }
+          return true;
         }
-
-        const res = await httpFetch(orig.url as string, { method: 'GET' });
-        if (!res.ok) throw new Error(`원본 PDF 로드 실패: ${res.status}`);
+        const res = await httpFetch(orig.url, { method: 'GET' });
+        if (!res.ok) return false;
         const buf = await res.arrayBuffer();
-        if (cancelled) return;
+        if (stale()) return true;
         const blob = new Blob([buf], { type: 'application/pdf' });
         // 다음에 이 쪽으로 돌아오면 바로 그린다. 오래된 쪽부터 버린다.
         const cache = originalBlobCacheRef.current;
@@ -1504,19 +1535,46 @@ const Semojum: React.FC = () => {
           cache.delete(oldest);
         }
         const blobUrl = URL.createObjectURL(blob);
-        if (cancelled) {
+        if (stale()) {
           URL.revokeObjectURL(blobUrl); // 적용 전 취소되면 누수 방지
-          return;
+          return true;
         }
         // 이후 blob URL의 폐기는 setRestoredPreview/reset의 revoke가 담당.
         setRestoredPreview({
           fileType: 'pdf',
           previewUrl: blobUrl,
           isRestoredPages: true,
+          previewPage: currentPage,
         });
         setIsRestoringJob(false);
+        return true;
+      };
+
+      try {
+        // 1) 들고 있는 URL이 아직 살아 있을 시각이면 그대로 쓴다. 작업을 연 직후에는
+        //    방금 발급된 URL이라 거의 항상 성공한다 — 예전처럼 매번 재조회부터 하면
+        //    열 때와 쪽 넘김마다 왕복 하나를 그냥 버린다(위 ORIGINAL_URL_TTL_MS 참고).
+        const urlUsable =
+          Date.now() - savedOriginalsAtRef.current < ORIGINAL_URL_TTL_MS;
+        if (urlUsable && (await show(cached).catch(() => false))) return;
+        if (stale()) return;
+
+        // 2) URL이 낡았거나 방금 실패했다 — 지금 발급된 URL을 받아 한 번 더.
+        if (!canRefetch || !auth.token || !workingJobId) {
+          throw new Error('원본 주소를 받지 못했습니다.');
+        }
+        const fresh = await getJobPage(auth.token, workingJobId, currentPage);
+        if (stale()) return;
+        // 재조회 응답이 텍스트 원본이면 그릴 PDF가 없는 게 정상이다(위 가드와 동일).
+        if (isTextOriginal(fresh.original)) {
+          setIsRestoringJob(false);
+          return;
+        }
+        if (!(await show(fresh.original))) {
+          throw new Error('원본 주소를 받지 못했습니다.');
+        }
       } catch (e) {
-        if (cancelled) return;
+        if (stale()) return;
         // 실패를 삼키면 미리보기가 이유 없는 빈 화면이 된다 — 화면에 알린다.
         // 진행 표시를 내려야 그 안내가 보인다.
         console.error(e);
@@ -1556,14 +1614,26 @@ const Semojum: React.FC = () => {
       const cache = originalBlobCacheRef.current;
       if (cache.has(key)) return;
       try {
-        const fresh = await getJobPage(token, jobId, page);
-        const url = fresh.original?.url;
         // 이미지 원본은 원격 URL을 그대로 쓰는 경로라 미리 받아도 소용이 없다.
-        if (!url || fresh.original?.type === 'image' || cancelled) return;
-        const res = await httpFetch(url, { method: 'GET' });
-        if (!res.ok || cancelled) return;
-        const buf = await res.arrayBuffer();
-        if (cancelled || cache.has(key)) return;
+        const fetchBytes = async (o: JobPageOriginal | null | undefined) => {
+          if (!o?.url || o.type === 'image') return null;
+          const res = await httpFetch(o.url, { method: 'GET' });
+          return res.ok ? await res.arrayBuffer() : null;
+        };
+        // 들고 있는 URL이 살아 있으면 그대로 받는다(본문 미리보기 effect와 같은 규칙).
+        const urlUsable =
+          Date.now() - savedOriginalsAtRef.current < ORIGINAL_URL_TTL_MS;
+        let buf = urlUsable
+          ? await fetchBytes(savedOriginalsByPage[page]).catch(() => null)
+          : null;
+        if (cancelled) return;
+        if (!buf) {
+          // 모르는 쪽이거나 URL이 낡았다 — 지금 발급된 URL로 받는다.
+          const fresh = await getJobPage(token, jobId, page);
+          if (cancelled) return;
+          buf = await fetchBytes(fresh.original);
+        }
+        if (!buf || cancelled || cache.has(key)) return;
         cache.set(key, new Blob([buf], { type: 'application/pdf' }));
         while (cache.size > MAX_CACHED_ORIGINALS) {
           const oldest = cache.keys().next().value;
@@ -1599,6 +1669,11 @@ const Semojum: React.FC = () => {
   // 먼저 뜬 쪽을 사용자가 벌써 고치고 있을 수 있다.
   const handlePagesFilled = useCallback(
     (job: JobDetail) => {
+      // 다른 작업의 늦은 채우기는 버린다. 채우기가 끝나기 전에 새 작업을 열면
+      // 이전 작업의 쪽들이 새 작업 화면에 합쳐졌다(2026-08-26 QA 실측: 점역
+      // 작업이 "변환 완료 12/2"가 되고 왼쪽 원본까지 다른 작업 것으로 바뀜).
+      // UseSavedJobs의 세대 가드에 더한 이중 안전장치다.
+      if (job.jobId !== workingJobIdRef.current) return;
       const keepExisting = <T,>(
         prev: Record<number, T>,
         incoming: Record<number, T>,
@@ -1610,10 +1685,18 @@ const Semojum: React.FC = () => {
       setOriginalTextsByPage((prev) =>
         keepExisting(prev, job.originalTextsByPage),
       );
-      const incomingOriginals = job.originalByPage ?? {};
-      setSavedOriginalsByPage((prev) =>
-        prev ? keepExisting(prev, incomingOriginals) : incomingOriginals,
-      );
+      // 점역(b) 저장본의 텍스트 원본(url 없음)은 페이지 원본 경로에 넣지 않는다 —
+      // 넣으면 미리보기 effect가 PDF 원본을 찾다 "원본을 불러오지 못했습니다"로
+      // 텍스트 미리보기를 덮는다(2026-08-26 QA). 그릴 수 있는 원본이 하나도 없으면
+      // null을 유지해 이 경로 자체를 끈다.
+      const incomingOriginals = renderableOriginals(job.originalByPage);
+      savedOriginalsAtRef.current = Date.now();
+      setSavedOriginalsByPage((prev) => {
+        const merged = prev
+          ? keepExisting(prev, incomingOriginals)
+          : incomingOriginals;
+        return Object.keys(merged).length > 0 ? merged : null;
+      });
       setPageStatuses((prev) => {
         const next = { ...prev };
         for (let p = 1; p <= job.totalPages; p += 1) {
@@ -1630,16 +1713,18 @@ const Semojum: React.FC = () => {
     [blocksByPage, editor, setAllBlocks],
   );
 
-  const { handleSelectJob: loadSavedJob } = useSavedJobs({
-    token: auth.token,
-    onJobLoaded: handleJobLoaded,
-    onPagesFilled: handlePagesFilled,
-    onError: (message) => {
-      setIsRestoringJob(false);
-      setIsMyPageOpen(true);
-      setToast(message);
-    },
-  });
+  const { isLoading: isFillingSavedPages, handleSelectJob: loadSavedJob } =
+    useSavedJobs({
+      token: auth.token,
+      onJobLoaded: handleJobLoaded,
+      onPagesFilled: handlePagesFilled,
+      onError: (message) => {
+        setIsRestoringJob(false);
+        setIsMyPageOpen(true);
+        setToast(message);
+      },
+    });
+  isFillingSavedPagesRef.current = isFillingSavedPages;
 
   // 마이페이지에서 파일을 고르면 **누르는 즉시** 불러오는 중 화면으로 넘어간다.
   // 예전에는 쪽별 조회가 다 끝나야 화면이 바뀌어, 그동안(느린 PC에서 5~10초)
@@ -2671,6 +2756,7 @@ const Semojum: React.FC = () => {
             mode={activeTab}
             total={findTotal}
             current={findIndex}
+            filling={isFillingSavedPages}
             onStep={(delta) => dispatchAction({ type: 'findStep', delta })}
             focusToken={findFocusToken}
             replacement={findReplacement}

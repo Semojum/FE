@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { getJobPage } from '../api/HistoryService';
 import { ApiError } from '../api/apiClient';
 import { toUserMessage } from '../api/errorMessages';
@@ -50,11 +50,18 @@ export const useSavedJobs = ({
   onError,
 }: UseSavedJobsOptions) => {
   const [isLoading, setIsLoading] = useState(false);
+  // 열기 세대. 채우기가 끝나기 전에 다른 작업을 열면 이전 열기의 늦은 응답이
+  // 새 작업 화면에 그대로 합쳐졌다(2026-08-26 QA 실측: 2쪽짜리 점역 작업이
+  // "변환 완료 12/2"가 되고 원본 미리보기까지 다른 작업 것으로 바뀜).
+  // 나중에 연 작업이 이긴다 — 세대가 넘어간 열기는 콜백을 부르지 못한다.
+  const epochRef = useRef(0);
 
   // 마이페이지에서 작업을 선택하면 페이지별로 결과를 받아 앱 상태로 복원한다.
   const handleSelectJob = useCallback(
     async (job: JobRef) => {
       if (!token) return;
+      const epoch = ++epochRef.current;
+      const stale = () => epochRef.current !== epoch;
       setIsLoading(true);
 
       const tab = modeToTab(job.mode);
@@ -115,7 +122,9 @@ export const useSavedJobs = ({
         };
 
         try {
-          absorb(firstPage, await getJobPage(token, job.jobId, firstPage));
+          const firstData = await getJobPage(token, job.jobId, firstPage);
+          if (stale()) return;
+          absorb(firstPage, firstData);
           onJobLoaded({
             ...meta,
             failedPages,
@@ -135,6 +144,8 @@ export const useSavedJobs = ({
         let next = 0;
         const worker = async () => {
           for (;;) {
+            // 새 작업이 열렸다 — 이 작업의 남은 쪽은 받아 봐야 버려진다.
+            if (stale()) return;
             const idx = next;
             next += 1;
             if (idx >= pages.length) return;
@@ -153,6 +164,7 @@ export const useSavedJobs = ({
         await Promise.all(
           Array.from({ length: Math.min(CONCURRENCY, pages.length) }, worker),
         );
+        if (stale()) return;
 
         // 쪽 번호 순서대로 정리한다 — 받은 순서는 뒤섞일 수 있다.
         for (const entry of results) {
@@ -172,14 +184,16 @@ export const useSavedJobs = ({
           imgResolution,
         });
       } catch (err) {
+        if (stale()) return;
         const message = toUserMessage(err, '작업을 불러오지 못했습니다.');
         if (onError) onError(message);
         else console.error(message, err);
       } finally {
-        setIsLoading(false);
+        // 세대가 넘어갔으면 진행 표시는 새 열기의 것이다 — 건드리지 않는다.
+        if (!stale()) setIsLoading(false);
       }
     },
-    [token, onJobLoaded, onError],
+    [token, onJobLoaded, onPagesFilled, onError],
   );
 
   return { isLoading, handleSelectJob };

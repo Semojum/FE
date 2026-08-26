@@ -81,6 +81,7 @@ export const useFileHandler = () => {
       previewUrl?: string | null;
       textContent?: string;
       isRestoredPages?: boolean;
+      previewPage?: number;
     }) => {
       setFileState((prev) => {
         if (prev.previewUrl) URL.revokeObjectURL(prev.previewUrl);
@@ -91,6 +92,7 @@ export const useFileHandler = () => {
           previewUrl: preview.previewUrl ?? null,
           textContent: preview.textContent ?? '',
           isRestoredPages: preview.isRestoredPages ?? false,
+          previewPage: preview.previewPage,
           error: null,
         };
       });
