@@ -30,18 +30,6 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 // data in ArrayBuffer"), 그 글꼴로 찍힌 글자가 통째로 엑스박스로 나왔다(2026-08-25 QA).
 // 외곽선으로 그리면 그 글꼴도 제대로 나온다. 같은 쪽 실측 153ms vs 145ms로 속도 차이는
 // 없었다.
-// 미리 그리기에 쓰는 최소한의 문서 모양(react-pdf가 넘겨 주는 pdf.js 프록시).
-interface PdfDocumentLike {
-  numPages: number;
-  getPage: (n: number) => Promise<{
-    getViewport: (o: { scale: number }) => { width: number; height: number };
-    render: (o: {
-      canvasContext: CanvasRenderingContext2D;
-      viewport: { width: number; height: number };
-    }) => { promise: Promise<void> };
-  }>;
-}
-
 const PDF_OPTIONS = {
   cMapUrl: '/pdfjs/cmaps/',
   cMapPacked: true,
@@ -117,6 +105,9 @@ const renderWithFind = (
   return nodes;
 };
 
+// pdf.js 문서에서 우리가 쓰는 것은 캐시 비우기뿐이다.
+type PdfCleanup = { cleanup: (keepLoadedFonts?: boolean) => Promise<unknown> };
+
 // 원본을 그리는 동안 보여 주는 자리 표시. 쪽을 넘길 때 흰 종이만 남지 않게 한다.
 const PreviewLoading: React.FC<{ label?: string }> = ({
   label = '불러오는 중...',
@@ -163,8 +154,35 @@ const FilePreviewer: React.FC<Props> = memo(
     // 이 쪽이 캔버스에 다 그려졌는지. 그리기 전에는 원본이 흰 종이라, 그 위에 상자만
     // 먼저 떠서 "빈 화면에 네모가 파바박" 튀었다(2026-08-25 QA). 다 그려진 뒤에 얹는다.
     const [pageRendered, setPageRendered] = useState(false);
-    // 라이브 업로드본의 <Document>. 이웃 쪽을 미리 그려 두는 데 쓴다.
-    const livePdfRef = useRef<PdfDocumentLike | null>(null);
+    // pdf.js 문서 손잡이 — 다 그린 뒤 디코드 캐시를 비우는 데만 쓴다.
+    const livePdfRef = useRef<PdfCleanup | null>(null);
+    // 복원본은 쪽마다 다른 문서라 슬롯별로 들고 있어야 한다.
+    const restoredPdfRef = useRef<Record<'a' | 'b', PdfCleanup | null>>({
+      a: null,
+      b: null,
+    });
+
+    // 라이브 업로드본 이중 버퍼 — 지금 화면에 나와 있는 슬롯과 그 슬롯이 다 그린 쪽.
+    //
+    // 예전에는 <Page pageNumber={currentPage}> 하나뿐이라, 쪽을 넘기면 react-pdf가
+    // 이전 캔버스를 버리고 새 캔버스를 붙인 뒤 거기에 그렸다. <Page loading>은 쪽
+    // 객체를 읽는 동안만 뜨고 그리는 동안에는 사라지므로, 고화질 스캔본에서는
+    // **4~5초 동안 안내 없는 흰(가끔 검은) 화면**이 남았다(2026-08-27 인수시험 실측:
+    // 쪽 넘김 2.1~6.4초, 그중 빈 화면 1.5~4.9초, 안내는 5회 중 1회만).
+    // 복원본이 쓰던 이중 슬롯을 여기에도 둔다 — 새 쪽은 보이지 않는 자리에서 다 그린
+    // 뒤에 한 번에 바뀌고, 그때까지는 이전 쪽이 그대로 남는다.
+    //
+    // 슬롯을 두 개 두고 **보이는 슬롯을 바꾸는** 것이 핵심이다. 한 슬롯의 pageNumber만
+    // 갈아 끼우면 react-pdf가 그 캔버스를 버리고 처음부터 다시 그린다 — 애써 미리 그려
+    // 둔 것이 날아가고 흰 화면이 그대로 남는다(첫 시도에서 이렇게 만들었다가 잡았다).
+    //
+    // 어느 문서의 것인지도 함께 들고 있는다 — 다른 파일로 갈아타면 문서를 처음부터
+    // 읽으므로, 별도 초기화 없이 "지금 문서의 것이 아니면 아직 아무것도 못 그린 것"이 된다.
+    const [painted, setPainted] = useState<{
+      slot: 'a' | 'b';
+      url: string;
+      page: number;
+    } | null>(null);
 
     // 복원본(마이페이지) PDF 이중 버퍼.
     //
@@ -236,6 +254,49 @@ const FilePreviewer: React.FC<Props> = memo(
       setPageRendered(false);
     }, [currentPage, previewUrl]);
 
+    // 다 그려진 슬롯을 화면으로 올린다. 그리는 사이에 사용자가 또 넘겼으면
+    // (currentPage가 이미 달라졌으면) 이 결과는 버린다 — 그 쪽을 위한 슬롯이 이미
+    // 새로 돌고 있다.
+    // (메모하지 않아도 된다 — react-pdf의 Canvas는 이 콜백을 렌더 의존성에 넣지 않는다)
+    const promoteLiveSlot = (slot: 'a' | 'b', page: number) => {
+      if (page !== currentPage || !previewUrl) return;
+      setPainted({ slot, url: previewUrl, page });
+    };
+
+    // 다 그린 뒤에는 pdf.js가 들고 있는 디코드 결과를 비운다.
+    //
+    // 문제집 PDF는 쪽마다 4959×7017짜리 스캔 이미지가 여러 장 들어 있다. pdf.js는 디코드
+    // 결과를 문서 안에 캐시하는데 한 장이 139MB(4959×7017×4)라, **첫 쪽을 그리는 것만으로**
+    // 렌더러가 90MB → 1,236MB가 됐다. 2026-08-27 인수시험에서 판면 격자가 아직 비어
+    // (DOM 노드 216개, JS 힙 7MB) 있을 때 잰 값이다 — 앱 메모리를 끌어올리는 것은
+    // 판면이 아니라 여기다. 캔버스에 다 그린 뒤에는 그 캐시가 필요 없다.
+    // 글꼴은 남겨 둔다(keepLoadedFonts) — 다음 쪽에서 다시 받지 않게.
+    const liveSettledPage =
+      painted && painted.url === previewUrl && painted.page === currentPage
+        ? painted.page
+        : null;
+    useEffect(() => {
+      if (isRestoredPages || liveSettledPage === null) return;
+      const id = window.setTimeout(() => {
+        livePdfRef.current?.cleanup(true).catch(() => {});
+      }, 800);
+      return () => window.clearTimeout(id);
+    }, [isRestoredPages, liveSettledPage]);
+
+    // 복원본도 같은 이유로 비운다. 이쪽은 쪽마다 **다른 단일 페이지 문서**를 읽으므로
+    // 그 쪽의 디코드 결과가 슬롯이 살아 있는 동안 그대로 남는다 — 2026-08-27 인수시험에서
+    // 슬롯 두 개가 모두 그려져 있는 동안 3.9GB, 한 개일 때 2.4GB로 오르내렸다.
+    // 다음 쪽을 준비하는 중에는 건드리지 않는다(그리는 문서를 비우면 pdf.js가 거부한다).
+    const restoredPending = visibleSlot === 'a' ? slotB : slotA;
+    const restoredSettled = isRestoredPages && pageRendered && !restoredPending;
+    useEffect(() => {
+      if (!restoredSettled) return;
+      const id = window.setTimeout(() => {
+        restoredPdfRef.current[visibleSlot]?.cleanup(true).catch(() => {});
+      }, 800);
+      return () => window.clearTimeout(id);
+    }, [restoredSettled, visibleSlot]);
+
     // p-2(8px×2)를 뺀 실제 그릴 수 있는 폭과 캔버스 배율 상한. 본 렌더와 미리 그리기가
     // 같은 값을 써야 디코드 캐시가 그대로 쓰인다.
     const pageRenderWidth = pageWidth > 0 ? Math.max(240, pageWidth - 16) : 500;
@@ -244,56 +305,14 @@ const FilePreviewer: React.FC<Props> = memo(
       typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1,
     );
 
-    // 이웃 쪽을 화면 밖에서 미리 한 번 그려 둔다 (라이브 업로드본 전용).
+    // (이웃 쪽 미리 그리기는 걷어냈다 — 2026-08-27 인수시험)
     //
-    // 고화질 스캔본은 쪽 하나가 4959×7017쯤 되어 처음 그릴 때 500~900ms가 걸린다.
-    // pdf.js는 이미 네이티브 디코더(WebCodecs)를 쓰므로 옵션으로는 더 줄지 않는다
-    // (enableHWA·배율을 낮춰도 오차 범위였다). 대신 **디코드 결과를 문서 안에 캐시**해
-    // 두기 때문에 한 번 그린 쪽은 다시 그릴 때 40ms대로 끝난다(실측 497ms → 43ms).
-    // 그래서 지금 쪽을 다 그린 뒤 앞뒤 쪽을 조용히 한 번 그려 두면, 넘기는 순간에는
-    // 캐시만 쓰게 된다. 실패해도 그만이다 — 그 쪽으로 갈 때 정식 경로가 다시 그린다.
-    //
-    // 복원본은 쪽마다 다른 단일 페이지 PDF라 이웃이 없다(그쪽은 이중 슬롯이 맡는다).
-    useEffect(() => {
-      const pdf = livePdfRef.current;
-      if (isRestoredPages || !pdf || !pageRendered || pageWidth <= 0) return;
-      let cancelled = false;
-      const timer = window.setTimeout(() => {
-        void (async () => {
-          for (const n of [currentPage + 1, currentPage - 1]) {
-            if (cancelled || n < 1 || n > pdf.numPages) continue;
-            try {
-              const page = await pdf.getPage(n);
-              if (cancelled) return;
-              const base = page.getViewport({ scale: 1 });
-              const viewport = page.getViewport({
-                scale: (pageRenderWidth * pageDevicePixelRatio) / base.width,
-              });
-              const canvas = document.createElement('canvas');
-              canvas.width = viewport.width;
-              canvas.height = viewport.height;
-              const ctx = canvas.getContext('2d', { alpha: false });
-              if (!ctx || cancelled) return;
-              await page.render({ canvasContext: ctx, viewport }).promise;
-            } catch {
-              // 미리 그리기 실패는 삼킨다.
-            }
-          }
-        })();
-        // 지금 쪽을 다 그리고 사용자가 읽는 사이에 시작한다(같은 일꾼을 두고 다투지 않게).
-      }, 600);
-      return () => {
-        cancelled = true;
-        window.clearTimeout(timer);
-      };
-    }, [
-      currentPage,
-      pageRendered,
-      pageWidth,
-      pageRenderWidth,
-      pageDevicePixelRatio,
-      isRestoredPages,
-    ]);
+    // 지금 쪽을 그린 뒤 앞뒤 쪽을 화면 밖 캔버스에 한 번 그려 두면 넘길 때 캐시만
+    // 쓰게 된다는 계산이었는데(주석에 남아 있던 실측 497ms → 43ms), 실제 문제집에서는
+    // 효과가 없었다: 25초를 머물러 미리 그리기가 끝나고도 이웃 쪽 전환이 5.8초·5.7초로
+    // 그대로였다. 얻는 것 없이 쪽마다 캔버스를 두 장 더 만들고, 무엇보다 그 디코드
+    // 결과가 문서 캐시에 그대로 쌓였다(아래 cleanup 주석의 1.2GB).
+    // 전환 중 빈 화면은 위의 이중 슬롯이 없앴으므로 이 편법은 필요 없다.
 
     // 쪽 번호로 넘기면 원본도 맨 위로 올린다. 결과 격자는 그 쪽 첫 줄로 올라가는데
     // 원본만 앞 쪽에서 보던 자리에 남아 두 화면이 서로 다른 곳을 가리켰다(2026-08-25 요청).
@@ -395,6 +414,26 @@ const FilePreviewer: React.FC<Props> = memo(
       { id: 'b' as const, url: slotB },
     ];
 
+    // 라이브 업로드본 슬롯 파생값.
+    const live = painted && painted.url === previewUrl ? painted : null;
+    const liveVisibleSlot = live?.slot ?? 'a';
+    const livePage = live?.page ?? null;
+    // 보이는 쪽과 사용자가 고른 쪽이 다르면 전환 중 — 반대쪽 슬롯이 새 쪽을 그린다.
+    const isLiveSwitching =
+      !isRestoredPages &&
+      fileType === 'pdf' &&
+      livePage !== null &&
+      livePage !== currentPage;
+    // 슬롯별로 그릴 쪽. 아직 아무것도 못 그렸으면 보이는 슬롯이 지금 쪽을 바로 그린다.
+    const liveSlotPage = (slot: 'a' | 'b'): number | null => {
+      if (slot === liveVisibleSlot) return livePage ?? currentPage;
+      return isLiveSwitching ? currentPage : null;
+    };
+    // 상자(BBox)는 그 쪽 좌표라, 아직 이전 쪽이 보이는 동안 얹으면 엉뚱한 자리에 뜬다.
+    const overlayReady = isRestoredPages
+      ? pageRendered
+      : livePage === currentPage;
+
     return (
       <div className="w-full h-full flex flex-col bg-gray-50 rounded-2xl overflow-hidden relative">
         <div
@@ -434,6 +473,9 @@ const FilePreviewer: React.FC<Props> = memo(
                         error={
                           <PreviewLoading label="원본을 불러오지 못했습니다" />
                         }
+                        onLoadSuccess={(pdf) => {
+                          restoredPdfRef.current[id] = pdf;
+                        }}
                         // 문서가 아예 안 읽혀도 승격한다 — 오류 안내가 보이려면
                         // 이 슬롯이 화면에 나와야 한다.
                         onLoadError={() => promoteSlot(id, url)}
@@ -479,30 +521,71 @@ const FilePreviewer: React.FC<Props> = memo(
                 loading={<PreviewLoading />}
                 error={<PreviewLoading label="원본을 불러오지 못했습니다" />}
                 onLoadSuccess={(pdf) => {
-                  livePdfRef.current = pdf as unknown as PdfDocumentLike;
+                  livePdfRef.current = pdf;
                   onLoadSuccess(pdf.numPages);
                 }}
                 className="flex justify-center"
               >
-                <Page
-                  pageNumber={currentPage}
-                  // p-2(8px×2)를 뺀 실제 그릴 수 있는 폭. 아직 측정 전이면 종전 값(500).
-                  width={pageRenderWidth}
-                  // 캔버스 해상도 상한. 기본값은 기기 배율(고DPI에서 2~3배)이라
-                  // 고화질 문서에서 캔버스가 수천만 픽셀이 되고, 그리기·합성이 GPU에
-                  // 걸려 창 전환까지 굼떴다(2026-08-25 QA: RTX 2060에서 렉).
-                  // 원본 대조용 미리보기에는 2배면 충분하다.
-                  devicePixelRatio={pageDevicePixelRatio}
-                  renderTextLayer={false}
-                  renderAnnotationLayer={false}
-                  onRenderSuccess={() => setPageRendered(true)}
-                  loading={<PreviewLoading />}
-                />
+                {/* 슬롯 두 개를 늘 같은 순서로 두고 **보이는 쪽만 바꾼다**.
+                    준비 슬롯이 다 그려지면 그 슬롯이 그대로 화면으로 올라오므로
+                    캔버스를 다시 그리지 않는다. */}
+                {(['a', 'b'] as const).map((slot) => {
+                  const slotPage = liveSlotPage(slot);
+                  if (slotPage === null) return null;
+                  const isVisible = slot === liveVisibleSlot;
+                  return (
+                    <div
+                      key={slot}
+                      aria-hidden={!isVisible || undefined}
+                      className={
+                        isVisible
+                          ? `transition-opacity duration-150 ${
+                              isLiveSwitching ? 'opacity-50' : ''
+                            }`
+                          : 'pointer-events-none absolute inset-0 overflow-hidden opacity-0'
+                      }
+                    >
+                      <Page
+                        pageNumber={slotPage}
+                        // p-2(8px×2)를 뺀 실제 그릴 수 있는 폭. 아직 측정 전이면 종전 값(500).
+                        width={pageRenderWidth}
+                        // 캔버스 해상도 상한. 기본값은 기기 배율(고DPI에서 2~3배)이라
+                        // 고화질 문서에서 캔버스가 수천만 픽셀이 되고, 그리기·합성이 GPU에
+                        // 걸려 창 전환까지 굼떴다(2026-08-25 QA: RTX 2060에서 렉).
+                        // 원본 대조용 미리보기에는 2배면 충분하다.
+                        devicePixelRatio={pageDevicePixelRatio}
+                        renderTextLayer={false}
+                        renderAnnotationLayer={false}
+                        onRenderSuccess={(page) =>
+                          promoteLiveSlot(slot, page.pageNumber)
+                        }
+                        // 그리다 실패해도 이전 쪽에 갇히지 않게 올려 준다 —
+                        // 그래야 react-pdf의 오류 안내라도 보인다.
+                        onRenderError={() => promoteLiveSlot(slot, slotPage)}
+                        loading={isVisible ? <PreviewLoading /> : null}
+                      />
+                    </div>
+                  );
+                })}
               </Document>
             )}
 
+            {/* 다음 쪽을 그리는 동안 이전 쪽 위에 작게 알린다 — 복원본과 같은 표시다. */}
+            {isLiveSwitching && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="absolute inset-x-0 top-3 z-10 flex justify-center"
+              >
+                <span className="flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-[12px] font-medium text-gray-500 shadow-sm">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[#407FAC]" />
+                  {currentPage}쪽 불러오는 중...
+                </span>
+              </div>
+            )}
+
             {/* 페이지가 다 그려진 뒤에만 상자를 얹는다 (위 pageRendered 주석 참고) */}
-            {(fileType === 'image' || pageRendered) && (
+            {(fileType === 'image' || overlayReady) && (
               <BBoxOverlay
                 bboxes={bboxes}
                 selectedId={selectedBlockId}
