@@ -98,3 +98,56 @@ describe('httpFetch · 파일 업로드 경로', () => {
     expect(pluginFetch).toHaveBeenCalledTimes(1);
   });
 });
+
+// tauri-plugin-http의 abort는 요청 rid 취소뿐이라, 응답을 받은 뒤 abort()가 불리면
+// "The resource id N is invalid" 거부가 처리되지 않은 채 뜬다(언마운트 정리마다).
+// 플러그인에는 요청이 진행 중일 때만 abort가 전달돼야 한다.
+describe('httpFetch · 데스크톱 abort 전달', () => {
+  const signalPassed = () =>
+    (
+      pluginFetch.mock.calls[pluginFetch.mock.calls.length - 1] as unknown as [
+        string,
+        RequestInit,
+      ]
+    )[1].signal as AbortSignal;
+
+  it('응답이 온 뒤의 abort는 플러그인에 전달하지 않고 본문만 취소한다', async () => {
+    asDesktop();
+    const cancel = vi.fn(() => Promise.resolve());
+    pluginFetch.mockImplementationOnce(() =>
+      Promise.resolve({ ok: true, body: { cancel } } as unknown as Response),
+    );
+    const controller = new AbortController();
+    await httpFetch('/api/public/notices', { signal: controller.signal });
+
+    controller.abort();
+    expect(signalPassed().aborted).toBe(false);
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('요청 중의 abort는 플러그인에 그대로 전달한다', async () => {
+    asDesktop();
+    let release!: (r: Response) => void;
+    pluginFetch.mockImplementationOnce(
+      () => new Promise<Response>((r) => (release = r)),
+    );
+    const controller = new AbortController();
+    const pending = httpFetch('/api/jobs/1/events', {
+      signal: controller.signal,
+    });
+    await Promise.resolve();
+
+    controller.abort();
+    expect(signalPassed().aborted).toBe(true);
+    release(ok());
+    await pending;
+  });
+
+  it('이미 abort된 signal이면 시작부터 abort 상태로 넘긴다', async () => {
+    asDesktop();
+    const controller = new AbortController();
+    controller.abort();
+    await httpFetch('/api/x', { signal: controller.signal });
+    expect(signalPassed().aborted).toBe(true);
+  });
+});

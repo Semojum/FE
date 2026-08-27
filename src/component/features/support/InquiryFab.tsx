@@ -17,6 +17,7 @@ import {
   ORG_REQUEST_TYPE_LABEL,
 } from '../../../types/org';
 import { Pill, shortDateTime } from '../org/OrgUi';
+import { openDiagLogFolder } from '../../../utils/diagLog';
 
 // 앱 안 어디서나 운영자에게 문의한다 (POST /api/org/requests → T1-9 문의 목록).
 //
@@ -44,6 +45,9 @@ const isForbidden = (err: unknown): boolean =>
   err instanceof ApiError && (err.code === 'COMMON4003' || err.status === 403);
 
 const InquiryFab: React.FC<Props> = ({ token, onToast, hidden = false }) => {
+  // 진단 로그는 데스크톱에만 있다 — 브라우저 미리보기에서는 버튼 자체를 감춘다.
+  const canOpenLogs =
+    typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
   const [isOpen, setIsOpen] = useState(false);
   const [type, setType] = useState<OrgRequestType>('CREDIT_ADD');
   const [message, setMessage] = useState('');
@@ -140,6 +144,24 @@ const InquiryFab: React.FC<Props> = ({ token, onToast, hidden = false }) => {
         <p className="text-[13px] text-gray-500">
           세모점 운영자에게 접수됩니다. 답변은 기관 담당자에게 전달됩니다.
         </p>
+        {/* 오류 문의는 진단 기록이 있어야 원인을 찾을 수 있다 — 파일을 찾는 길을 여기서 연다. */}
+        {canOpenLogs && (
+          <p className="mt-1 text-[11.5px] text-gray-400">
+            오류 관련 문의라면{' '}
+            <button
+              type="button"
+              onClick={() =>
+                void openDiagLogFolder().then((ok) => {
+                  if (!ok) onToast('로그 폴더를 열지 못했습니다.');
+                })
+              }
+              className="font-bold text-[#5b8ce6] underline underline-offset-2 hover:brightness-90"
+            >
+              진단 기록 폴더 열기
+            </button>
+            에서 오늘 날짜 파일을 함께 첨부해 주세요.
+          </p>
+        )}
 
         <fieldset className="mt-3">
           <legend className="text-[11px] font-bold text-gray-500">

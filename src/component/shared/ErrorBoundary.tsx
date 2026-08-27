@@ -1,4 +1,5 @@
 import React from 'react';
+import { logDiag } from '../../utils/diagLog';
 
 // 렌더 중 예외가 나면 리액트는 트리를 통째로 떼어 낸다 — 경계가 하나도 없으면
 // 화면이 새하얘지고, 사용자는 무엇이 잘못됐는지도 알 수 없다.
@@ -25,8 +26,15 @@ class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    // 데스크톱 앱이라 원격 로그가 없다 — 개발자 도구에서 볼 수 있게 남긴다.
-    console.error('[화면 오류]', this.props.label ?? '', error, info);
+    // 데스크톱 앱이라 원격 로그가 없다 — 진단 로그 파일에 남겨 문의 때 붙일 수 있게 한다.
+    logDiag('화면 오류', this.props.label ?? '(전체)', error);
+    if (info.componentStack) {
+      logDiag(
+        '화면 오류',
+        '컴포넌트 위치',
+        info.componentStack.split('\n').slice(0, 6).join(' « '),
+      );
+    }
   }
 
   private handleReset = () => {

@@ -1,4 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+/* 글꼴은 시스템 것을 쓴다. 예전에는 Google Fonts의 Roboto를 매 실행마다 CDN에서
+   받아왔는데, 데스크톱 앱이 시작할 때마다 외부 호스트에 기대는 데다 CSP
+   (tauri.conf.json security.csp)가 외부 스타일시트를 막아 어차피 적용되지 않았다.
+   'Roboto'는 로컬에 설치돼 있으면 쓰이도록 이름만 남긴다(라틴 글자·숫자에만 영향). */
 @import 'tailwindcss';
 
 @theme {

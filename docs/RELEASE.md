@@ -21,14 +21,17 @@ BrailleMate 데스크톱 앱(Tauri 2)을 CI로 빌드하고 정식 배포하는 
 
 - **정식 릴리스**: 버전 범프 → `v*` 태그 푸시 → 빌드 후 GitHub Release(초안) 생성 + 자동 업데이트용 `latest.json` 발행
 
-  1. **버전 올리기** (자동 업데이트는 버전 비교로 동작하므로 매 릴리스마다 필수). 아래 세 파일의 `version`을 새 버전으로 맞춥니다.
-     - `src-tauri/tauri.conf.json` → `version` (← 실제 앱/번들 버전, 업데이터 비교 기준)
-     - `package.json` → `version`
-     - `src-tauri/Cargo.toml` → `version`
-  2. 커밋 후 **태그를 동일 버전으로** 푸시합니다.
+  1. **버전 올리기** (자동 업데이트는 버전 비교로 동작하므로 매 릴리스마다 필수). 버전이
+     네 곳(`src-tauri/tauri.conf.json` · `package.json` · `src-tauri/Cargo.toml` ·
+     `src-tauri/Cargo.lock`)에 있어 손으로 맞추면 하나가 빠지기 쉽습니다 — 스크립트로 한 번에 바꿉니다.
      ```bash
-     git commit -am "chore: release v0.1.0"
-     git tag v0.1.0
+     scripts/bump-version.sh 3.1.1          # 네 파일만 바꾼다 (커밋은 직접)
+     scripts/bump-version.sh 3.1.1 --tag    # + "chore: release v3.1.1" 커밋과 v3.1.1 태그까지
+     ```
+     (`tauri.conf.json`의 `version`이 실제 앱/번들 버전이자 업데이터 비교 기준입니다.)
+  2. **태그를 동일 버전으로** 푸시합니다. 릴리스 노트는 커밋 본문에 담는 관례라, 메시지를
+     다듬은 뒤 직접 밉니다.
+     ```bash
      git push origin main --tags
      ```
   완료되면 GitHub의 Releases에 **초안(draft)** 릴리스가 생깁니다. 내용 확인 후 **Publish** 하면 사용자에게 노출되고, 기존 사용자 앱이 다음 실행 시 새 버전을 감지합니다.

@@ -22,6 +22,12 @@
     "process:default",
     "os:default",
     "dialog:allow-save",
-    "fs:allow-write-file"
+    "fs:allow-write-file",
+    "fs:allow-applog-read-recursive",
+    "fs:allow-applog-write-recursive",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "$APPLOG" }, { "path": "$APPLOG/**" }]
+    }
   ]
 }

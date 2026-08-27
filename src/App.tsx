@@ -102,6 +102,7 @@ import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
 import { isTextOriginal, renderableOriginals } from './utils/pageOriginals';
 import { onAppClose } from './utils/appLifecycle';
 import { loadBrailleDefaults } from './utils/brailleDefaults';
+import { logDiag } from './utils/diagLog';
 import {
   blockTextWithRowEdit,
   buildLayout,
@@ -121,6 +122,12 @@ import {
 } from './component/features/update/UpdateGate';
 
 // 결과 패널 블록 도구 버튼 공통 스타일
+// 복원 원본 PDF 블롭 캐시 상한 — 메모리 때문에 최근 몇 쪽만 남긴다.
+const MAX_CACHED_ORIGINALS = 8;
+// 페이지 원본 서명 URL의 신선도 한계. 서명 URL은 15분이면 만료되므로(BE 2026-08-09)
+// 받은 지 이보다 오래됐으면 시도하지 않고 바로 재발급받는다.
+const ORIGINAL_URL_TTL_MS = 10 * 60_000;
+
 const blockToolCls =
   'flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:border-[#407FAC]/40 hover:bg-[#eef3fc] hover:text-[#407FAC] disabled:cursor-not-allowed disabled:border-gray-100 disabled:bg-transparent disabled:text-gray-300 disabled:hover:bg-transparent';
 
@@ -339,7 +346,6 @@ const Semojum: React.FC = () => {
   // 그대로 쓸 수 있고, blob URL은 쓸 때마다 새로 만들어 기존 revoke 규칙을 건드리지
   // 않는다. 메모리 때문에 최근 몇 쪽만 남긴다.
   const originalBlobCacheRef = useRef<Map<string, Blob>>(new Map());
-  const MAX_CACHED_ORIGINALS = 8;
   // 미리보기 세대 — 작업을 갈아탈 때마다 올린다. 이전 작업의 원본 다운로드가
   // 취소 확인(cancelled)을 통과한 직후에 완료되면 새 작업의 미리보기를 덮었다
   // (2026-08-26 QA: 점역 작업을 열었는데 왼쪽에 직전 작업의 PDF가 떴다).
@@ -349,7 +355,6 @@ const Semojum: React.FC = () => {
   // 받은 URL은 그대로 쓴다 — 예전에는 매번 페이지 조회로 새 URL부터 받아, 열 때와
   // 쪽 넘김마다 왕복 하나(0.7~1초)를 그냥 버렸다(2026-08-26 QA: 왼쪽 로딩 지연).
   const savedOriginalsAtRef = useRef(0);
-  const ORIGINAL_URL_TTL_MS = 10 * 60_000;
 
   // 탭별 작업물 보관소. 탭을 떠날 때 현재 상태를 저장하고, 돌아오면 복원한다.
   const [tabSnapshots, setTabSnapshots] = useState<
@@ -770,7 +775,7 @@ const Semojum: React.FC = () => {
     (page: number, id: string, idx: number) => {
       if (!workingJobId || !auth.token) return;
       selectDraft(workingJobId, page, id, elementType, idx, auth.token).catch(
-        (e) => console.error('대체 초안 선택 저장 실패', e),
+        (e) => logDiag('대체 초안', '선택 저장 실패', e),
       );
     },
     [workingJobId, auth.token, elementType],
@@ -1049,7 +1054,6 @@ const Semojum: React.FC = () => {
     setScrollToRow(firstRowIndexOfPage(gridRows, currentPage));
     // 쪽 번호로 넘어온 경우다 — 원본도 그 쪽 맨 위부터 보여 준다.
     setOriginalTopToken((v) => v + 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     // gridRows가 바뀔 때마다 스크롤하면 스트리밍 중 계속 튀므로 페이지만 본다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage]);
@@ -1577,7 +1581,7 @@ const Semojum: React.FC = () => {
         if (stale()) return;
         // 실패를 삼키면 미리보기가 이유 없는 빈 화면이 된다 — 화면에 알린다.
         // 진행 표시를 내려야 그 안내가 보인다.
-        console.error(e);
+        logDiag('복원', '원본 미리보기 실패', e);
         setIsRestoringJob(false);
         setOriginalLoadError('원본을 불러오지 못했습니다.');
       }

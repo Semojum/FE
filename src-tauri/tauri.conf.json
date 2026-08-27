@@ -9,7 +9,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [
       {
         "title": "세모점",
@@ -23,7 +23,30 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' blob: data: https://storage.googleapis.com https://*.s3.ap-northeast-2.amazonaws.com",
+        "font-src": "'self' data:",
+        "connect-src": "'self' blob: ipc: http://ipc.localhost https://api.semojum.app https://storage.googleapis.com https://*.s3.ap-northeast-2.amazonaws.com",
+        "worker-src": "'self' blob:",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "frame-src": "'none'"
+      },
+      "devCsp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' blob: data: https://storage.googleapis.com https://*.s3.ap-northeast-2.amazonaws.com",
+        "font-src": "'self' data:",
+        "connect-src": "'self' blob: ipc: http://ipc.localhost ws://localhost:5173 https://api.semojum.app https://storage.googleapis.com https://*.s3.ap-northeast-2.amazonaws.com",
+        "worker-src": "'self' blob:",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "frame-src": "'none'"
+      }
     }
   },
   "bundle": {

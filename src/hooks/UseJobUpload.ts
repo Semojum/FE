@@ -4,6 +4,7 @@ import { JobMode, CreateJobResponse } from '../types/apiTypes';
 import { ConversionTab, TABS } from '../types';
 import { createJob } from '../api/JobService';
 import { toUserMessage } from '../api/errorMessages';
+import { logDiag } from '../utils/diagLog';
 import { fileSizeMessage, footerTextMessage } from '../utils/fileValidation';
 
 interface UploadOptions {
@@ -92,7 +93,7 @@ export const useJobUpload = (): UseJobUploadReturn => {
         return data;
       } catch (err) {
         const message = toUserMessage(err, '업로드에 실패했습니다.');
-        console.error('Upload failed:', message);
+        logDiag('업로드', message, err);
         setError(message);
         return null;
       } finally {

@@ -2,6 +2,7 @@
 //  - 데스크톱(Tauri): WebviewWindow 네이티브 창 — 실제 배포 경로
 //  - 브라우저(개발 중 UI 확인용): window.open 폴백
 // 호출부가 환경을 신경 쓰지 않도록 동일한 핸들 인터페이스를 반환한다.
+import { logDiag } from './diagLog';
 
 const isTauri = (): boolean =>
   typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -61,7 +62,7 @@ export const openOutputWindow =
         });
       });
       win.once('tauri://error', (e) => {
-        console.error('결과 창 생성 실패:', e);
+        logDiag('결과 창', '생성 실패', e);
         resolve(null);
       });
     });

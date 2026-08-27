@@ -155,7 +155,7 @@ describe('OrgService', () => {
 
   it('요청 생성은 type과 message를 보내고, 빈 메시지는 null이다', async () => {
     await createOrgRequest('CREDIT_ADD', ' 3,000 크레딧 ', 'tk');
-    let { url, init } = lastCall();
+    const { url, init } = lastCall();
     expect(url).toBe(`${API_BASE_URL}/api/org/requests`);
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body as string)).toEqual({
@@ -164,8 +164,8 @@ describe('OrgService', () => {
     });
 
     await createOrgRequest('ACCOUNT_ISSUE', '', 'tk');
-    ({ init } = lastCall());
-    expect(JSON.parse(init.body as string)).toEqual({
+    const { init: second } = lastCall();
+    expect(JSON.parse(second.body as string)).toEqual({
       type: 'ACCOUNT_ISSUE',
       message: null,
     });
