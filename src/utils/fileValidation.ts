@@ -34,11 +34,16 @@ export const fileValidationMessage = (tab: ConversionTab): string =>
 // 겹쳐 경계가 애매하므로, 명세 권고대로 FE 임계값은 95MB로 잡는다.
 export const MAX_UPLOAD_BYTES = 95 * 1024 * 1024;
 
+// 화면에 적는 상한 문구는 임계값에서 뽑는다. 드롭존에는 "최대 100MB", 초과 안내에는
+// "95MB까지"라고 서로 다르게 적혀 있어, 97MB 파일을 올린 사람은 안내끼리 어긋나는
+// 것을 보게 됐다(2026-08-27 인수시험). 한 곳에서 만들어 두 자리가 같이 움직이게 한다.
+export const MAX_UPLOAD_LABEL = `${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB`;
+
 // 실제 임계값(95MiB)을 그대로 알린다. "100MB까지"라고만 적어 두면 97MB 파일이 왜
 // 막히는지 알 수 없다(2026-08-26 통합시험).
 export const fileSizeMessage = (file: File): string | null =>
   file.size > MAX_UPLOAD_BYTES
-    ? `업로드할 수 있는 파일 크기는 95MB까지입니다. (넣으신 파일 ${Math.round(
+    ? `업로드할 수 있는 파일 크기는 ${MAX_UPLOAD_LABEL}까지입니다. (넣으신 파일 ${Math.round(
         file.size / 1024 / 1024,
       )}MB)`
     : null;
