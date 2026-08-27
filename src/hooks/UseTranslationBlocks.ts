@@ -22,9 +22,13 @@ export const useTranslationBlocks = () => {
     [],
   );
 
-  // 전체 블록을 한 번에 교체 (팝업 동기화: 메인 스냅샷 적용용)
+  // 전체 블록을 한 번에 교체 (팝업 동기화: 메인 스냅샷 적용용).
+  // 갱신 함수도 받는다 — 지금 화면에 있는 것 위에 합쳐야 하는 호출부(마이페이지
+  // 복원의 나머지 쪽 채우기)가 **그때의** 상태를 봐야 하기 때문이다. 값으로 받아
+  // 넘기면 그 값을 만든 시점의 상태가 굳어, 다른 작업을 연 뒤 늦게 도착한 채우기가
+  // 이전 작업의 쪽들을 되살렸다(2026-08-27 인수시험).
   const setAllBlocks = useCallback(
-    (all: Record<number, TranslationBlock[]>) => {
+    (all: React.SetStateAction<Record<number, TranslationBlock[]>>) => {
       setBlocksByPage(all);
     },
     [],

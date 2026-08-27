@@ -79,9 +79,14 @@ import {
   TAB_VALUES,
 } from './types';
 import { isOrgAdmin, JobDetail, JobPageOriginal } from './types/auth';
-import { JobDoneData, PageEventStatus } from './types/apiTypes';
+import {
+  JobDoneData,
+  PageEventStatus,
+  QueuePositionData,
+} from './types/apiTypes';
 import {
   fileValidationMessage,
+  MAX_UPLOAD_LABEL,
   TAB_ALLOWED_FILE_LABEL,
 } from './utils/fileValidation';
 import { httpFetch } from './api/httpFetch';
@@ -130,6 +135,15 @@ const ORIGINAL_URL_TTL_MS = 10 * 60_000;
 
 const blockToolCls =
   'flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:border-[#407FAC]/40 hover:bg-[#eef3fc] hover:text-[#407FAC] disabled:cursor-not-allowed disabled:border-gray-100 disabled:bg-transparent disabled:text-gray-300 disabled:hover:bg-transparent';
+
+// 대기 시간을 사람이 읽는 말로. 분 단위가 되면 초는 버린다 — 흘러가는 것만 보이면 된다.
+const formatDuration = (totalSec: number): string => {
+  const s = Math.max(0, Math.floor(totalSec));
+  if (s < 60) return `${s}초`;
+  const m = Math.floor(s / 60);
+  const rest = s % 60;
+  return rest === 0 ? `${m}분` : `${m}분 ${rest}초`;
+};
 
 // 탭별로 보존하는 작업물 스냅샷 — 탭을 전환해도 각 탭의 입력/결과가 날아가지 않게 한다.
 interface TabState {
@@ -260,6 +274,8 @@ const Semojum: React.FC = () => {
   const [isSending, setIsSending] = useState(false);
   // 화면 하단 토스트 — 저장·이동·삭제 실패 등 짧은 안내
   const [toast, setToast] = useState<string | null>(null);
+  // 서버 대기열 안내(SSE queue_position). 붐빌 때 왜 아무것도 안 오는지 알려 준다.
+  const [queueInfo, setQueueInfo] = useState<QueuePositionData | null>(null);
 
   // 결과 격자 — 커서(선택된 줄·칸), 우클릭 메뉴, 현재 보이는 출력 쪽,
   // 원본 페이지를 넘겼을 때 스크롤할 줄 번호.
@@ -1245,6 +1261,9 @@ const Semojum: React.FC = () => {
     token: auth.token,
     onPageReceived: handlePageReceived,
     onJobDone: handleJobDone,
+    // 대기열 안내는 받아만 두고 쓰지 않고 있었다 — 첫 쪽이 오기 전 몇 분을
+    // 설명해 줄 수 있는 유일한 서버 신호다(2026-08-27 인수시험).
+    onQueuePosition: setQueueInfo,
     // 스트림이 끊기면 화면은 "분석 중"에서 멈춘 것처럼 보인다 — 기능정의서
     // "변환 결과 실시간 표시" D-1대로 실패를 알린다. 복구는 재시작·재접속과 같은
     // 절차(작업 목록 → 상태 조회 → 스트림 재연결)를 따르므로 안내도 그렇게 준다.
@@ -1280,6 +1299,26 @@ const Semojum: React.FC = () => {
   // jobId가 있는 동안은 변환이 진행 중인 것으로 본다.
   const isConverting =
     isUploading || isStreaming || (!!jobId && !isConversionComplete);
+
+  // 변환 경과 시간. 10쪽짜리를 올리면 첫 결과가 오기까지 2분 30초 동안 진행률이
+  // "0 / 10"에 그대로 멈춰 있어, 멈춘 것과 구분할 신호가 화면에 하나도 없었다
+  // (2026-08-27 인수시험 — 서버가 4쪽씩 묶어 보낸다). 서버 소식과 무관하게
+  // **반드시 움직이는 값**을 하나 둔다.
+  const [elapsedSec, setElapsedSec] = useState(0);
+  useEffect(() => {
+    if (!isConverting) return;
+    const startedAt = Date.now();
+    const id = window.setInterval(
+      () => setElapsedSec(Math.floor((Date.now() - startedAt) / 1000)),
+      1000,
+    );
+    // 다음 변환이 0초부터 세도록 끝날 때 되돌린다(대기열 안내도 이때 버린다).
+    return () => {
+      window.clearInterval(id);
+      setElapsedSec(0);
+      setQueueInfo(null);
+    };
+  }, [isConverting]);
 
   const snapshot: SyncSnapshot = useMemo(
     () => ({
@@ -1683,7 +1722,11 @@ const Semojum: React.FC = () => {
         incoming: Record<number, T>,
       ): Record<number, T> => ({ ...incoming, ...prev });
 
-      setAllBlocks(keepExisting(blocksByPage, job.blocksByPage));
+      // 다른 setter들처럼 **갱신 함수**로 합쳐야 한다. 값으로 넘기면 이 콜백이
+      // 만들어질 때의 blocksByPage가 굳는다 — 앞 작업을 열어 둔 채로 다른 작업을
+      // 열면, 새 작업의 채우기가 그 굳은 값(앞 작업의 쪽 전부)을 되살려 화면이
+      // "완료 552 / 10"처럼 어긋났다(2026-08-27 인수시험, 이전 빌드에서도 재현).
+      setAllBlocks((prev) => keepExisting(prev, job.blocksByPage));
       editor.registerServerBlocks(Object.values(job.blocksByPage).flat());
       setBboxDataByPage((prev) => keepExisting(prev, job.bboxDataByPage));
       setOriginalTextsByPage((prev) =>
@@ -1714,7 +1757,7 @@ const Semojum: React.FC = () => {
       // 앞뒤 쪽이 채워지며 판면 번호가 다시 매겨진다 — 보던 자리로 되돌린다.
       setRealignToken((v) => v + 1);
     },
-    [blocksByPage, editor, setAllBlocks],
+    [editor, setAllBlocks],
   );
 
   const { isLoading: isFillingSavedPages, handleSelectJob: loadSavedJob } =
@@ -2128,8 +2171,8 @@ const Semojum: React.FC = () => {
                         드래그 앤 드롭 또는 클릭하여 파일 업로드
                       </p>
                       <p className="text-xs text-gray-400 mt-2">
-                        지원 형식: {TAB_ALLOWED_FILE_LABEL[activeTab]} · 최대
-                        100MB
+                        지원 형식: {TAB_ALLOWED_FILE_LABEL[activeTab]} · 최대{' '}
+                        {MAX_UPLOAD_LABEL}
                       </p>
                       {activeTab === TABS.OCR && (
                         <p className="text-[11px] text-gray-400 mt-1">
@@ -2500,6 +2543,21 @@ const Semojum: React.FC = () => {
                           </p>
                         </div>
                       )}
+                      {/* 서버는 결과를 몇 쪽씩 묶어 보내서, 첫 묶음이 오기까지
+                          쪽 수가 한참 0에 머문다. 그동안 멈춘 것이 아님을 알리는
+                          값은 이 두 줄뿐이다(2026-08-27 인수시험). */}
+                      <p
+                        role="status"
+                        aria-live="polite"
+                        className="text-center text-xs text-gray-400"
+                      >
+                        {queueInfo && settledPages === 0
+                          ? `대기열 ${queueInfo.position}번째 · 예상 ${formatDuration(queueInfo.estimated_wait_sec)}`
+                          : `${formatDuration(elapsedSec)} 경과`}
+                      </p>
+                      <p className="max-w-xs text-center text-[11px] text-gray-300">
+                        결과는 몇 쪽씩 묶여 도착합니다.
+                      </p>
                     </div>
                   ) : gridRows.length > 0 ? (
                     <BrailleGrid
