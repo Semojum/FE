@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { getJobPage } from '../api/HistoryService';
 import { ApiError } from '../api/apiClient';
 import { toUserMessage } from '../api/errorMessages';
+import { logDiag } from '../utils/diagLog';
 import {
   BoundingBox,
   ConversionTab,
@@ -187,7 +188,7 @@ export const useSavedJobs = ({
         if (stale()) return;
         const message = toUserMessage(err, '작업을 불러오지 못했습니다.');
         if (onError) onError(message);
-        else console.error(message, err);
+        else logDiag('작업 열기', message, err);
       } finally {
         // 세대가 넘어갔으면 진행 표시는 새 열기의 것이다 — 건드리지 않는다.
         if (!stale()) setIsLoading(false);

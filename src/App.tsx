@@ -102,6 +102,7 @@ import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
 import { isTextOriginal, renderableOriginals } from './utils/pageOriginals';
 import { onAppClose } from './utils/appLifecycle';
 import { loadBrailleDefaults } from './utils/brailleDefaults';
+import { logDiag } from './utils/diagLog';
 import {
   blockTextWithRowEdit,
   buildLayout,
@@ -770,7 +771,7 @@ const Semojum: React.FC = () => {
     (page: number, id: string, idx: number) => {
       if (!workingJobId || !auth.token) return;
       selectDraft(workingJobId, page, id, elementType, idx, auth.token).catch(
-        (e) => console.error('대체 초안 선택 저장 실패', e),
+        (e) => logDiag('대체 초안', '선택 저장 실패', e),
       );
     },
     [workingJobId, auth.token, elementType],
@@ -1577,7 +1578,7 @@ const Semojum: React.FC = () => {
         if (stale()) return;
         // 실패를 삼키면 미리보기가 이유 없는 빈 화면이 된다 — 화면에 알린다.
         // 진행 표시를 내려야 그 안내가 보인다.
-        console.error(e);
+        logDiag('복원', '원본 미리보기 실패', e);
         setIsRestoringJob(false);
         setOriginalLoadError('원본을 불러오지 못했습니다.');
       }

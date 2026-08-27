@@ -33,6 +33,10 @@ jobs:
       - name: Type check
         run: bunx tsc --noEmit
 
+      # 훅 규칙 위반(rules-of-hooks 등)은 여기서 막는다. 경고는 통과시키되 로그에 보인다.
+      - name: Lint
+        run: bun run lint
+
       - name: Run tests
         run: bun run test
 

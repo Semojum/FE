@@ -10,16 +10,18 @@ const Pagination: React.FC<PaginationProps> = ({
   onPageChange,
   limit = 10, // 기본값 10 설정
 }) => {
-  // 예외 처리: 페이지가 없거나 1개뿐인 경우 렌더링 하지 않음
-  if (totalPages <= 1) return null;
-
   // Custom Hook을 통해 로직 호출
+  // (훅보다 먼저 return하면 안 된다 — 쪽수가 1↔2를 오갈 때 훅 개수가 달라져
+  //  React가 상태를 잘못 이어 붙인다. 렌더 생략은 훅 호출 뒤에서 한다.)
   const { pageNumbers, hasPrevGroup, hasNextGroup, startPage, endPage } =
     usePagination({
       currentPage,
       totalPages,
       limit,
     });
+
+  // 예외 처리: 페이지가 없거나 1개뿐인 경우 렌더링 하지 않음
+  if (totalPages <= 1) return null;
 
   // 핸들러: 이전 그룹(10페이지 전)으로 이동
   const handlePrevGroup = () => {

@@ -1,5 +1,6 @@
 // src/hooks/useJobStream.ts
 import { useEffect, useState, useRef } from 'react';
+import { logDiag } from '../utils/diagLog';
 import {
   JobDoneData,
   QueuePositionData,
@@ -63,7 +64,7 @@ export const useJobStream = ({
       try {
         payload = JSON.parse(dataStr);
       } catch (err) {
-        console.error('SSE parse error:', err);
+        logDiag('SSE', '이벤트 본문 해석 실패', err);
         return;
       }
       switch (eventName) {
@@ -138,7 +139,7 @@ export const useJobStream = ({
         setIsStreaming(false);
       } catch (err) {
         if (controller.signal.aborted) return; // 언마운트/jobId 변경에 의한 정상 종료
-        console.error('SSE error:', err);
+        logDiag('SSE', '스트림 오류', err);
         onErrorRef.current?.(err);
         setIsStreaming(false);
       }

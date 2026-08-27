@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { ConversionTab, FileState, FileType } from '../types';
 import { parseHwpToText } from '../component/shared/HwpParser';
+import { logDiag } from '../utils/diagLog';
 import {
   detectFileType,
   fileSizeMessage,
@@ -79,8 +80,15 @@ export const useFileHandler = () => {
           };
         });
       } catch (error) {
-        console.error(error);
-        alert('파일을 처리하는 중 오류가 발생했습니다.');
+        // alert는 창 전체를 멈춘다 — 용량 초과와 같은 안내 자리(error 상태)에 띄운다.
+        logDiag('파일 읽기', file.name, error);
+        setFileState((prev) => {
+          if (prev.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+          return {
+            ...EMPTY_STATE,
+            error: '파일을 처리하는 중 오류가 발생했습니다. 파일이 손상되지 않았는지 확인해 주세요.',
+          };
+        });
       }
     },
     [],

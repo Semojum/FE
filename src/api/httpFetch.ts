@@ -10,6 +10,7 @@
 // 이때의 CORS는 vite proxy가 처리한다. 배포는 데스크톱 앱 하나뿐이라 이 경로를 타지 않는다.
 
 import { getClientOs } from '../utils/clientOs';
+import { logDiag } from '../utils/diagLog';
 
 // Tauri(데스크톱) 런타임 여부. 일반 브라우저/테스트에서는 false. (UseOAuth.ts와 동일 기준)
 const isTauri = (): boolean =>
@@ -80,7 +81,7 @@ export const httpFetch = async (
     try {
       return await fetch(input, options);
     } catch (err) {
-      console.warn('[upload] 웹뷰 fetch가 막혀 플러그인 경로로 재시도', err);
+      logDiag('업로드', '웹뷰 fetch가 막혀 플러그인 경로로 재시도', err);
     }
   }
 

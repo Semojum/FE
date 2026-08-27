@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getFolderContents, getFolderTree } from '../api/FolderService';
+import { logDiag } from '../utils/diagLog';
 import {
   listActiveJobs,
   listJobs,
@@ -127,7 +128,7 @@ export const useMyPage = ({
     (err: unknown, fallback: string) => {
       const message = toUserMessage(err, fallback);
       if (onError) onError(message);
-      else console.error(message, err);
+      else logDiag('마이페이지', message, err);
     },
     [onError],
   );

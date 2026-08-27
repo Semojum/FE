@@ -11,10 +11,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "test": "vitest run",
-    "test:watch": "vitest"
-  },
-  "overrides": {
-    "pdf-js-dist": "5.4.296"
+    "test:watch": "vitest",
+    "lint": "eslint src"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",
