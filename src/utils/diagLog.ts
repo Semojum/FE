@@ -61,9 +61,8 @@ const appendToFile = (line: string): void => {
   if (!isTauri()) return;
   writeChain = writeChain
     .then(async () => {
-      const { writeTextFile, BaseDirectory } = await import(
-        '@tauri-apps/plugin-fs'
-      );
+      const { writeTextFile, BaseDirectory } =
+        await import('@tauri-apps/plugin-fs');
       await writeTextFile(fileNameFor(new Date()), line + '\n', {
         baseDir: BaseDirectory.AppLog,
         append: true,
@@ -106,9 +105,8 @@ export const logDiag = (
 
 // 오래된 로그 정리 — 파일명이 diag-YYYYMMDD.log 라 사전순 비교가 곧 날짜 비교다.
 const pruneOldLogs = async (): Promise<void> => {
-  const { readDir, remove, BaseDirectory } = await import(
-    '@tauri-apps/plugin-fs'
-  );
+  const { readDir, remove, BaseDirectory } =
+    await import('@tauri-apps/plugin-fs');
   const cutoff = fileNameFor(
     new Date(Date.now() - KEEP_DAYS * 24 * 60 * 60 * 1000),
   );
@@ -144,10 +142,24 @@ export const initDiagLog = (): void => {
   window.addEventListener('error', (event) => {
     // 리소스 로드 실패(img 등)는 ErrorEvent가 아니어서 message가 없다 — 건너뛴다.
     if (!event.message) return;
-    logDiag('전역', event.message, event.error ?? `${event.filename}:${event.lineno}`);
+    logDiag(
+      '전역',
+      event.message,
+      event.error ?? `${event.filename}:${event.lineno}`,
+    );
   });
   window.addEventListener('unhandledrejection', (event) => {
     logDiag('전역', '처리되지 않은 프라미스 거부', event.reason);
+  });
+  // CSP(tauri.conf.json security.csp)에 막힌 요청. 막히면 화면에는 그림이 안 뜨거나
+  // 요청이 조용히 실패할 뿐 오류가 안 난다 — 새 호스트(예: 저장소 버킷 변경)를
+  // CSP에 빠뜨렸을 때 현장에서 알아챌 유일한 단서다.
+  window.addEventListener('securitypolicyviolation', (event) => {
+    logDiag(
+      'CSP',
+      `${event.violatedDirective} 차단`,
+      `${event.blockedURI} @ ${event.sourceFile || event.documentURI}:${event.lineNumber}`,
+    );
   });
 
   if (!isTauri()) return;

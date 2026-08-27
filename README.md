@@ -37,6 +37,7 @@ bun run dev           # 렌더러만 브라우저로 (UI 확인용)
 
 bun run test          # 단위 테스트
 bunx tsc --noEmit     # 타입 검사
+bun run lint          # ESLint (훅 규칙 위반은 오류, exhaustive-deps는 경고)
 bun run tauri:build   # 로컬 번들 빌드
 ```
 

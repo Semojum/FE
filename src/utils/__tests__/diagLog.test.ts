@@ -146,4 +146,28 @@ describe('initDiagLog', () => {
     expect(lines.some((l) => l.includes('터진 곳'))).toBe(true);
     expect(lines.some((l) => l.includes('둥둥 떠다니는 거부'))).toBe(true);
   });
+
+  it('CSP에 막힌 요청을 지시문·URL과 함께 남긴다', async () => {
+    const { initDiagLog } = await import('../diagLog');
+    initDiagLog();
+    await flush();
+    writeTextFile.mockClear();
+
+    // happy-dom에 SecurityPolicyViolationEvent가 없어도 되도록 직접 만든다.
+    const violation = new Event('securitypolicyviolation') as Event &
+      Record<string, unknown>;
+    Object.assign(violation, {
+      violatedDirective: 'img-src',
+      blockedURI: 'https://cdn.example.com/x.png',
+      sourceFile: '',
+      documentURI: 'http://tauri.localhost/',
+      lineNumber: 0,
+    });
+    window.dispatchEvent(violation);
+    await flush();
+
+    const line = (writeTextFile.mock.calls[0] as unknown[])[1] as string;
+    expect(line).toContain('[CSP] img-src 차단');
+    expect(line).toContain('https://cdn.example.com/x.png');
+  });
 });

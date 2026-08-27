@@ -86,5 +86,34 @@ export const httpFetch = async (
   }
 
   const fetchFn = await loadFetch();
-  return fetchFn(input, options);
+  if (!isTauri() || !options.signal) return fetchFn(input, options);
+  return fetchWithSafeAbort(fetchFn, input, options);
+};
+
+// tauri-plugin-http의 abort는 "요청 rid 취소"(fetch_cancel) 하나뿐인데, 응답 헤더가
+// 도착한 순간 그 rid는 이미 없다. 그래서 응답을 받은 뒤 abort()가 불리면 —
+// 언마운트 정리에서 흔하다(공지 패널은 로그인 성공 직후, 스트림은 작업 전환마다) —
+// "The resource id N is invalid" 거부가 처리되지 않은 채 떠서 진단 로그마다 찍혔다
+// (2026-08-27 실측: 로그인마다 한 줄). 플러그인에는 요청이 진행 중일 때만 abort를
+// 넘기고, 그 뒤의 abort는 본문 취소로 바꾼다(잠긴 스트림이면 조용히 무시).
+const fetchWithSafeAbort = async (
+  fetchFn: FetchFn,
+  input: string,
+  options: RequestInit,
+): Promise<Response> => {
+  const outer = options.signal!;
+  const inner = new AbortController();
+  let response: Response | null = null;
+  const onAbort = () => {
+    if (response) void response.body?.cancel().catch(() => {});
+    else inner.abort(outer.reason);
+  };
+  if (outer.aborted) inner.abort(outer.reason);
+  else outer.addEventListener('abort', onAbort, { once: true });
+  try {
+    response = await fetchFn(input, { ...options, signal: inner.signal });
+    return response;
+  } finally {
+    if (!response) outer.removeEventListener('abort', onAbort);
+  }
 };
