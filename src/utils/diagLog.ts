@@ -17,6 +17,7 @@ const MAX_LINES_PER_SESSION = 400;
 const DUPLICATE_WINDOW_MS = 5_000;
 const MAX_DETAIL_CHARS = 2_000;
 const KEEP_DAYS = 14;
+const WRITE_TIMEOUT_MS = 5_000;
 
 let linesWritten = 0;
 let lastLine = '';
@@ -63,10 +64,19 @@ const appendToFile = (line: string): void => {
     .then(async () => {
       const { writeTextFile, BaseDirectory } =
         await import('@tauri-apps/plugin-fs');
-      await writeTextFile(fileNameFor(new Date()), line + '\n', {
-        baseDir: BaseDirectory.AppLog,
-        append: true,
-      });
+      // 한 건이 영영 돌아오지 않으면 뒤 줄이 전부 막힌다 — 기다리다 버린다.
+      await Promise.race([
+        writeTextFile(fileNameFor(new Date()), line + '\n', {
+          baseDir: BaseDirectory.AppLog,
+          append: true,
+        }),
+        new Promise<void>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('diag write timeout')),
+            WRITE_TIMEOUT_MS,
+          ),
+        ),
+      ]);
     })
     .catch(() => {
       // 로그를 못 쓴다고 앱을 방해하면 본말전도다. 조용히 버린다.
