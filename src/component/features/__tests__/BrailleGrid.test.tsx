@@ -432,11 +432,13 @@ describe('BrailleGrid', () => {
 // 페이지를 넘기면 결과 격자가 그 페이지의 첫 줄로 옮겨 간다. 그 줄이 화면 한가운데
 // 놓이면 위 절반이 앞 페이지 끝자락이라, 정작 볼 본문이 아래 절반에만 걸린다(QA).
 describe('페이지 이동 스크롤', () => {
-  it('맞춰 갈 줄을 화면 맨 위에 붙인다', () => {
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+  // 화면 밖 면은 DOM에 없으므로(가상 스크롤) 목표 줄을 DOM에서 찾지 않고
+  // 자리를 계산해 옮긴다 — 줄 높이 19px · 면 머리 25px가 계산의 근거다.
+  it('맞춰 갈 줄의 자리로 스크롤 컨테이너를 옮긴다', () => {
+    const scrollTo = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
       configurable: true,
-      value: scrollIntoView,
+      value: scrollTo,
     });
 
     render(
@@ -452,8 +454,9 @@ describe('페이지 이동 스크롤', () => {
       />,
     );
 
-    expect(scrollIntoView).toHaveBeenCalledWith(
-      expect.objectContaining({ block: 'start' }),
+    // 첫 면의 두 번째 줄 = 25(면 머리) + 19(한 줄) − 4(윗여백) = 40
+    expect(scrollTo).toHaveBeenCalledWith(
+      expect.objectContaining({ top: 40, behavior: 'smooth' }),
     );
   });
 });

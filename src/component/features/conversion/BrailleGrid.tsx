@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -85,6 +86,50 @@ const buildTagMask = (rows: LayoutRow[]): boolean[][] => {
     i = end;
   }
   return mask;
+};
+
+// 판면 기하 — 화면 밖 면을 DOM에서 떼어내려면(가상 스크롤) 아직 안 그린 면의
+// 높이를 정확히 알아야 한다. 그래서 줄 높이·여백을 여기 한 곳에 못 박고,
+// 마크업이 이 값을 그대로 쓰게 한다.
+const ROW_H = 19; // 한 줄(칸 높이와 같다)
+const RULER_H = 14; // 칸 눈금 줄
+// 면 하나가 차지하는 세로 여백: pt-2(8) + 눈금(14) + mb-0.5(2) + 표 border-t(1) + mb-5(20)
+const PAGE_CHROME_H = 45;
+// 면 맨 위에서 첫 줄까지의 거리 — 줄 번호로 스크롤할 때 쓴다.
+const PAGE_ROWS_TOP = 8 + RULER_H + 2 + 1;
+const pageHeightOf = (rowCount: number) => rowCount * ROW_H + PAGE_CHROME_H;
+
+// 화면 밖 면을 몇 장 더 붙여 둘지. 스크롤을 굴리는 동안 흰 칸이 스치지 않을 만큼만.
+const OVERSCAN_PAGES = 2;
+
+// 블록 상자의 위·아래 선은 테두리 대신 **안쪽 그림자**로 그린다.
+// 테두리로 그리면 그 줄만 4px 높아져서 (a) 마우스를 얹을 때마다 판면이 들썩이고
+// (b) 면 높이가 내용에 따라 달라져 안 그린 면의 자리를 미리 잡을 수 없다.
+// 그림자는 배치에 영향을 주지 않으므로 모든 줄이 정확히 19px로 유지된다.
+// (Tailwind는 클래스 문자열을 정적으로 훑으므로 색을 조립하지 않고 그대로 적는다)
+const BLOCK_EDGE = {
+  review: {
+    t: 'shadow-[inset_0_2px_0_0_#f47726]',
+    b: 'shadow-[inset_0_-2px_0_0_#f47726]',
+    tb: 'shadow-[inset_0_2px_0_0_#f47726,inset_0_-2px_0_0_#f47726]',
+  },
+  hover: {
+    t: 'shadow-[inset_0_2px_0_0_#c3cfdd]',
+    b: 'shadow-[inset_0_-2px_0_0_#c3cfdd]',
+    tb: 'shadow-[inset_0_2px_0_0_#c3cfdd,inset_0_-2px_0_0_#c3cfdd]',
+  },
+} as const;
+
+const edgeCls = (
+  edge: { t: string; b: string; tb: string } | null,
+  top: boolean,
+  bottom: boolean,
+): string => {
+  if (!edge) return '';
+  if (top && bottom) return edge.tb;
+  if (top) return edge.t;
+  if (bottom) return edge.b;
+  return '';
 };
 
 // 한 면(26줄)을 그리는 조각. 면 단위로 메모해 두면 커서·호버·검색처럼 한 곳만
@@ -174,7 +219,9 @@ const GridPage = React.memo<PageProps>(
       {/* 칸 눈금 — 왼쪽 끝에 이 면이 몇 쪽인지 함께 적는다.
           위쪽 "3 / 12쪽" 표시는 스크롤로 바뀌는 값이라, 면마다 붙여 두면
           길게 이어 붙인 판면에서 지금 보고 있는 쪽을 바로 짚을 수 있다. */}
-      <div className="mb-0.5 flex w-max items-end text-[9px] text-gray-400">
+      {/* 눈금 줄은 높이를 못 박는다 — 면 높이가 글꼴에 따라 흔들리면 안 그린 면의
+          자리를 미리 잡을 수 없다(위 PAGE_CHROME_H 주석). */}
+      <div className="mb-0.5 flex h-[14px] w-max items-end text-[9px] text-gray-400">
         <span className="w-[26px] shrink-0 whitespace-nowrap pr-1.5 text-right font-bold text-[#407FAC]">
           {page.braillePage}쪽
         </span>
@@ -207,19 +254,18 @@ const GridPage = React.memo<PageProps>(
           const isHovered =
             !!row.source?.blockId && row.source.blockId === hoverBlockId;
           // Tailwind는 클래스 문자열을 정적으로 훑으므로 색을 템플릿으로 조립하지 않는다.
-          const box = isReview
-            ? {
-                x: 'border-x-2 border-[#f47726]',
-                t: 'border-t-2 border-t-[#f47726]',
-                b: 'border-b-2 border-b-[#f47726]',
-              }
+          // 좌우는 자리를 늘 비워 두는 테두리로, 위아래는 배치를 건드리지 않는
+          // 안쪽 그림자로 그린다(위 BLOCK_EDGE 주석 — 줄 높이는 항상 19px).
+          const sideCls = isReview
+            ? 'border-x-2 border-[#f47726]'
             : isHovered
-              ? {
-                  x: 'border-x-2 border-[#c3cfdd]',
-                  t: 'border-t-2 border-t-[#c3cfdd]',
-                  b: 'border-b-2 border-b-[#c3cfdd]',
-                }
-              : { x: 'border-x-2 border-transparent', t: '', b: '' };
+              ? 'border-x-2 border-[#c3cfdd]'
+              : 'border-x-2 border-transparent';
+          const edge = isReview
+            ? BLOCK_EDGE.review
+            : isHovered
+              ? BLOCK_EDGE.hover
+              : null;
 
           return (
             <div
@@ -228,9 +274,12 @@ const GridPage = React.memo<PageProps>(
               data-block={row.source?.blockId ?? ''}
               className={[
                 'flex',
-                box.x,
-                !sameBlock(rows[rowIndex - 1]) ? box.t : '',
-                !sameBlock(rows[rowIndex + 1]) ? box.b : '',
+                sideCls,
+                edgeCls(
+                  edge,
+                  !sameBlock(rows[rowIndex - 1]),
+                  !sameBlock(rows[rowIndex + 1]),
+                ),
               ].join(' ')}
             >
               {/* 대체 텍스트가 있는지는 결과 패널 위 [대체 텍스트] 버튼이 알려 준다 —
@@ -280,20 +329,24 @@ const GridPage = React.memo<PageProps>(
 );
 GridPage.displayName = 'GridPage';
 
-// 행 번호로 그 행이 몇 번째 면에 있는지 — pageStarts는 오름차순이라 이진 탐색.
-const pageOfRow = (pageStarts: number[], rowIndex: number): number => {
+// 오름차순 배열에서 value 이하인 마지막 자리 — 면 시작 행·면 시작 좌표에 함께 쓴다.
+const lastAtOrBefore = (sorted: number[], value: number): number => {
   let lo = 0;
-  let hi = pageStarts.length - 1;
+  let hi = sorted.length - 1;
   let found = 0;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    if (pageStarts[mid] <= rowIndex) {
+    if (sorted[mid] <= value) {
       found = mid;
       lo = mid + 1;
     } else hi = mid - 1;
   }
   return found;
 };
+
+// 행 번호로 그 행이 몇 번째 면에 있는지 — pageStarts는 오름차순이라 이진 탐색.
+const pageOfRow = (pageStarts: number[], rowIndex: number): number =>
+  lastAtOrBefore(pageStarts, rowIndex);
 
 // 찾기 결과를 면별로 쪼갠다 — 한 면에 걸린 것만 그 면에 넘겨야 나머지가 안 흔들린다.
 const splitByPage = (
@@ -403,6 +456,66 @@ const BrailleGrid: React.FC<Props> = React.memo(
       return map;
     }, [pages]);
 
+    // ── 가상 스크롤 ────────────────────────────────────────────────
+    //
+    // 판면은 칸마다 <div>다. 10쪽짜리 문제집 하나가 격자 칸 94,016개 · DOM 노드
+    // 176,505개가 되고, 그 배치·합성 비용이 렌더러 1.7GB · GPU 2.0GB로 나타났다
+    // (2026-08-27 인수시험: 앱 전체 최고 3.9GB). content-visibility는 그리기만
+    // 건너뛸 뿐 DOM은 그대로 남아서 메모리는 줄지 않는다.
+    // 그래서 화면 근처 면만 붙이고, 나머지 자리는 빈 칸(spacer)이 대신 차지한다.
+    // 면 높이는 줄 수로 정확히 계산된다(위 pageHeightOf) — 아직 안 그린 면도 자리를
+    // 정확히 잡으므로 스크롤 막대가 튀지 않는다.
+    const pageOffsets = useMemo(() => {
+      let acc = 0;
+      const offsets = pages.map((p) => {
+        const top = acc;
+        acc += pageHeightOf(p.rows.length);
+        return top;
+      });
+      return { offsets, total: acc };
+    }, [pages]);
+
+    // 붙여 둘 면 구간. 스크롤 중에도 구간이 실제로 달라질 때만 다시 그린다.
+    const [range, setRange] = useState({ start: 0, end: 0 });
+    const recomputeRange = useCallback(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const height = el.clientHeight;
+      const next =
+        // 아직 크기를 못 잰 자리(첫 렌더·테스트 환경)에서는 전부 그린다 —
+        // 여기서 0장을 그리면 판면이 통째로 사라진다.
+        height <= 0
+          ? { start: 0, end: pages.length }
+          : (() => {
+              const { offsets } = pageOffsets;
+              const first = lastAtOrBefore(offsets, el.scrollTop);
+              const last = lastAtOrBefore(offsets, el.scrollTop + height);
+              return {
+                start: Math.max(0, first - OVERSCAN_PAGES),
+                end: Math.min(pages.length, last + 1 + OVERSCAN_PAGES),
+              };
+            })();
+      setRange((prev) =>
+        prev.start === next.start && prev.end === next.end ? prev : next,
+      );
+    }, [pageOffsets, pages.length]);
+
+    // 면 수가 바뀌면(변환이 진행되며 판면이 자란다) 구간을 다시 잡는다.
+    // useEffect로 두면 "아무 면도 안 붙은" 첫 프레임이 한 번 그려져 판면이 깜빡인다 —
+    // 그리기 전에 잡아야 한다.
+    useLayoutEffect(() => {
+      recomputeRange();
+    }, [recomputeRange]);
+
+    // 패널 크기가 바뀌어도 다시 잡는다 — 반으로 나누기·창 크기 조절.
+    useEffect(() => {
+      const el = scrollRef.current;
+      if (!el || typeof ResizeObserver === 'undefined') return;
+      const ro = new ResizeObserver(() => recomputeRange());
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, [recomputeRange]);
+
     const findByPage = useMemo(
       () => splitByPage(findCells, pageStarts),
       [findCells, pageStarts],
@@ -437,22 +550,21 @@ const BrailleGrid: React.FC<Props> = React.memo(
     // 위쪽은 앞 페이지의 끝자락이고, 정작 봐야 할 그 페이지 본문이 아래 절반에만
     // 걸쳐 보였다(2026-08-20 QA).
     //
-    // 줄마다 ref를 달면 렌더마다 ref 콜백이 수만 개 새로 생긴다 — 필요할 때
-    // data-row로 찾는다(면이 화면 밖이어도 DOM에는 있다).
+    // 목표 줄이 아직 안 붙은 면에 있을 수 있으므로(가상 스크롤) DOM에서 찾지 않고
+    // 자리를 직접 계산해 옮긴다 — 면 높이·줄 높이가 고정이라 정확히 떨어진다.
+    // 예전에는 data-row로 찾아 scrollIntoView 했는데, 그 줄이 DOM에 없으면 아무 일도
+    // 일어나지 않는다.
     useEffect(() => {
       if (scrollToRow == null) return;
-      const find = () =>
-        scrollRef.current?.querySelector(
-          `[data-row="${scrollToRow}"]`,
-        ) as HTMLElement | null;
-      find()?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      // 지나온 면들이 화면에 들어오며 뒤늦게 배치되면 목표 줄의 위치가 달라진다.
-      // 배치가 끝난 다음 프레임에 한 번 더 맞춘다(특히 위쪽으로 갈 때).
-      const id = requestAnimationFrame(() =>
-        find()?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
-      );
-      return () => cancelAnimationFrame(id);
-    }, [scrollToRow]);
+      const el = scrollRef.current;
+      if (!el || pages.length === 0) return;
+      const pageIdx = pageOfRow(pageStarts, scrollToRow);
+      const top =
+        pageOffsets.offsets[pageIdx] +
+        PAGE_ROWS_TOP +
+        (scrollToRow - pageStarts[pageIdx]) * ROW_H;
+      el.scrollTo({ top: Math.max(0, top - 4), behavior: 'smooth' });
+    }, [scrollToRow, pageStarts, pageOffsets, pages.length]);
 
     // 스크롤 위치로 현재 보고 있는 출력 쪽을 계산한다.
     //
@@ -463,22 +575,21 @@ const BrailleGrid: React.FC<Props> = React.memo(
     const scrollRafRef = useRef<number | null>(null);
     const reportedPageRef = useRef<number | null>(null);
     const handleScroll = useCallback(() => {
-      if (!onVisiblePageChange || pages.length === 0) return;
       if (scrollRafRef.current !== null) return;
       scrollRafRef.current = requestAnimationFrame(() => {
         scrollRafRef.current = null;
         const el = scrollRef.current;
         if (!el) return;
-        const pageHeight = el.scrollHeight / pages.length;
-        const page = Math.min(
-          pages.length,
-          Math.max(1, Math.floor(el.scrollTop / pageHeight) + 1),
-        );
+        // 붙여 둘 면 구간부터 갱신한다 — 스크롤을 굴리는 사이 다음 면이 준비된다.
+        recomputeRange();
+        if (!onVisiblePageChange || pages.length === 0) return;
+        // 면 높이는 줄 수마다 다르다 — 평균으로 나누면 뒤로 갈수록 어긋난다.
+        const page = lastAtOrBefore(pageOffsets.offsets, el.scrollTop) + 1;
         if (reportedPageRef.current === page) return;
         reportedPageRef.current = page;
         onVisiblePageChange(page);
       });
-    }, [onVisiblePageChange, pages.length]);
+    }, [onVisiblePageChange, pages.length, pageOffsets, recomputeRange]);
 
     useEffect(
       () => () => {
@@ -755,7 +866,16 @@ const BrailleGrid: React.FC<Props> = React.memo(
           className="pointer-events-none fixed h-0 w-0 opacity-0"
         />
 
-        {pages.map((page, pageIdx) => {
+        {/* 화면 위쪽 — 아직 안 붙인 면들이 차지할 자리 */}
+        {range.start > 0 && (
+          <div
+            aria-hidden
+            style={{ height: pageOffsets.offsets[range.start] }}
+          />
+        )}
+
+        {pages.slice(range.start, range.end).map((page, offsetIdx) => {
+          const pageIdx = range.start + offsetIdx;
           const start = pageStarts[pageIdx];
           const end = start + page.rows.length;
           // 커서·강조·호버는 "그 면에 해당할 때만" 넘긴다 — 나머지 면은 메모에 걸려
@@ -784,10 +904,22 @@ const BrailleGrid: React.FC<Props> = React.memo(
               hoverBlockId={pageHover}
               findCells={findByPage?.[pageIdx]}
               activeFindCells={activeFindByPage?.[pageIdx]}
-              intrinsic={`auto ${26 + CELLS_PER_ROW * 19 + 8}px auto ${page.rows.length * 19 + 60}px`}
+              intrinsic={`auto ${26 + CELLS_PER_ROW * ROW_H + 8}px auto ${pageHeightOf(page.rows.length) - 20}px`}
             />
           );
         })}
+
+        {/* 화면 아래쪽 — 아직 안 붙인 면들이 차지할 자리 */}
+        {range.end < pages.length && (
+          <div
+            aria-hidden
+            style={{
+              height:
+                pageOffsets.total -
+                (pageOffsets.offsets[range.end] ?? pageOffsets.total),
+            }}
+          />
+        )}
       </div>
     );
   },
