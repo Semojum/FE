@@ -6,7 +6,9 @@ import {
   CELLS_PER_ROW,
   firstRowIndexOfPage,
   flattenRows,
+  PAGE_BREAK_TAG,
 } from '../brailleLayout';
+import { DEFAULT_TYPESET } from '../typesetOptions';
 import { TranslationBlock } from '../../types';
 
 const block = (
@@ -156,5 +158,77 @@ describe('blockTextWithRowEdit', () => {
     expect(
       blockTextWithRowEdit('⠁\n⠃\n⠉', { ...src, lineIndex: 1 }, '⠃', '⠭'),
     ).toBe('⠁\n⠭\n⠉');
+  });
+});
+
+// 1차 PoC(2026-08-26) 요청 — 단원이 바뀌는 자리에서 새 면부터 시작한다.
+// 규칙은 라이브러리가 그대로 적용하고, FE는 표식에서 토막을 나눠 이어 붙이기만 한다.
+describe('쪽 바꿈 표식', () => {
+  it('표식 뒤 내용은 새 면에서 시작한다', () => {
+    const withBreak = buildLayout(
+      {
+        1: [
+          block('b1', '⠁'),
+          block('brk', PAGE_BREAK_TAG),
+          block('b2', '⠃'),
+        ],
+      },
+      false,
+    );
+    expect(withBreak).toHaveLength(2);
+    // 표식 자체는 판면에 그리지 않는다 — 면을 끊는 지시일 뿐이다.
+    const texts = flattenRows(withBreak)
+      .filter((r) => r.kind === 'body')
+      .map((r) => r.text.trim())
+      .filter(Boolean);
+    expect(texts).toEqual(['⠁', '⠃']);
+  });
+
+  it('표식이 없으면 한 면에 이어 붙는다', () => {
+    const plain = buildLayout(
+      { 1: [block('b1', '⠁'), block('b2', '⠃')] },
+      false,
+    );
+    expect(plain).toHaveLength(1);
+  });
+
+  it('표식 뒤 행도 제 블록을 출처로 갖는다', () => {
+    const pages = buildLayout(
+      { 1: [block('b1', '⠁'), block('brk', PAGE_BREAK_TAG), block('b2', '⠃')] },
+      false,
+    );
+    const body = flattenRows(pages).filter((r) => r.kind === 'body' && r.text.trim());
+    expect(body.map((r) => r.source?.blockId)).toEqual(['b1', 'b2']);
+  });
+
+  it('문서 첫 줄의 표식은 빈 면을 만들지 않는다', () => {
+    const pages = buildLayout(
+      { 1: [block('brk', PAGE_BREAK_TAG), block('b1', '⠁')] },
+      false,
+    );
+    expect(pages).toHaveLength(1);
+  });
+});
+
+// 조판 설정이 라이브러리 옵션으로 그대로 넘어가는지 (규격·페이지행 범위)
+describe('조판 설정', () => {
+  it('칸 수를 줄이면 그 폭에서 접힌다', () => {
+    const pages = buildLayout({ 1: [block('b1', long)] }, false, '', {
+      ...DEFAULT_TYPESET,
+      cols: 20,
+    });
+    const body = flattenRows(pages).filter((r) => r.kind === 'body');
+    expect(body[0].text).toHaveLength(20);
+  });
+
+  it('줄 수를 줄이면 면이 더 빨리 넘어간다', () => {
+    const many = Array.from({ length: 12 }, (_, i) => block(`b${i}`, '⠁'));
+    const short = buildLayout({ 1: many }, false, '', {
+      ...DEFAULT_TYPESET,
+      rows: 5,
+    });
+    expect(short.length).toBeGreaterThan(
+      buildLayout({ 1: many }, false).length,
+    );
   });
 });

@@ -149,6 +149,8 @@ interface PageProps {
   activeFindCells?: Map<number, Set<number>>;
   // 화면 밖일 때 브라우저가 이 면의 배치·그리기를 건너뛰게 하는 예상 크기.
   intrinsic: string;
+  // 한 줄 칸 수 — 조판 설정으로 32에서 달라질 수 있다.
+  cols: number;
 }
 
 // 배경색은 여기 한 곳에서만 정한다 — 클래스를 뒤에 덧붙이는 방식은 CSS 순서에
@@ -202,6 +204,7 @@ const GridPage = React.memo<PageProps>(
     findCells,
     activeFindCells,
     intrinsic,
+    cols,
   }) => (
     // w-max: 면의 폭은 패널이 아니라 32칸 내용이 정한다. 예전에는 행이 패널 폭에
     // 맞춰지고 칸은 그 밖으로 넘쳐서, 블록 강조 테두리가 32칸까지 가지 못하고
@@ -225,7 +228,7 @@ const GridPage = React.memo<PageProps>(
         <span className="w-[26px] shrink-0 whitespace-nowrap pr-1.5 text-right font-bold text-[#407FAC]">
           {page.braillePage}쪽
         </span>
-        {Array.from({ length: CELLS_PER_ROW }, (_, i) => (
+        {Array.from({ length: cols }, (_, i) => (
           <span key={i} className="w-[19px] shrink-0 text-center">
             {i === 0 || (i + 1) % 8 === 0 ? i + 1 : ''}
           </span>
@@ -239,7 +242,7 @@ const GridPage = React.memo<PageProps>(
           const isSelected = caret?.rowIndex === rowIndex && editable;
           const isHighlighted =
             !!highlightBlockId && row.source?.blockId === highlightBlockId;
-          const cells = toCells(row.text);
+          const cells = toCells(row.text, cols);
           const dimMaskRow = tagMask[rowIndex] ?? [];
           const hitCells = findCells?.get(rowIndex);
           const activeHitCells = activeFindCells?.get(rowIndex);
@@ -389,6 +392,10 @@ interface Props {
   // 문서에서 찾기(Ctrl+F) — 걸린 칸을 옅게, 지금 보고 있는 한 건은 진하게 칠한다.
   findCells?: Map<number, Set<number>>;
   activeFindCells?: Map<number, Set<number>>;
+  // Ctrl+Enter — 커서가 있는 블록 앞에서 면을 끊는다(1차 PoC 요청 · 필요성 최상).
+  onPageBreak?: (page: number, blockId: string) => void;
+  // 한 줄 칸 수(조판 설정). 눈금·커서 이동·칸 채우기가 이 값을 따른다. 기본 32칸.
+  cols?: number;
 }
 
 // 격자 자체도 메모한다 — 위쪽(App)이 다른 이유로 다시 그려질 때 판면까지 딸려
@@ -408,6 +415,8 @@ const BrailleGrid: React.FC<Props> = React.memo(
     scrollToRow,
     findCells,
     activeFindCells,
+    onPageBreak,
+    cols = CELLS_PER_ROW,
   }) => {
     const scrollRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -613,10 +622,10 @@ const BrailleGrid: React.FC<Props> = React.memo(
           target = prev;
           targetCell = Math.max(0, [...rows[prev].text].length - 1);
         }
-      } else if (cell >= CELLS_PER_ROW) {
+      } else if (cell >= cols) {
         // 32칸을 넘어가면 다음 본문 행 첫 칸으로 — 접힌 글자를 따라간다.
         const next = nearestBody(rowIndex + 1, 1);
-        if (next === -1) targetCell = CELLS_PER_ROW - 1;
+        if (next === -1) targetCell = cols - 1;
         else {
           target = next;
           targetCell = 0;
@@ -626,7 +635,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
       if (rows[target]?.kind !== 'body') return;
       onCaretChange({
         rowIndex: target,
-        cell: Math.min(CELLS_PER_ROW - 1, Math.max(0, targetCell)),
+        cell: Math.min(cols - 1, Math.max(0, targetCell)),
       });
     };
 
@@ -718,6 +727,17 @@ const BrailleGrid: React.FC<Props> = React.memo(
       // 조합 중에는 IME가 키를 가진다. 여기서 Backspace·Enter·화살표를 가로채면
       // 지우기가 두 번 먹거나 조합 도중에 커서가 튄다.
       if (isComposing || (e.nativeEvent as KeyboardEvent).isComposing) return;
+
+      // Ctrl+Enter — 이 줄에서 면을 끊는다. 단원이 바뀌는 자리에서 새 면부터
+      // 시작하게 하는 조작으로, 실제 점자 책에서 위계에 따라 자주 쓴다
+      // (1차 PoC 2026-08-26 · 필요성 최상). 넣은 자리는 표식 줄로 남는다.
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        if (onPageBreak && caretRow.source) {
+          onPageBreak(caretRow.source.pageNo, caretRow.source.blockId);
+        }
+        return;
+      }
 
       switch (e.key) {
         case 'ArrowLeft':
@@ -904,7 +924,8 @@ const BrailleGrid: React.FC<Props> = React.memo(
               hoverBlockId={pageHover}
               findCells={findByPage?.[pageIdx]}
               activeFindCells={activeFindByPage?.[pageIdx]}
-              intrinsic={`auto ${26 + CELLS_PER_ROW * ROW_H + 8}px auto ${pageHeightOf(page.rows.length) - 20}px`}
+              cols={cols}
+              intrinsic={`auto ${26 + cols * ROW_H + 8}px auto ${pageHeightOf(page.rows.length) - 20}px`}
             />
           );
         })}

@@ -150,10 +150,27 @@ describe('사용량 (V3-06 T3)', () => {
     await userEvent.type(screen.getByLabelText('꼬리말 기본 문구'), '수학 1권');
     await userEvent.click(screen.getByText('설정 저장'));
 
-    expect(loadBrailleDefaults()).toEqual({
+    expect(loadBrailleDefaults()).toMatchObject({
       defaultMode: 'b',
       insertPageNumber: true,
       footerText: '수학 1권',
+    });
+  });
+
+  // 1차 PoC(2026-08-26) 요청 — 규격·페이지행 범위·표지 제외를 여기서 정한다.
+  it('조판 설정도 함께 저장한다', async () => {
+    renderView();
+
+    await userEvent.click(await screen.findByRole('button', { name: '모든 면' }));
+    const cols = screen.getByLabelText('한 줄 칸 수');
+    await userEvent.clear(cols);
+    await userEvent.type(cols, '40');
+    await userEvent.click(screen.getByText('설정 저장'));
+
+    expect(loadBrailleDefaults().typeset).toMatchObject({
+      pageRowOn: 'every',
+      cols: 40,
+      rows: 26,
     });
   });
 });

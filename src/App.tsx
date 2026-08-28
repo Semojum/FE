@@ -63,7 +63,7 @@ import FindBar, {
 import LoginScreen from './component/features/auth/LoginScreen';
 import MyPage from './component/features/mypage/MyPage';
 import InquiryFab from './component/features/support/InquiryFab';
-import AppVersionBadge from './component/shared/AppVersionBadge';
+import DevModeLayer from './component/features/dev/DevModeLayer';
 
 // Types
 import {
@@ -107,14 +107,15 @@ import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
 import { isTextOriginal, renderableOriginals } from './utils/pageOriginals';
 import { onAppClose } from './utils/appLifecycle';
 import { loadBrailleDefaults } from './utils/brailleDefaults';
+import type { TypesetOptions } from './utils/typesetOptions';
 import { logDiag } from './utils/diagLog';
 import {
   blockTextWithRowEdit,
+  isPageBreakLine,
+  PAGE_BREAK_TAG,
   buildLayout,
-  CELLS_PER_ROW,
   firstRowIndexOfPage,
   flattenRows,
-  ROWS_PER_PAGE,
 } from './utils/brailleLayout';
 import DownloadModal from './component/features/conversion/DownloadModal';
 import ConversionSettingsModal from './component/features/conversion/ConversionSettingsModal';
@@ -266,6 +267,11 @@ const Semojum: React.FC = () => {
   // 페이지행 가운데에 들어갈 꼬리말(묵자). 쪽번호와 마찬가지로 업로드 시점에 확정된다
   // (2026-08-07 명세 추가). 점역은 다운로드 시점에 서버가 한다.
   const [footerText, setFooterText] = useState('');
+  // 조판 설정(규격·페이지행 범위·표지 제외·꼬리말 정렬). 1차 PoC 요청으로 들어왔고
+  // 쪽번호·꼬리말과 같은 시점(업로드)에 확정된다 — 판면이 통째로 다시 짜이기 때문이다.
+  const [typeset, setTypeset] = useState<TypesetOptions>(
+    () => loadBrailleDefaults().typeset,
+  );
   // 파일을 골랐지만 아직 변환 설정(쪽번호·꼬리말)을 정하지 않은 상태.
   // 값이 있으면 [변환 설정] 모달이 뜨고, [변환 시작]을 눌러야 업로드가 시작된다.
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -735,6 +741,34 @@ const Semojum: React.FC = () => {
     [editor, removeBlock],
   );
 
+  // 쪽 바꿈 — 커서가 있는 블록 **앞에** 표식 블록을 하나 넣는다.
+  //
+  // 판면에서 "여기서부터 새 면"을 만드는 조작이다(1차 PoC 2026-08-26 · 필요성 최상).
+  // 표식은 본문에 남는 `<!…>` 문법을 그대로 쓰므로 저장·되돌리기가 다른 편집과 같고,
+  // 조판은 buildLayout이 이 표식에서 토막을 나눠 라이브러리에 각각 맡긴다.
+  const handlePageBreak = useCallback(
+    (page: number, blockId: string) => {
+      const blocks = readBlocks(page);
+      const index = blocks.findIndex((b) => b.id === blockId);
+      if (index === -1) return;
+      // 바로 앞이 이미 쪽바꿈이면 더 넣지 않는다 — 눌린 줄 모르고 여러 번 누르기 쉽다.
+      if (isPageBreakLine(blocks[index - 1]?.currentText ?? '')) {
+        setToast('이미 이 자리에서 면이 바뀝니다.');
+        return;
+      }
+      editor.pushHistory(page);
+      addBlock(page, index);
+      setBlocksForPage(page, [
+        ...readBlocks(page).slice(0, index),
+        { ...readBlocks(page)[index], currentText: PAGE_BREAK_TAG },
+        ...readBlocks(page).slice(index + 1),
+      ]);
+      editor.markDirty(page);
+      setToast('이 자리에서 면을 바꿉니다. (Ctrl+Z로 되돌리기)');
+    },
+    [readBlocks, addBlock, setBlocksForPage, editor],
+  );
+
   // 블록 순서 변경 — 저장 시 배열 순서가 그대로 reading_order가 되므로
   // 화면 배열만 바꾸고 페이지 저장에 맡긴다.
   const handleMoveBlock = useCallback(
@@ -802,8 +836,8 @@ const Semojum: React.FC = () => {
   // 페이지행까지 다운로드 .brf와 같은 자리에서 나뉜다. 하단 페이지네이션이 옮기는
   // 원본 파일 페이지와 여기의 "출력 쪽"(점자 면)은 별개다.
   const layout = useMemo(
-    () => buildLayout(blocksByPage, insertPageNumber),
-    [blocksByPage, insertPageNumber],
+    () => buildLayout(blocksByPage, insertPageNumber, '', typeset),
+    [blocksByPage, insertPageNumber, typeset],
   );
   const gridRows = useMemo(() => flattenRows(layout), [layout]);
 
@@ -2326,7 +2360,7 @@ const Semojum: React.FC = () => {
                     <div className="flex items-center gap-2">
                       {gridRows.length > 0 && (
                         <span className="rounded-md bg-[#eef3fc] px-2 py-1 text-[11px] font-semibold text-[#5b8ce6]">
-                          {ROWS_PER_PAGE}줄 × {CELLS_PER_ROW}칸
+                          {typeset.rows}줄 × {typeset.cols}칸
                         </span>
                       )}
                       {/* 이 작업의 페이지행 설정. 값을 바꾸면 판면이 통째로 다시 짜이는데,
@@ -2574,6 +2608,8 @@ const Semojum: React.FC = () => {
                       scrollToRow={scrollToRow}
                       findCells={findCells}
                       activeFindCells={activeFindCells}
+                      onPageBreak={handlePageBreak}
+                      cols={typeset.cols}
                     />
                   ) : pageStatuses[currentPage] === 'BLOCKED' ? (
                     // 서버가 이 페이지를 변환하지 못한 경우(page_done status=BLOCKED /
@@ -2733,14 +2769,15 @@ const Semojum: React.FC = () => {
         isOpen={!!pendingFile}
         fileName={pendingFile?.name ?? null}
         onCancel={() => setPendingFile(null)}
-        onStart={(withPageNumber, footer) => {
+        onStart={(withPageNumber, footer, nextTypeset) => {
           const file = pendingFile;
           setPendingFile(null);
           if (!file) return;
-          // 업로드 effect가 이 두 값을 함께 읽는다 — 같은 배치에서 갱신되므로
+          // 업로드 effect가 이 값들을 함께 읽는다 — 같은 배치에서 갱신되므로
           // effect가 도는 시점에는 새 값이 반영돼 있다.
           setInsertPageNumber(withPageNumber);
           setFooterText(footer);
+          setTypeset(nextTypeset);
           void handleFileDrop([file], activeTab);
         }}
       />
@@ -2841,7 +2878,7 @@ const Semojum: React.FC = () => {
         </div>
       )}
 
-      {!isPopup && <AppVersionBadge />}
+      {!isPopup && <DevModeLayer />}
 
       {/* 문의하기 — 화면에 매이지 않는 FAB. 마이페이지·기관 관리 위에도 뜬다. */}
       {!isPopup && auth.token && (

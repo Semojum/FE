@@ -1,4 +1,14 @@
 import { ConversionTab, TABS, TAB_VALUES } from '../types';
+import {
+  DEFAULT_TYPESET,
+  normalizeTypeset,
+  type TypesetOptions,
+} from './typesetOptions';
+import {
+  DEFAULT_TRANSLATION,
+  normalizeTranslation,
+  type TranslationOptions,
+} from './translationOptions';
 
 // Figma V3-06 사용량(T3) "점역 기본 설정" — 새 작업이 시작할 기본값.
 //
@@ -22,12 +32,19 @@ export interface BrailleDefaults {
   insertPageNumber: boolean;
   // 꼬리말(묵자) 기본 문구
   footerText: string;
+  // 조판 설정(규격·페이지행·표지·꼬리말 정렬). 1차 PoC 요청으로 들어왔다.
+  typeset: TypesetOptions;
+  // 점역 옵션(점자 등급·영어 점자·한영 혼용 규정). 아직 서버로 나가지 않는다 —
+  // translationOptions.ts 머리말 참고.
+  translation: TranslationOptions;
 }
 
 export const DEFAULT_BRAILLE_DEFAULTS: BrailleDefaults = {
   defaultMode: TABS.OCR,
   insertPageNumber: false,
   footerText: '',
+  typeset: DEFAULT_TYPESET,
+  translation: DEFAULT_TRANSLATION,
 };
 
 const isTab = (v: unknown): v is ConversionTab =>
@@ -45,6 +62,8 @@ export const loadBrailleDefaults = (): BrailleDefaults => {
       insertPageNumber: parsed.insertPageNumber === true,
       footerText:
         typeof parsed.footerText === 'string' ? parsed.footerText : '',
+      typeset: normalizeTypeset(parsed.typeset),
+      translation: normalizeTranslation(parsed.translation),
     };
   } catch {
     // 저장소를 못 읽는 환경(권한·손상)에서도 앱은 그대로 뜬다.

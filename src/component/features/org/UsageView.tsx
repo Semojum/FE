@@ -11,7 +11,7 @@ import {
   saveBrailleDefaults,
 } from '../../../utils/brailleDefaults';
 import { FOOTER_TEXT_MAX_LENGTH } from '../../../utils/fileValidation';
-import { ROWS_PER_PAGE, CELLS_PER_ROW } from '../../../utils/brailleLayout';
+import TypesetSettings from '../conversion/TypesetSettings';
 import {
   DASH,
   EmptyRow,
@@ -264,11 +264,6 @@ const UsageView: React.FC<Props> = ({
       >
         <div className="flex flex-col gap-4 lg:flex-row">
           <div className="flex flex-1 flex-col gap-[7px]">
-            <SettingRow label="면 규격">
-              <ReadonlyValue>
-                {ROWS_PER_PAGE}줄 × {CELLS_PER_ROW}칸
-              </ReadonlyValue>
-            </SettingRow>
             <SettingRow label="페이지행">
               <select
                 value={defaults.insertPageNumber ? 'on' : 'off'}
@@ -318,19 +313,76 @@ const UsageView: React.FC<Props> = ({
             </SettingRow>
           </div>
 
-          {/* 조판 규칙은 서버·AI가 정한다 — 앱에서 바꿀 수 있는 값이 아니라 읽기 전용 */}
+          {/* 조판 설정 — 1차 PoC(2026-08-26) 요청으로 앱에서 바꿀 수 있게 열었다.
+              규칙 자체는 여전히 braille-assist가 소유하고, 여기서는 그 라이브러리가
+              이미 받는 옵션(규격·페이지행 범위·표지 제외·쪽번호 종류)만 넘긴다. */}
           <div className="flex flex-1 flex-col gap-[7px]">
-            <SettingRow label="표·글상자 테두리">
-              <ReadonlyValue>사용함</ReadonlyValue>
-            </SettingRow>
-            <SettingRow label="그림 생략 표시">
-              <ReadonlyValue>&quot;그림 생략&quot;을 적음</ReadonlyValue>
-            </SettingRow>
-            <SettingRow label="점역자 주 시작">
-              <ReadonlyValue>3칸</ReadonlyValue>
-            </SettingRow>
-            <p className="pl-[106px] text-[10.5px] text-gray-400">
-              조판 규칙은 서버에서 정합니다. 앱에서는 바꿀 수 없습니다.
+            <TypesetSettings
+              value={defaults.typeset}
+              onChange={(typeset) => setDefaults((d) => ({ ...d, typeset }))}
+            />
+
+            {/* 점역 옵션 — 1차 PoC 부가 기능. 서버가 받을 준비가 되기 전이라
+                고르고 저장만 되고 변환에는 아직 반영되지 않는다. */}
+            <div className="mt-1 flex flex-col gap-1.5 border-t border-gray-100 pt-3">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[12px] font-medium text-gray-600">
+                  점역 옵션
+                </span>
+                <span className="rounded bg-[#fbf1de] px-1.5 py-0.5 text-[10px] font-medium text-[#8a5a00]">
+                  준비 중
+                </span>
+              </div>
+              <SettingRow label="점자 등급">
+                <select
+                  value={defaults.translation.grade}
+                  onChange={(e) =>
+                    setDefaults((d) => ({
+                      ...d,
+                      translation: {
+                        ...d.translation,
+                        grade: Number(e.target.value) === 2 ? 2 : 1,
+                      },
+                    }))
+                  }
+                  aria-label="점자 등급"
+                  className={fieldCls}
+                >
+                  <option value={1}>1급 (정자)</option>
+                  <option value={2}>2급 (약자)</option>
+                </select>
+              </SettingRow>
+              <SettingRow label="한영 혼용 규정">
+                <select
+                  value={defaults.translation.mixedScriptRule}
+                  onChange={(e) =>
+                    setDefaults((d) => ({
+                      ...d,
+                      translation: {
+                        ...d.translation,
+                        mixedScriptRule: e.target.value === 'en' ? 'en' : 'ko',
+                      },
+                    }))
+                  }
+                  aria-label="한영 혼용 규정"
+                  className={fieldCls}
+                >
+                  <option value="ko">한국어 점자 규정</option>
+                  <option value="en">영어 점자 규정</option>
+                </select>
+              </SettingRow>
+              <p className="pl-[106px] text-[10.5px] leading-snug text-gray-400">
+                앞뒤 단어가 각각 한국어·영어인 자리처럼 규정에 없는 경우에 어느 쪽을
+                따를지 정합니다.
+              </p>
+              <p className="text-[10.5px] leading-snug text-[#8a5a00]">
+                점역 옵션은 저장만 됩니다 — 변환에 반영하려면 서버가 이 값을 받아야
+                합니다.
+              </p>
+            </div>
+
+            <p className="text-[10.5px] leading-snug text-gray-400">
+              표·글상자 테두리, 그림 생략 표시, 점역자 주 시작 칸은 서버·AI가 정합니다.
             </p>
             <div className="mt-auto flex justify-end pt-2">
               <SmallButton variant="accent" onClick={saveDefaults}>
@@ -357,14 +409,6 @@ const SettingRow: React.FC<{ label: string; children: React.ReactNode }> = ({
     </span>
     {children}
   </div>
-);
-
-const ReadonlyValue: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => (
-  <span className="flex-1 rounded-[6px] bg-[#f0f4f8] px-[10px] py-[6px] text-[11.5px] text-gray-700">
-    {children}
-  </span>
 );
 
 export default UsageView;
