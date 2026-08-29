@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   captureThumb,
   clearThumbs,
+  dropOtherDocs,
   getThumb,
   putThumb,
   thumbKey,
@@ -48,6 +49,41 @@ describe('쪽 축소본 캐시', () => {
     putThumb('job-a:1', thumb(160));
     putThumb('job-a:1', thumb(120));
     expect(getThumb('job-a:1')?.w).toBe(120);
+  });
+
+  it('작업을 갈아타면 남의 축소본만 버린다', () => {
+    putThumb(thumbKey('job-a', 1), thumb(160));
+    putThumb(thumbKey('job-a', 2), thumb(161));
+    putThumb(thumbKey('job-b', 1), thumb(162));
+    dropOtherDocs('job-a');
+    expect(getThumb(thumbKey('job-a', 1))).not.toBeNull();
+    expect(getThumb(thumbKey('job-a', 2))).not.toBeNull();
+    expect(getThumb(thumbKey('job-b', 1))).toBeNull();
+  });
+
+  it('버려도 상한을 나눠 쓰던 자리가 돌아온다 — 옛 문서가 지금 쪽을 밀어내면 안 된다', () => {
+    // 옛 문서로 캐시를 가득 채운 뒤 갈아타면, 지금 문서가 상한을 온전히 쓴다.
+    for (let i = 0; i < 24; i += 1) putThumb(thumbKey('old', i), thumb(i + 1));
+    dropOtherDocs('new');
+    for (let i = 0; i < 24; i += 1) putThumb(thumbKey('new', i), thumb(i + 1));
+    expect(getThumb(thumbKey('new', 0))).not.toBeNull();
+    expect(getThumb(thumbKey('new', 23))).not.toBeNull();
+  });
+
+  it('같은 문서로 돌아오면 그대로 남는다 — 다시 그리게 만들면 캐시를 둔 뜻이 없다', () => {
+    putThumb(thumbKey('job-a', 5), thumb(160));
+    dropOtherDocs('job-a');
+    dropOtherDocs('job-a');
+    expect(getThumb(thumbKey('job-a', 5))).not.toBeNull();
+  });
+
+  it('작업 id가 아직 없는 업로드본도 서로 섞이지 않는다', () => {
+    // blob: URL은 콜론을 품지만 앞자리 대조라 서로를 잡아먹지 않는다.
+    putThumb(thumbKey('blob:http://x/aaa', 1), thumb(160));
+    putThumb(thumbKey('blob:http://x/bbb', 1), thumb(161));
+    dropOtherDocs('blob:http://x/bbb');
+    expect(getThumb(thumbKey('blob:http://x/aaa', 1))).toBeNull();
+    expect(getThumb(thumbKey('blob:http://x/bbb', 1))?.w).toBe(161);
   });
 
   it('빈 캔버스는 조용히 넘어간다 — 편의 기능이 화면을 막으면 안 된다', () => {

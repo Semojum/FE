@@ -17,6 +17,7 @@ import BBoxOverlay from './BboxOverlay'; // .tsx 확장자는 import 시 생략 
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {
   captureThumb,
+  dropOtherDocs,
   getThumb,
   putThumb,
   thumbKey,
@@ -60,7 +61,8 @@ interface Props {
   // 원본을 맨 위로 올리라는 신호(쪽 번호로 넘겼을 때만 온다). 블록을 골라 넘어온
   // 경우에는 오지 않는다 — 그때는 아래 BBoxOverlay가 고른 상자로 옮긴다.
   scrollTopToken?: number;
-  // 쪽 축소본을 어느 문서의 것으로 담을지. 작업 id(없으면 파일 이름)면 충분하다.
+  // 복원본 쪽 축소본을 어느 작업의 것으로 담을지(아래 thumbDoc 주석 참고 —
+  // 라이브 업로드본은 이 값 대신 blob: URL로 가른다).
   docKey?: string | null;
 }
 
@@ -177,12 +179,30 @@ const FilePreviewer: React.FC<Props> = memo(
       b: null,
     });
 
+    // 축소본을 어느 문서의 것으로 담을지.
+    //
+    // 라이브 업로드본은 **blob: URL 자체가 그 파일의 신원**이다 — 문서 하나에 URL
+    // 하나이고, 이름이 같은 다른 파일(고친 판을 다시 올리는 경우)을 올리면 URL이
+    // 달라져 옛 축소본이 뜨지 않는다. 넘겨받은 docKey는 작업 id가 없을 때 파일
+    // 이름으로 떨어지므로 그 경우를 가르지 못한다.
+    // 복원본은 반대로 **쪽마다 URL이 다르므로**(단일 페이지 문서) 작업 id로 가른다.
+    //
+    // 어긋나면 못 찾는 쪽으로 어긋난다 — 못 찾으면 이전 쪽이 그대로 남을 뿐이고,
+    // 잘못 찾으면 남의 쪽이 뜬다. 후자만 막으면 된다.
+    const thumbDoc = isRestoredPages ? docKey : previewUrl;
+
+    // 다른 작업의 축소본은 들고 있을 이유가 없다(위 dropOtherDocs 주석 — 상한을
+    // 나눠 쓰는 탓에 지금 문서의 쪽이 밀려난다).
+    useEffect(() => {
+      dropOtherDocs(thumbDoc);
+    }, [thumbDoc]);
+
     // 다 그린 캔버스를 줄여 담아 둔다. 다음에 이 쪽으로 오면 곧바로 늘려 보여 주고,
     // 진짜 그림이 오면 바꿔 끼운다(아래 placeholder). 전환 시간에 얹히지 않도록
     // 다음 프레임 뒤로 미룬다 — 축소는 몇 ms지만 그 몇 ms가 쪽 넘김에 들어가면 안 된다.
     const stashThumb = useCallback(
       (slot: 'a' | 'b', page: number) => {
-        const key = thumbKey(docKey, page);
+        const key = thumbKey(thumbDoc, page);
         window.setTimeout(() => {
           const canvas = slotElRef.current[slot]?.querySelector('canvas');
           if (!canvas) return;
@@ -190,7 +210,7 @@ const FilePreviewer: React.FC<Props> = memo(
           if (thumb) putThumb(key, thumb);
         }, 0);
       },
-      [docKey],
+      [thumbDoc],
     );
 
     // 라이브 업로드본 이중 버퍼 — 지금 화면에 나와 있는 슬롯과 그 슬롯이 다 그린 쪽.
@@ -474,7 +494,24 @@ const FilePreviewer: React.FC<Props> = memo(
     // 넘겼는데 화면이 그대로면 "안 넘어갔나"로 읽히지만, 흐릿해도 **그 쪽 그림**이면
     // 넘어간 것이 보이고 곧 선명해진다는 것도 읽힌다.
     const switching = isSwitchingPage || isLiveSwitching;
-    const placeholder = switching ? getThumb(thumbKey(docKey, currentPage)) : null;
+    const placeholder = switching
+      ? getThumb(thumbKey(thumbDoc, currentPage))
+      : null;
+
+    // 보이는 슬롯의 클래스. **흐려지는 것(전환 시작)만** 부드럽게 하고, 드러나는
+    // 것(전환 끝)은 즉시 한다.
+    //
+    // 승격되는 슬롯은 이미 다 그려져 있어 감출 것이 없는데, transition-opacity가
+    // 남아 있으면 숨어 있던 opacity-0에서 150ms에 걸쳐 밝아진다. 그 사이 축소본은
+    // 벌써 걷힌 뒤라 **흐릿한 그림 → 흰 바탕 → 선명한 쪽**으로 보인다 — 넘김을
+    // 부드럽게 하려던 트랜지션이 도리어 이음매를 만드는 자리다. 전환이 끝나는
+    // 렌더에서는 트랜지션 클래스를 빼서 그 자리에서 바로 드러나게 한다.
+    const visibleSlotCls = (dimming: boolean) =>
+      dimming
+        ? `transition-opacity duration-150 ${
+            placeholder ? 'opacity-0' : 'opacity-50'
+          }`
+        : '';
 
     // 상자(BBox)는 그 쪽 좌표라, 아직 이전 쪽이 보이는 동안 얹으면 엉뚱한 자리에 뜬다.
     const overlayReady = isRestoredPages
@@ -489,7 +526,8 @@ const FilePreviewer: React.FC<Props> = memo(
         >
           <div className="relative inline-block max-w-full shadow-sm rounded-lg bg-white">
             {/* 전환 중 이 쪽의 축소본을 늘려 보여 준다. 진짜 그림이 올라오면
-                placeholder가 사라지고 그 아래 슬롯이 그대로 드러난다. */}
+                placeholder가 걷히고 그 아래 슬롯이 곧바로 드러난다 —
+                사이에 흰 바탕이 끼지 않게 위 visibleSlotCls가 트랜지션을 뺀다. */}
             {placeholder && (
               <img
                 src={placeholder.src}
@@ -519,13 +557,7 @@ const FilePreviewer: React.FC<Props> = memo(
                       aria-hidden={visibleSlot !== id || undefined}
                       className={
                         visibleSlot === id
-                          ? `transition-opacity duration-150 ${
-                              isSwitchingPage
-                                ? placeholder
-                                  ? 'opacity-0'
-                                  : 'opacity-50'
-                                : ''
-                            }`
+                          ? visibleSlotCls(isSwitchingPage)
                           : 'pointer-events-none absolute inset-0 overflow-hidden opacity-0'
                       }
                     >
@@ -607,13 +639,7 @@ const FilePreviewer: React.FC<Props> = memo(
                       aria-hidden={!isVisible || undefined}
                       className={
                         isVisible
-                          ? `transition-opacity duration-150 ${
-                              isLiveSwitching
-                                ? placeholder
-                                  ? 'opacity-0'
-                                  : 'opacity-50'
-                                : ''
-                            }`
+                          ? visibleSlotCls(isLiveSwitching)
                           : 'pointer-events-none absolute inset-0 overflow-hidden opacity-0'
                       }
                     >

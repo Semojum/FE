@@ -73,5 +73,21 @@ export const captureThumb = (
   }
 };
 
-/** 문서를 갈아탈 때 — 남겨 둬도 키가 달라 안 맞지만 메모리를 붙들 이유가 없다. */
+/**
+ * 지금 문서가 아닌 축소본을 버린다 — 작업을 갈아탈 때.
+ *
+ * 키가 달라 **잘못 뜨지는 않는다.** 버리는 이유는 상한(KEEP)이 문서별이 아니라
+ * 캐시 전체에 걸려 있기 때문이다 — 옛 문서의 24장이 남아 있으면 지금 문서의 쪽이
+ * 담기는 족족 그 자리를 두고 밀려난다. 통째로 비우지 않는 것은 같은 문서로
+ * 돌아오는 경우(미리보기가 잠깐 떨어졌다 다시 붙는 경우) 때문이다. 여러 번 불러도
+ * 결과가 같다.
+ */
+export const dropOtherDocs = (docKey: string | null | undefined): void => {
+  const prefix = `${docKey ?? 'none'}:`;
+  for (const key of [...cache.keys()]) {
+    if (!key.startsWith(prefix)) cache.delete(key);
+  }
+};
+
+/** 전부 비운다 — 테스트가 각 항목을 깨끗한 캐시에서 시작하려고 쓴다. */
 export const clearThumbs = (): void => cache.clear();
