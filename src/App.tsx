@@ -2490,6 +2490,9 @@ const Semojum: React.FC = () => {
                             }
                           : null
                       }
+                      // 쪽 축소본을 어느 문서의 것으로 담을지 — 작업이 바뀌면
+                      // 키가 달라져 이전 문서의 그림이 새 문서에 뜨지 않는다.
+                      docKey={workingJobId ?? originalFileName}
                       onBlockClick={handleSelectFromOriginal}
                       hoveredBlockId={hoverBlockId}
                       onBlockHover={handleHoverBlock}

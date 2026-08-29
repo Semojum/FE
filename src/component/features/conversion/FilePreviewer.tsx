@@ -15,6 +15,12 @@ import BBoxOverlay from './BboxOverlay'; // .tsx 확장자는 import 시 생략 
 // 경로가 http로 풀리고 CSP·오프라인에서도 막힌다. 워커가 안 뜨면 <Document>가
 // 아무것도 그리지 않아 원본 미리보기가 통째로 빈 화면이 됐다.
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import {
+  captureThumb,
+  getThumb,
+  putThumb,
+  thumbKey,
+} from '../../../utils/pageThumbs';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -54,6 +60,8 @@ interface Props {
   // 원본을 맨 위로 올리라는 신호(쪽 번호로 넘겼을 때만 온다). 블록을 골라 넘어온
   // 경우에는 오지 않는다 — 그때는 아래 BBoxOverlay가 고른 상자로 옮긴다.
   scrollTopToken?: number;
+  // 쪽 축소본을 어느 문서의 것으로 담을지. 작업 id(없으면 파일 이름)면 충분하다.
+  docKey?: string | null;
 }
 
 // 원본 텍스트 한 블록을 그린다 — 찾기(Ctrl+F)에 걸린 구간에 노란 칠을 한다.
@@ -136,6 +144,7 @@ const FilePreviewer: React.FC<Props> = memo(
     hoveredBlockId,
     onBlockHover,
     scrollTopToken,
+    docKey,
   }) => {
     const {
       previewUrl,
@@ -161,6 +170,28 @@ const FilePreviewer: React.FC<Props> = memo(
       a: null,
       b: null,
     });
+
+    // 슬롯의 캔버스를 찾기 위한 참조 — 다 그린 뒤 축소본을 떠 두는 데만 쓴다.
+    const slotElRef = useRef<Record<'a' | 'b', HTMLDivElement | null>>({
+      a: null,
+      b: null,
+    });
+
+    // 다 그린 캔버스를 줄여 담아 둔다. 다음에 이 쪽으로 오면 곧바로 늘려 보여 주고,
+    // 진짜 그림이 오면 바꿔 끼운다(아래 placeholder). 전환 시간에 얹히지 않도록
+    // 다음 프레임 뒤로 미룬다 — 축소는 몇 ms지만 그 몇 ms가 쪽 넘김에 들어가면 안 된다.
+    const stashThumb = useCallback(
+      (slot: 'a' | 'b', page: number) => {
+        const key = thumbKey(docKey, page);
+        window.setTimeout(() => {
+          const canvas = slotElRef.current[slot]?.querySelector('canvas');
+          if (!canvas) return;
+          const thumb = captureThumb(canvas);
+          if (thumb) putThumb(key, thumb);
+        }, 0);
+      },
+      [docKey],
+    );
 
     // 라이브 업로드본 이중 버퍼 — 지금 화면에 나와 있는 슬롯과 그 슬롯이 다 그린 쪽.
     //
@@ -196,6 +227,10 @@ const FilePreviewer: React.FC<Props> = memo(
     const [visibleSlot, setVisibleSlot] = useState<'a' | 'b'>('a');
     const previewUrlRef = useRef(previewUrl);
     previewUrlRef.current = previewUrl;
+    // 복원본 슬롯은 쪽마다 다른 단일 페이지 문서(pageNumber는 늘 1)라, 그 슬롯이
+    // 실제로 어느 쪽인지는 지금 받아 둔 원본의 쪽 번호로 안다.
+    const previewPageRef = useRef(previewPage);
+    previewPageRef.current = previewPage;
 
     useEffect(() => {
       if (!isRestoredPages || fileType !== 'pdf' || !previewUrl) {
@@ -217,13 +252,18 @@ const FilePreviewer: React.FC<Props> = memo(
 
     // 준비 슬롯이 다 그려지면 화면에 올린다. 그리는 사이 또 다른 쪽으로 넘어갔으면
     // (previewUrl이 벌써 바뀌었으면) 이 결과는 버린다 — 다음 effect가 다시 준비한다.
-    const promoteSlot = useCallback((slot: 'a' | 'b', url: string) => {
-      if (url !== previewUrlRef.current) return;
-      setVisibleSlot(slot);
-      if (slot === 'a') setSlotB(null);
-      else setSlotA(null);
-      setPageRendered(true);
-    }, []);
+    const promoteSlot = useCallback(
+      (slot: 'a' | 'b', url: string) => {
+        if (url !== previewUrlRef.current) return;
+        setVisibleSlot(slot);
+        if (slot === 'a') setSlotB(null);
+        else setSlotA(null);
+        setPageRendered(true);
+        const page = previewPageRef.current;
+        if (page !== undefined) stashThumb(slot, page);
+      },
+      [stashThumb],
+    );
 
     // 콜백 ref로 "지금 붙어 있는 노드"를 관찰한다.
     // 예전에는 effect가 [previewUrl, fileType]에 걸려 있었는데, 미리보기 칸은
@@ -261,6 +301,7 @@ const FilePreviewer: React.FC<Props> = memo(
     const promoteLiveSlot = (slot: 'a' | 'b', page: number) => {
       if (page !== currentPage || !previewUrl) return;
       setPainted({ slot, url: previewUrl, page });
+      stashThumb(slot, page);
     };
 
     // 다 그린 뒤에는 pdf.js가 들고 있는 디코드 결과를 비운다.
@@ -429,6 +470,12 @@ const FilePreviewer: React.FC<Props> = memo(
       if (slot === liveVisibleSlot) return livePage ?? currentPage;
       return isLiveSwitching ? currentPage : null;
     };
+    // 전환 중에 보여 줄 이 쪽의 축소본. 있으면 이전 쪽 대신 이것을 늘려 보여 준다 —
+    // 넘겼는데 화면이 그대로면 "안 넘어갔나"로 읽히지만, 흐릿해도 **그 쪽 그림**이면
+    // 넘어간 것이 보이고 곧 선명해진다는 것도 읽힌다.
+    const switching = isSwitchingPage || isLiveSwitching;
+    const placeholder = switching ? getThumb(thumbKey(docKey, currentPage)) : null;
+
     // 상자(BBox)는 그 쪽 좌표라, 아직 이전 쪽이 보이는 동안 얹으면 엉뚱한 자리에 뜬다.
     const overlayReady = isRestoredPages
       ? pageRendered
@@ -441,6 +488,17 @@ const FilePreviewer: React.FC<Props> = memo(
           className="flex-1 overflow-y-auto custom-scrollbar p-2 flex justify-center items-start"
         >
           <div className="relative inline-block max-w-full shadow-sm rounded-lg bg-white">
+            {/* 전환 중 이 쪽의 축소본을 늘려 보여 준다. 진짜 그림이 올라오면
+                placeholder가 사라지고 그 아래 슬롯이 그대로 드러난다. */}
+            {placeholder && (
+              <img
+                src={placeholder.src}
+                alt=""
+                aria-hidden
+                draggable={false}
+                className="pointer-events-none absolute inset-0 z-[1] h-full w-full object-contain blur-[1.5px]"
+              />
+            )}
             {fileType === 'image' ? (
               <img
                 src={previewUrl}
@@ -455,11 +513,18 @@ const FilePreviewer: React.FC<Props> = memo(
                   url ? (
                     <div
                       key={id}
+                      ref={(el) => {
+                        slotElRef.current[id] = el;
+                      }}
                       aria-hidden={visibleSlot !== id || undefined}
                       className={
                         visibleSlot === id
                           ? `transition-opacity duration-150 ${
-                              isSwitchingPage ? 'opacity-50' : ''
+                              isSwitchingPage
+                                ? placeholder
+                                  ? 'opacity-0'
+                                  : 'opacity-50'
+                                : ''
                             }`
                           : 'pointer-events-none absolute inset-0 overflow-hidden opacity-0'
                       }
@@ -536,11 +601,18 @@ const FilePreviewer: React.FC<Props> = memo(
                   return (
                     <div
                       key={slot}
+                      ref={(el) => {
+                        slotElRef.current[slot] = el;
+                      }}
                       aria-hidden={!isVisible || undefined}
                       className={
                         isVisible
                           ? `transition-opacity duration-150 ${
-                              isLiveSwitching ? 'opacity-50' : ''
+                              isLiveSwitching
+                                ? placeholder
+                                  ? 'opacity-0'
+                                  : 'opacity-50'
+                                : ''
                             }`
                           : 'pointer-events-none absolute inset-0 overflow-hidden opacity-0'
                       }
