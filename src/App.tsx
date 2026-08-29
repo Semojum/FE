@@ -23,6 +23,7 @@ import {
   Undo2,
   Redo2,
   Lock,
+  Minus,
   Plus,
   ArrowUp,
   ArrowDown,
@@ -108,6 +109,16 @@ import { isTextOriginal, renderableOriginals } from './utils/pageOriginals';
 import { onAppClose } from './utils/appLifecycle';
 import { loadBrailleDefaults } from './utils/brailleDefaults';
 import type { TypesetOptions } from './utils/typesetOptions';
+import {
+  clampZoom,
+  describeZoom,
+  loadGridZoom,
+  saveGridZoom,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  ZOOM_STEP,
+  type GridZoom,
+} from './utils/gridZoom';
 import { logDiag } from './utils/diagLog';
 import {
   blockTextWithRowEdit,
@@ -272,6 +283,15 @@ const Semojum: React.FC = () => {
   const [typeset, setTypeset] = useState<TypesetOptions>(
     () => loadBrailleDefaults().typeset,
   );
+  // 판면 배율. 칸이 19px 고정이라 창을 키워도 모눈종이는 그대로였다 —
+  // 2026-08-28 실측에서 결과 패널 1,644px 중 1,006px이 빈 자리였다.
+  // 기본값 'fit'은 남는 폭을 칸 크기로 돌려준다.
+  const [gridZoom, setGridZoom] = useState<GridZoom>(() => loadGridZoom());
+  const [resolvedZoom, setResolvedZoom] = useState(1);
+  const changeGridZoom = useCallback((next: GridZoom) => {
+    setGridZoom(next);
+    saveGridZoom(next);
+  }, []);
   // 파일을 골랐지만 아직 변환 설정(쪽번호·꼬리말)을 정하지 않은 상태.
   // 값이 있으면 [변환 설정] 모달이 뜨고, [변환 시작]을 눌러야 업로드가 시작된다.
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -2121,7 +2141,10 @@ const Semojum: React.FC = () => {
         )}
       </header>
 
-      <main className="relative flex min-h-0 w-full flex-1 flex-col items-center px-2 py-3">
+      {/* 아래 여백(pb-6)은 쪽 넘김 줄이 창 맨 아래에 딱 붙지 않게 하는 값이다.
+          창을 최대화하면 그 줄 바로 밑이 작업 표시줄이라, 12px(py-3)로는 잘린 것처럼
+          보였다(2026-08-28 실측: 5120×2160·150% 배율에서 버튼 아래가 18물리px). */}
+      <main className="relative flex min-h-0 w-full flex-1 flex-col items-center px-2 pt-3 pb-6">
         {/* 작업을 불러오는 동안은 두 패널을 함께 덮는다 — 결과만 먼저 그려 놓으면
             아직 원본이 없는 자리에 대조 상자를 그리려다 화면이 어긋난다.
             "원본을 불러오지 못했습니다"를 성급히 띄우지 않는 효과도 있다. */}
@@ -2383,6 +2406,53 @@ const Semojum: React.FC = () => {
                           <Lock size={10} />
                         </label>
                       )}
+                      {/* 판면 배율. 기본은 패널 폭에 맞추고(fit), 눈이 편한 크기로
+                          직접 고정할 수도 있다 — 고른 값은 다음 실행에도 남는다. */}
+                      {gridRows.length > 0 && (
+                        <div className="flex items-center gap-0.5 rounded-md border border-gray-200 px-1 py-0.5">
+                          <button
+                            type="button"
+                            aria-label="판면 축소"
+                            title="판면 축소"
+                            disabled={resolvedZoom <= ZOOM_MIN + 0.001}
+                            onClick={() =>
+                              changeGridZoom(
+                                clampZoom(resolvedZoom - ZOOM_STEP),
+                              )
+                            }
+                            className="flex h-5 w-5 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 disabled:opacity-30"
+                          >
+                            <Minus size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            title="눌러서 폭 맞춤으로 되돌리기"
+                            aria-label={`판면 배율 ${describeZoom(gridZoom, resolvedZoom)} — 폭 맞춤으로`}
+                            onClick={() => changeGridZoom('fit')}
+                            className={`min-w-[74px] rounded px-1 text-[11px] tabular-nums transition-colors hover:bg-gray-100 ${
+                              gridZoom === 'fit'
+                                ? 'font-semibold text-[#407FAC]'
+                                : 'text-gray-500'
+                            }`}
+                          >
+                            {describeZoom(gridZoom, resolvedZoom)}
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="판면 확대"
+                            title="판면 확대"
+                            disabled={resolvedZoom >= ZOOM_MAX - 0.001}
+                            onClick={() =>
+                              changeGridZoom(
+                                clampZoom(resolvedZoom + ZOOM_STEP),
+                              )
+                            }
+                            className="flex h-5 w-5 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 disabled:opacity-30"
+                          >
+                            <Plus size={12} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-3">
                       {fileState.totalPages > 0 && (
@@ -2610,6 +2680,8 @@ const Semojum: React.FC = () => {
                       activeFindCells={activeFindCells}
                       onPageBreak={handlePageBreak}
                       cols={typeset.cols}
+                      zoom={gridZoom}
+                      onResolvedZoom={setResolvedZoom}
                     />
                   ) : pageStatuses[currentPage] === 'BLOCKED' ? (
                     // 서버가 이 페이지를 변환하지 못한 경우(page_done status=BLOCKED /

@@ -20,6 +20,7 @@ import {
   LayoutPage,
   LayoutRow,
 } from '../../../utils/brailleLayout';
+import { ZOOM_FIT_MAX, type GridZoom } from '../../../utils/gridZoom';
 
 // Figma V3-03 에디터 — 26줄 × 32칸 점자 판면 격자.
 //
@@ -396,6 +397,10 @@ interface Props {
   onPageBreak?: (page: number, blockId: string) => void;
   // 한 줄 칸 수(조판 설정). 눈금·커서 이동·칸 채우기가 이 값을 따른다. 기본 32칸.
   cols?: number;
+  // 판면 배율. 'fit'이면 패널 폭에 맞춰 칸을 키운다.
+  zoom?: GridZoom;
+  // 실제로 적용된 배율 — 위쪽 배지에 "폭 맞춤 148%"처럼 보여 주려고 올려 보낸다.
+  onResolvedZoom?: (z: number) => void;
 }
 
 // 격자 자체도 메모한다 — 위쪽(App)이 다른 이유로 다시 그려질 때 판면까지 딸려
@@ -417,6 +422,8 @@ const BrailleGrid: React.FC<Props> = React.memo(
     activeFindCells,
     onPageBreak,
     cols = CELLS_PER_ROW,
+    zoom = 'fit',
+    onResolvedZoom,
   }) => {
     const scrollRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -485,6 +492,25 @@ const BrailleGrid: React.FC<Props> = React.memo(
     }, [pages]);
 
     // 붙여 둘 면 구간. 스크롤 중에도 구간이 실제로 달라질 때만 다시 그린다.
+    // 폭 맞춤 계산에 쓰는 스크롤 칸 폭. ResizeObserver가 갱신한다.
+    const [panelWidth, setPanelWidth] = useState(0);
+
+    // 판면 한 줄이 차지하는 내용 폭(배율 1일 때): 줄번호 26 + 칸들 + 좌우 여백 8
+    const contentWidth = 26 + cols * ROW_H + 8;
+    const z =
+      zoom === 'fit'
+        ? panelWidth > 0
+          ? Math.min(
+              ZOOM_FIT_MAX,
+              Math.max(1, (panelWidth - 8) / contentWidth),
+            )
+          : 1
+        : zoom;
+
+    useEffect(() => {
+      onResolvedZoom?.(z);
+    }, [z, onResolvedZoom]);
+
     const [range, setRange] = useState({ start: 0, end: 0 });
     const recomputeRange = useCallback(() => {
       const el = scrollRef.current;
@@ -497,8 +523,11 @@ const BrailleGrid: React.FC<Props> = React.memo(
           ? { start: 0, end: pages.length }
           : (() => {
               const { offsets } = pageOffsets;
-              const first = lastAtOrBefore(offsets, el.scrollTop);
-              const last = lastAtOrBefore(offsets, el.scrollTop + height);
+              // 컨테이너 좌표에는 배율이 곱해져 있다 — 내용 좌표로 되돌려 비교한다.
+              const top = el.scrollTop / z;
+              const view = height / z;
+              const first = lastAtOrBefore(offsets, top);
+              const last = lastAtOrBefore(offsets, top + view);
               return {
                 start: Math.max(0, first - OVERSCAN_PAGES),
                 end: Math.min(pages.length, last + 1 + OVERSCAN_PAGES),
@@ -507,7 +536,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
       setRange((prev) =>
         prev.start === next.start && prev.end === next.end ? prev : next,
       );
-    }, [pageOffsets, pages.length]);
+    }, [pageOffsets, pages.length, z]);
 
     // 면 수가 바뀌면(변환이 진행되며 판면이 자란다) 구간을 다시 잡는다.
     // useEffect로 두면 "아무 면도 안 붙은" 첫 프레임이 한 번 그려져 판면이 깜빡인다 —
@@ -520,7 +549,11 @@ const BrailleGrid: React.FC<Props> = React.memo(
     useEffect(() => {
       const el = scrollRef.current;
       if (!el || typeof ResizeObserver === 'undefined') return;
-      const ro = new ResizeObserver(() => recomputeRange());
+      const ro = new ResizeObserver(() => {
+        setPanelWidth(el.clientWidth);
+        recomputeRange();
+      });
+      setPanelWidth(el.clientWidth);
       ro.observe(el);
       return () => ro.disconnect();
     }, [recomputeRange]);
@@ -572,8 +605,8 @@ const BrailleGrid: React.FC<Props> = React.memo(
         pageOffsets.offsets[pageIdx] +
         PAGE_ROWS_TOP +
         (scrollToRow - pageStarts[pageIdx]) * ROW_H;
-      el.scrollTo({ top: Math.max(0, top - 4), behavior: 'smooth' });
-    }, [scrollToRow, pageStarts, pageOffsets, pages.length]);
+      el.scrollTo({ top: Math.max(0, (top - 4) * z), behavior: 'smooth' });
+    }, [scrollToRow, pageStarts, pageOffsets, pages.length, z]);
 
     // 스크롤 위치로 현재 보고 있는 출력 쪽을 계산한다.
     //
@@ -593,12 +626,12 @@ const BrailleGrid: React.FC<Props> = React.memo(
         recomputeRange();
         if (!onVisiblePageChange || pages.length === 0) return;
         // 면 높이는 줄 수마다 다르다 — 평균으로 나누면 뒤로 갈수록 어긋난다.
-        const page = lastAtOrBefore(pageOffsets.offsets, el.scrollTop) + 1;
+        const page = lastAtOrBefore(pageOffsets.offsets, el.scrollTop / z) + 1;
         if (reportedPageRef.current === page) return;
         reportedPageRef.current = page;
         onVisiblePageChange(page);
       });
-    }, [onVisiblePageChange, pages.length, pageOffsets, recomputeRange]);
+    }, [onVisiblePageChange, pages.length, pageOffsets, recomputeRange, z]);
 
     useEffect(
       () => () => {
@@ -886,10 +919,18 @@ const BrailleGrid: React.FC<Props> = React.memo(
           className="pointer-events-none fixed h-0 w-0 opacity-0"
         />
 
+        {/* 판면 배율. CSS zoom은 **배치 크기 자체**를 키우므로 스크롤 높이도 같이
+            커진다 — transform: scale과 달리 가상 스크롤 계산이 그대로 맞아떨어진다.
+            (컨테이너 좌표 ↔ 내용 좌표 환산만 위에서 z로 나눠 준다) */}
+        <div
+          className="flex flex-col items-center"
+          style={z === 1 ? undefined : { zoom: z }}
+        >
         {/* 화면 위쪽 — 아직 안 붙인 면들이 차지할 자리 */}
         {range.start > 0 && (
           <div
             aria-hidden
+            className="w-full shrink-0"
             style={{ height: pageOffsets.offsets[range.start] }}
           />
         )}
@@ -934,6 +975,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
         {range.end < pages.length && (
           <div
             aria-hidden
+            className="w-full shrink-0"
             style={{
               height:
                 pageOffsets.total -
@@ -941,6 +983,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
             }}
           />
         )}
+        </div>
       </div>
     );
   },

@@ -27,7 +27,8 @@ const AppVersionBadge: React.FC<Props> = ({ onClick, channel }) => {
       onClick={onClick}
       // 개발자 모드 진입은 숨은 조작이다 — 스크린 리더에도 버전만 읽히게 둔다.
       aria-label={`앱 버전 ${APP_VERSION}${isDev ? ' 개발 빌드' : ''}`}
-      className={`fixed bottom-1.5 left-3 z-[52] select-none rounded px-1 text-[11px] transition-colors ${
+      // bottom-1.5는 최대화한 창에서 작업 표시줄에 닿아 잘려 보였다(2026-08-28).
+      className={`fixed bottom-3 left-3 z-[52] select-none rounded px-1 text-[11px] transition-colors ${
         isDev
           ? 'bg-[#f47726]/15 font-semibold text-[#c2410c] hover:bg-[#f47726]/25'
           : 'text-gray-400 hover:text-gray-500'
