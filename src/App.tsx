@@ -122,8 +122,7 @@ import {
 import { logDiag } from './utils/diagLog';
 import {
   blockTextWithRowEdit,
-  isPageBreakLine,
-  PAGE_BREAK_TAG,
+  insertPageBreakBefore,
   buildLayout,
   firstRowIndexOfPage,
   flattenRows,
@@ -768,26 +767,22 @@ const Semojum: React.FC = () => {
   // 조판은 buildLayout이 이 표식에서 토막을 나눠 라이브러리에 각각 맡긴다.
   const handlePageBreak = useCallback(
     (page: number, blockId: string) => {
-      const blocks = readBlocks(page);
-      const index = blocks.findIndex((b) => b.id === blockId);
-      if (index === -1) return;
-      // 바로 앞이 이미 쪽바꿈이면 더 넣지 않는다 — 눌린 줄 모르고 여러 번 누르기 쉽다.
-      if (isPageBreakLine(blocks[index - 1]?.currentText ?? '')) {
+      // 넣을 배열은 insertPageBreakBefore가 통째로 만들어 준다 — 여기서 넣고 다시
+      // 읽는 방식은 ref가 아직 갱신되기 전이라 엉뚱한 배열을 조립한다.
+      const result = insertPageBreakBefore(readBlocks(page), blockId);
+      if (result.status === 'not-found') return;
+      if (result.status === 'already') {
         setToast('이미 이 자리에서 면이 바뀝니다.');
         return;
       }
       editor.pushHistory(page);
-      addBlock(page, index);
-      setBlocksForPage(page, [
-        ...readBlocks(page).slice(0, index),
-        { ...readBlocks(page)[index], currentText: PAGE_BREAK_TAG },
-        ...readBlocks(page).slice(index + 1),
-      ]);
+      setBlocksForPage(page, result.blocks);
       editor.markDirty(page);
       setToast('이 자리에서 면을 바꿉니다. (Ctrl+Z로 되돌리기)');
     },
-    [readBlocks, addBlock, setBlocksForPage, editor],
+    [readBlocks, setBlocksForPage, editor],
   );
+
 
   // 블록 순서 변경 — 저장 시 배열 순서가 그대로 reading_order가 되므로
   // 화면 배열만 바꾸고 페이지 저장에 맡긴다.

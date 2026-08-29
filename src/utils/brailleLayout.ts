@@ -117,6 +117,45 @@ export const PAGE_BREAK_TAG = '<!쪽바꿈>';
 export const isPageBreakLine = (text: string): boolean =>
   text.trim() === PAGE_BREAK_TAG;
 
+export type MarkInsert =
+  | { status: 'inserted'; blocks: TranslationBlock[] }
+  | { status: 'replaced'; blocks: TranslationBlock[] }
+  | { status: 'already' }
+  | { status: 'not-found' };
+
+const tagBlock = (text: string): TranslationBlock => ({
+  id: crypto.randomUUID(),
+  currentText: text,
+  candidates: [],
+});
+
+/**
+ * 커서가 있는 블록 **앞에** 쪽바꿈 표식 블록을 끼운 새 배열을 만든다.
+ *
+ * 순수 함수로 두는 이유: 호출부에서 블록을 넣고 곧바로 다시 읽으면 아직 반영 전의
+ * 배열이 나온다(App의 readBlocks는 useEffect로 미러되는 ref를 읽는다). 실제로
+ * addBlock으로 넣은 뒤 그 자리에서 다시 읽어 배열을 조립했다가, 삽입이 통째로
+ * 덮어써지고 커서가 있던 줄의 본문이 표식으로 갈아치워졌다(2026-08-29). 배열을
+ * 여기서 한 번에 만들어 넘기면 읽기와 쓰기가 엇갈릴 자리가 없다.
+ *
+ * 새 블록은 로컬 id만 갖는다 — 페이지 저장이 서버에 없는 id를 `null`로 보내
+ * 요소를 만들게 하고, 응답 순서로 정식 id를 받아 온다(UsePageEditor.savePage).
+ */
+export const insertPageBreakBefore = (
+  blocks: TranslationBlock[],
+  blockId: string,
+): MarkInsert => {
+  const index = blocks.findIndex((b) => b.id === blockId);
+  if (index === -1) return { status: 'not-found' };
+  // 바로 앞이 이미 쪽바꿈이면 더 넣지 않는다 — 눌린 줄 모르고 여러 번 누르기 쉽다.
+  if (isPageBreakLine(blocks[index - 1]?.currentText ?? ''))
+    return { status: 'already' };
+
+  const next = [...blocks];
+  next.splice(index, 0, tagBlock(PAGE_BREAK_TAG));
+  return { status: 'inserted', blocks: next };
+};
+
 /** 쪽바꿈 표식에서 논리 줄을 토막낸다. 표식 자체는 판면에 그리지 않는다. */
 const splitAtPageBreaks = (lines: LogicalLine[]): LogicalLine[][] => {
   const segments: LogicalLine[][] = [[]];

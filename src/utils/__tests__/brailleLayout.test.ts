@@ -6,6 +6,7 @@ import {
   CELLS_PER_ROW,
   firstRowIndexOfPage,
   flattenRows,
+  insertPageBreakBefore,
   PAGE_BREAK_TAG,
 } from '../brailleLayout';
 import { DEFAULT_TYPESET } from '../typesetOptions';
@@ -207,6 +208,57 @@ describe('쪽 바꿈 표식', () => {
       false,
     );
     expect(pages).toHaveLength(1);
+  });
+  // Ctrl+Enter로 표식을 넣는 자리. 예전에는 addBlock으로 넣고 그 자리에서 다시 읽어
+  // 배열을 조립했는데, 읽기가 갱신 전 배열이라 커서가 있던 줄의 본문이 표식으로
+  // 갈아치워졌다(2026-08-29 확인).
+  describe('insertPageBreakBefore', () => {
+    const three = [block('A', '가나다'), block('B', '라마바'), block('C', '사아자')];
+
+    it('커서가 있던 블록 앞에 표식을 넣고, 그 블록의 본문은 그대로 둔다', () => {
+      const r = insertPageBreakBefore(three, 'B');
+      expect(r.status).toBe('inserted');
+      if (r.status !== 'inserted') return;
+      expect(r.blocks.map((b) => b.currentText)).toEqual([
+        '가나다',
+        PAGE_BREAK_TAG,
+        '라마바',
+        '사아자',
+      ]);
+      // 원래 블록들은 id까지 그대로 남는다 — 저장이 기존 요소를 수정으로 보내야 한다.
+      expect(r.blocks.filter((b) => b.currentText !== PAGE_BREAK_TAG).map((b) => b.id)).toEqual([
+        'A',
+        'B',
+        'C',
+      ]);
+      // 새 표식만 서버가 모르는 로컬 id를 갖는다.
+      expect(r.blocks[1].id).not.toBe('B');
+    });
+
+    it('넘겨받은 배열을 건드리지 않는다', () => {
+      insertPageBreakBefore(three, 'B');
+      expect(three.map((b) => b.currentText)).toEqual(['가나다', '라마바', '사아자']);
+    });
+
+    it('첫 블록 앞에도 넣을 수 있다', () => {
+      const r = insertPageBreakBefore(three, 'A');
+      expect(r.status === 'inserted' && r.blocks[0].currentText).toBe(PAGE_BREAK_TAG);
+    });
+
+    it('바로 앞이 이미 표식이면 더 넣지 않는다', () => {
+      const withBreak = [block('A', '가나다'), block('brk', PAGE_BREAK_TAG), block('B', '라마바')];
+      expect(insertPageBreakBefore(withBreak, 'B').status).toBe('already');
+    });
+
+    it('없는 블록이면 아무것도 하지 않는다', () => {
+      expect(insertPageBreakBefore(three, '없음').status).toBe('not-found');
+    });
+
+    it('넣은 결과를 조판하면 그 자리에서 면이 갈린다', () => {
+      const r = insertPageBreakBefore([block('b1', '⠁'), block('b2', '⠃')], 'b2');
+      if (r.status !== 'inserted') throw new Error('삽입 실패');
+      expect(buildLayout({ 1: r.blocks }, false)).toHaveLength(2);
+    });
   });
 });
 
