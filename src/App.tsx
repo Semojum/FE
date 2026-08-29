@@ -109,7 +109,7 @@ import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
 import { isTextOriginal, renderableOriginals } from './utils/pageOriginals';
 import { onAppClose } from './utils/appLifecycle';
 import { loadBrailleDefaults } from './utils/brailleDefaults';
-import type { TypesetOptions } from './utils/typesetOptions';
+import type { FooterScope, TypesetOptions } from './utils/typesetOptions';
 import {
   loadJobTypeset,
   saveJobTypeset,
@@ -127,11 +127,17 @@ import {
 import { logDiag } from './utils/diagLog';
 import {
   blockTextWithRowEdit,
+  footerMarkBefore,
+  insertFooterTagAfter,
   insertPageBreakBefore,
+  lastBlockOfPage,
+  pageIndexOfBlock,
+  setSectionFooterBefore,
   buildLayout,
   firstRowIndexOfPage,
   flattenRows,
 } from './utils/brailleLayout';
+import SectionFooterModal from './component/features/conversion/SectionFooterModal';
 import TypesetModal from './component/features/conversion/TypesetModal';
 import DownloadModal from './component/features/conversion/DownloadModal';
 import ConversionSettingsModal from './component/features/conversion/ConversionSettingsModal';
@@ -869,6 +875,69 @@ const Semojum: React.FC = () => {
     [blocksByPage, insertPageNumber, typeset],
   );
   const gridRows = useMemo(() => flattenRows(layout), [layout]);
+  // 지금 보고 있는 면에 걸린 꼬리말 (구간 표식이 없으면 작업 전체 꼬리말).
+  const visibleFooterText = layout[visibleOutputPage - 1]?.footerText ?? '';
+
+  // 구간 꼬리말 — "여기서부터 이 꼬리말". 어느 자리에 넣을지는 우클릭이 정하고,
+  // 문구는 모달이 받는다(1차 PoC 피드백: 단원마다 꼬리말이 달라야 한다).
+  const [footerMark, setFooterMark] = useState<{
+    page: number;
+    blockId: string;
+    current: string | null;
+  } | null>(null);
+
+  // 어느 자리인지는 호출부(모달)가 들고 있다 — 핸들러가 열려 있는 자리 상태를
+  // 다시 읽으면 그 상태에 매여, 자리를 바꿀 때마다 판면 메모가 통째로 풀린다.
+  const handleSectionFooter = useCallback(
+    (page: number, blockId: string, footer: string, scope: FooterScope) => {
+      setFooterMark(null);
+      const started = setSectionFooterBefore(readBlocks(page), blockId, footer);
+      if (started.status === 'not-found') return;
+      if (started.status === 'already') {
+        setToast('이미 이 자리부터 그 꼬리말을 씁니다.');
+        return;
+      }
+
+      let next = started.blocks;
+      let scoped = scope === 'page';
+      if (scoped) {
+        // "이 면만" — 시작 표식을 넣은 판면을 **다시 짜서** 그 면이 어디서 끝나는지
+        // 보고, 원래 꼬리말로 되돌리는 표식을 그 뒤에 넣는다. 면이 어디서 끊기는지는
+        // 조판이 정하므로 넣어 보기 전에는 알 수 없다.
+        const before =
+          layout[pageIndexOfBlock(layout, blockId)]?.footerText ??
+          typeset.footerText;
+        const nextLayout = buildLayout(
+          { ...blocksRef.current, [page]: next },
+          insertPageNumber,
+          '',
+          typeset,
+        );
+        const pageIdx = pageIndexOfBlock(nextLayout, blockId);
+        const endBlock =
+          pageIdx === -1 ? null : lastBlockOfPage(nextLayout[pageIdx]);
+        const closed = endBlock
+          ? insertFooterTagAfter(next, endBlock, before)
+          : { status: 'not-found' as const };
+        if (closed.status === 'inserted') next = closed.blocks;
+        // 그 면이 다음 원본 쪽까지 이어지면 끝 표식을 놓을 자리가 이 쪽에 없다.
+        // 편집은 원본 쪽 단위라 넘어가지 못하므로, 솔직하게 "뒤 전부"로 알린다.
+        else scoped = false;
+      }
+
+      editor.pushHistory(page);
+      setBlocksForPage(page, next);
+      editor.markDirty(page);
+      const where = scoped ? '이 면에만' : '이 자리부터';
+      setToast(
+        footer
+          ? `${where} 꼬리말을 "${footer}"로 씁니다. (Ctrl+Z로 되돌리기)`
+          : `${where} 꼬리말을 넣지 않습니다. (Ctrl+Z로 되돌리기)`,
+      );
+    },
+    [readBlocks, setBlocksForPage, editor, layout, typeset, insertPageNumber],
+  );
+
   // 이 파일의 조판 설정 — 판면 우클릭에서 연다.
   const [isTypesetOpen, setIsTypesetOpen] = useState(false);
   const outputPageCount = Math.max(1, layout.length);
@@ -2426,6 +2495,18 @@ const Semojum: React.FC = () => {
                           {typeset.rows}줄 × {typeset.cols}칸
                         </span>
                       )}
+                      {/* 지금 보고 있는 면의 꼬리말. 구간마다 다를 수 있어(우클릭 →
+                          여기부터 꼬리말) 어느 면에 무엇이 걸렸는지 여기서 읽는다.
+                          페이지행에 점자로 찍히는 것은 서버가 꼬리말을 점역해 준
+                          뒤다(SERVER-REQUIREMENTS-3.3.0.md S-4). */}
+                      {visibleFooterText && (
+                        <span
+                          title={`${visibleOutputPage}쪽 꼬리말 — 점역은 다운로드 때 서버가 합니다`}
+                          className="max-w-[180px] truncate rounded-md bg-gray-100 px-2 py-1 text-[11px] text-gray-500"
+                        >
+                          꼬리말 {visibleFooterText}
+                        </span>
+                      )}
                       {/* 이 작업의 페이지행 설정. 값을 바꾸면 판면이 통째로 다시 짜이는데,
                           BE가 저장된 값으로만 다운로드를 만들어(PATCH·다운로드 body 모두 무시,
                           2026-08-07 실서버 확인) 여기서 바꾸면 화면과 파일이 어긋난다.
@@ -2847,6 +2928,23 @@ const Semojum: React.FC = () => {
                     blockId: line.blockId,
                   }),
               },
+              // 조판 — 판면에서 바로 쓰는 기능들. 1차 PoC 액션 아이템이
+              // "우클릭 메뉴 또는 Ctrl+Enter 방식"이라 두 길을 모두 둔다.
+              {
+                label: '여기서 면 바꾸기',
+                title: '이 줄부터 새 면에서 시작합니다 (Ctrl+Enter)',
+                onSelect: () => handlePageBreak(line.pageNo, line.blockId),
+              },
+              {
+                label: '여기부터 꼬리말',
+                title: '단원이 바뀌는 자리에서 꼬리말을 바꿉니다',
+                onSelect: () =>
+                  setFooterMark({
+                    page: line.pageNo,
+                    blockId: line.blockId,
+                    current: footerMarkBefore(blocks, line.blockId),
+                  }),
+              },
               {
                 label: '조판 설정',
                 title: '규격·페이지행·표지 제외 — 이 파일에만 적용됩니다',
@@ -2864,6 +2962,26 @@ const Semojum: React.FC = () => {
               },
             ];
           })()}
+        />
+      )}
+
+      {/* 구간 꼬리말 — 우클릭으로 고른 자리에 "여기서부터"를 적는다 */}
+      {footerMark && (
+        <SectionFooterModal
+          // 자리를 바꿔 다시 열면 새로 마운트한다 — 앞서 친 문구가 남지 않게.
+          key={`${footerMark.page}:${footerMark.blockId}`}
+          current={footerMark.current}
+          base={typeset.footerText}
+          defaultScope={typeset.footerScope}
+          onSubmit={(footer, scope) =>
+            handleSectionFooter(
+              footerMark.page,
+              footerMark.blockId,
+              footer,
+              scope,
+            )
+          }
+          onClose={() => setFooterMark(null)}
         />
       )}
 

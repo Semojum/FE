@@ -6,8 +6,11 @@ import {
   CELLS_PER_ROW,
   firstRowIndexOfPage,
   flattenRows,
+  footerMarkBefore,
   insertPageBreakBefore,
+  makeFooterTag,
   PAGE_BREAK_TAG,
+  setSectionFooterBefore,
 } from '../brailleLayout';
 import { DEFAULT_TYPESET } from '../typesetOptions';
 import { TranslationBlock } from '../../types';
@@ -282,5 +285,129 @@ describe('조판 설정', () => {
     expect(short.length).toBeGreaterThan(
       buildLayout({ 1: many }, false).length,
     );
+  });
+});
+
+// 1차 PoC(2026-08-26) 피드백 — "단원마다 꼬리말이 달라야 하므로 페이지별 위치 지정 필요".
+describe('구간 꼬리말', () => {
+  const withFooter = (footerText: string) => ({ ...DEFAULT_TYPESET, footerText });
+
+  it('표식 자리에서 면이 갈리고, 뒤 면부터 새 꼬리말을 쓴다', () => {
+    const pages = buildLayout(
+      {
+        1: [
+          block('b1', '⠁'),
+          block('mark', makeFooterTag('제3장 함수')),
+          block('b2', '⠃'),
+        ],
+      },
+      false,
+      '',
+      withFooter('수학 I'),
+    );
+    expect(pages).toHaveLength(2);
+    expect(pages.map((p) => p.footerText)).toEqual(['수학 I', '제3장 함수']);
+    // 표식 줄은 판면에 그리지 않는다 — 꼬리말을 정하는 지시일 뿐이다.
+    const texts = flattenRows(pages)
+      .filter((r) => r.kind === 'body')
+      .map((r) => r.text.trim())
+      .filter(Boolean);
+    expect(texts).toEqual(['⠁', '⠃']);
+  });
+
+  it('표식이 없으면 모든 면이 작업 전체 꼬리말을 쓴다', () => {
+    const pages = buildLayout(
+      { 1: [block('b1', '⠁')] },
+      false,
+      '',
+      withFooter('수학 I'),
+    );
+    expect(pages.map((p) => p.footerText)).toEqual(['수학 I']);
+  });
+
+  it('빈 표식은 그 자리부터 꼬리말을 뺀다', () => {
+    const pages = buildLayout(
+      {
+        1: [block('b1', '⠁'), block('mark', makeFooterTag('')), block('b2', '⠃')],
+      },
+      false,
+      '',
+      withFooter('수학 I'),
+    );
+    expect(pages.map((p) => p.footerText)).toEqual(['수학 I', '']);
+  });
+
+  it('문서 첫 줄의 표식은 빈 면을 만들지 않고 첫 면부터 적용된다', () => {
+    const pages = buildLayout(
+      { 1: [block('mark', makeFooterTag('제1장')), block('b1', '⠁')] },
+      false,
+      '',
+      withFooter('수학 I'),
+    );
+    expect(pages).toHaveLength(1);
+    expect(pages[0].footerText).toBe('제1장');
+  });
+
+  describe('setSectionFooterBefore', () => {
+    const three = [block('A', '가나다'), block('B', '라마바'), block('C', '사아자')];
+
+    it('커서가 있던 블록 앞에 표식을 넣고 본문은 그대로 둔다', () => {
+      const r = setSectionFooterBefore(three, 'B', '제3장 함수');
+      expect(r.status).toBe('inserted');
+      if (r.status !== 'inserted') return;
+      expect(r.blocks.map((b) => b.currentText)).toEqual([
+        '가나다',
+        makeFooterTag('제3장 함수'),
+        '라마바',
+        '사아자',
+      ]);
+    });
+
+    it('바로 앞이 이미 꼬리말 표식이면 쌓지 않고 고친다', () => {
+      const withMark = [
+        block('A', '가나다'),
+        block('mark', makeFooterTag('제2장')),
+        block('B', '라마바'),
+      ];
+      const r = setSectionFooterBefore(withMark, 'B', '제3장');
+      expect(r.status).toBe('replaced');
+      if (r.status !== 'replaced') return;
+      expect(r.blocks).toHaveLength(3);
+      expect(r.blocks[1].currentText).toBe(makeFooterTag('제3장'));
+      // 표식 블록의 id는 그대로 — 서버에 이미 있는 요소를 수정으로 보내야 한다.
+      expect(r.blocks[1].id).toBe('mark');
+    });
+
+    it('같은 꼬리말을 다시 넣으면 아무것도 하지 않는다', () => {
+      const withMark = [block('mark', makeFooterTag('제2장')), block('B', '라마바')];
+      expect(setSectionFooterBefore(withMark, 'B', '제2장').status).toBe('already');
+    });
+
+    it('빈 값을 주면 그 자리부터 꼬리말을 빼는 표식이 된다', () => {
+      const r = setSectionFooterBefore(three, 'B', '');
+      expect(r.status === 'inserted' && r.blocks[1].currentText).toBe(
+        makeFooterTag(''),
+      );
+    });
+
+    it('넘겨받은 배열을 건드리지 않는다', () => {
+      setSectionFooterBefore(three, 'B', '제3장');
+      expect(three.map((b) => b.currentText)).toEqual(['가나다', '라마바', '사아자']);
+    });
+
+    it('없는 블록이면 아무것도 하지 않는다', () => {
+      expect(setSectionFooterBefore(three, '없음', '제3장').status).toBe('not-found');
+    });
+  });
+
+  describe('footerMarkBefore', () => {
+    it('바로 앞에 걸린 꼬리말을 읽는다 — 우클릭 메뉴가 현재 값을 채우는 데 쓴다', () => {
+      const blocks = [block('mark', makeFooterTag('제2장')), block('B', '라마바')];
+      expect(footerMarkBefore(blocks, 'B')).toBe('제2장');
+    });
+
+    it('표식이 없으면 null이다', () => {
+      expect(footerMarkBefore([block('B', '라마바')], 'B')).toBeNull();
+    });
   });
 });

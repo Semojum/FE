@@ -6,7 +6,10 @@ import {
   isNonStandardSize,
   ROWS_MAX,
   ROWS_MIN,
+  footerCellBudget,
+  footerOverflowHint,
   type FooterAlign,
+  type FooterScope,
   type PageRowOn,
   type TypesetOptions,
 } from '../../../utils/typesetOptions';
@@ -179,6 +182,19 @@ const TypesetSettings: React.FC<Props> = ({ value, onChange, compact }) => {
           placeholder="예: 수학 익힘책 1"
           className={boxCls}
         />
+        {/* 꼬리말이 페이지행에 다 들어가는지 — 넘치면 라이브러리가 뒤를 자른다
+            (1차 PoC "꼬리말 길이 검증 필요"). 점역 전이라 어림값이다. */}
+        {footerOverflowHint(value) ? (
+          <p className="mt-0.5 flex items-start gap-1 text-[11px] leading-snug text-[#f47726]">
+            <AlertTriangle size={12} className="mt-px shrink-0" />
+            {footerOverflowHint(value)}
+          </p>
+        ) : (
+          <p className={hintCls}>
+            페이지행에서 꼬리말이 쓸 수 있는 자리는 약 {footerCellBudget(value)}칸입니다
+            (한글은 한 글자에 2~3칸).
+          </p>
+        )}
         <div className="flex gap-1.5">
           {(
             [
@@ -206,6 +222,38 @@ const TypesetSettings: React.FC<Props> = ({ value, onChange, compact }) => {
             <AlertTriangle size={12} className="mt-0.5 shrink-0" />
             우측 정렬은 아직 조판 라이브러리에 없습니다. 지금은 가운데로 나옵니다 —
             설정만 저장해 둡니다.
+          </p>
+        )}
+
+        {/* 판면에서 꼬리말을 고칠 때 기본으로 어디까지 적용할지.
+            (1차 PoC 1-3 기능2 — 고칠 때마다 묻되, 그 창의 기본값을 여기서 정한다) */}
+        <span className={`${labelCls} mt-1`}>판면에서 고칠 때 기본 적용 범위</span>
+        <div className="flex gap-1.5">
+          {(
+            [
+              ['rest', '이후 전부'],
+              ['page', '그 면만'],
+            ] as Array<[FooterScope, string]>
+          ).map(([v, label]) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => set('footerScope', v)}
+              aria-pressed={value.footerScope === v}
+              className={`flex-1 rounded-lg border px-2 py-1.5 text-[12px] transition-colors ${
+                value.footerScope === v
+                  ? 'border-[#5b8ce6] bg-[#eef3fc] font-semibold text-[#407FAC]'
+                  : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {!compact && (
+          <p className={hintCls}>
+            판면에서 우클릭 → [여기부터 꼬리말]을 열 때 미리 골라 둘 값입니다. 그
+            창에서 매번 바꿀 수 있습니다.
           </p>
         )}
       </div>

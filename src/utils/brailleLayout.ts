@@ -51,6 +51,11 @@ export interface LayoutPage {
   // 점자 면 번호 (1부터)
   braillePage: number;
   rows: LayoutRow[];
+  // 이 면에 적용되는 꼬리말(묵자). 구간 표식이 없으면 작업 전체 꼬리말이다.
+  // ⚠ 판면 페이지행에는 아직 찍히지 않는다 — 점역된 꼬리말은 서버가 준다
+  //   (docs/SERVER-REQUIREMENTS-3.3.0.md S-4). 지금은 어느 면에 무슨 꼬리말이
+  //   걸렸는지 화면에 보여 주는 데 쓴다.
+  footerText: string;
 }
 
 // 블록 하나가 논리 줄 여러 개로 쪼개진 것 — 조판에 넣기 전의 평평한 목록.
@@ -117,18 +122,6 @@ export const PAGE_BREAK_TAG = '<!쪽바꿈>';
 export const isPageBreakLine = (text: string): boolean =>
   text.trim() === PAGE_BREAK_TAG;
 
-export type MarkInsert =
-  | { status: 'inserted'; blocks: TranslationBlock[] }
-  | { status: 'replaced'; blocks: TranslationBlock[] }
-  | { status: 'already' }
-  | { status: 'not-found' };
-
-const tagBlock = (text: string): TranslationBlock => ({
-  id: crypto.randomUUID(),
-  currentText: text,
-  candidates: [],
-});
-
 /**
  * 커서가 있는 블록 **앞에** 쪽바꿈 표식 블록을 끼운 새 배열을 만든다.
  *
@@ -156,19 +149,140 @@ export const insertPageBreakBefore = (
   return { status: 'inserted', blocks: next };
 };
 
-/** 쪽바꿈 표식에서 논리 줄을 토막낸다. 표식 자체는 판면에 그리지 않는다. */
-const splitAtPageBreaks = (lines: LogicalLine[]): LogicalLine[][] => {
-  const segments: LogicalLine[][] = [[]];
+/**
+ * 커서가 있는 블록 **앞에서부터** 꼬리말을 바꾼다.
+ *
+ * 바로 앞이 이미 꼬리말 표식이면 표식을 하나 더 쌓지 않고 그 표식을 고친다 —
+ * 같은 자리에서 문구만 다시 정하는 것이 실제 쓰임이고, 표식이 겹치면 빈 면이
+ * 생기는 것처럼 보인다. 빈 문자열을 주면 그 자리부터 꼬리말을 뺀다.
+ */
+export const setSectionFooterBefore = (
+  blocks: TranslationBlock[],
+  blockId: string,
+  footer: string,
+): MarkInsert => {
+  const index = blocks.findIndex((b) => b.id === blockId);
+  if (index === -1) return { status: 'not-found' };
+  const tag = makeFooterTag(footer);
+
+  const prev = blocks[index - 1];
+  if (prev && footerTagOf(prev.currentText) !== null) {
+    if (prev.currentText.trim() === tag) return { status: 'already' };
+    const next = [...blocks];
+    next[index - 1] = { ...prev, currentText: tag };
+    return { status: 'replaced', blocks: next };
+  }
+
+  const next = [...blocks];
+  next.splice(index, 0, tagBlock(tag));
+  return { status: 'inserted', blocks: next };
+};
+
+/**
+ * 블록 **뒤에** 꼬리말 표식을 넣는다 — 구간을 끝내고 원래 꼬리말로 되돌릴 때 쓴다.
+ * ("그 면만" 적용: 시작 표식과 되돌림 표식을 한 쌍으로 넣는다)
+ */
+export const insertFooterTagAfter = (
+  blocks: TranslationBlock[],
+  blockId: string,
+  footer: string,
+): MarkInsert => {
+  const index = blocks.findIndex((b) => b.id === blockId);
+  if (index === -1) return { status: 'not-found' };
+  const next = [...blocks];
+  next.splice(index + 1, 0, tagBlock(makeFooterTag(footer)));
+  return { status: 'inserted', blocks: next };
+};
+
+/** 이 블록이 처음 나타나는 면의 번호(0부터). 없으면 -1. */
+export const pageIndexOfBlock = (
+  pages: LayoutPage[],
+  blockId: string,
+): number =>
+  pages.findIndex((p) => p.rows.some((r) => r.source?.blockId === blockId));
+
+/** 그 면의 마지막 본문 행이 속한 블록 id. 본문이 없으면 null. */
+export const lastBlockOfPage = (page: LayoutPage): string | null => {
+  for (let i = page.rows.length - 1; i >= 0; i--) {
+    const id = page.rows[i].source?.blockId;
+    if (id) return id;
+  }
+  return null;
+};
+
+/** 이 블록 바로 앞에 걸린 꼬리말 표식의 문구. 없으면 null. */
+export const footerMarkBefore = (
+  blocks: TranslationBlock[],
+  blockId: string,
+): string | null => {
+  const index = blocks.findIndex((b) => b.id === blockId);
+  if (index <= 0) return null;
+  return footerTagOf(blocks[index - 1].currentText);
+};
+
+/**
+ * 구간 꼬리말 표식. `<!꼬리말:제3장 함수>` — 그 자리부터 이 꼬리말을 쓴다.
+ * 빈 값(`<!꼬리말:>`)이면 그 자리부터 꼬리말을 빼는 뜻이다.
+ *
+ * 1차 PoC(2026-08-26) 피드백 "단원마다 꼬리말이 달라야 하므로 페이지별 위치 지정
+ * 기능 필요". 쪽바꿈과 같은 `<!…>` 표식 방식이라 저장·되돌리기 경로가 같다.
+ *
+ * ⚠ 꼬리말을 바꾸면 **그 자리에서 면이 바뀐다.** 페이지행은 면마다 하나뿐이라
+ * 한 면 안에서 꼬리말이 갈릴 수 없고, 라이브러리도 buildPages 한 번에 꼬리말
+ * 하나를 받는다. 단원이 바뀌는 자리에서 쓰는 기능이라 실제 쓰임과도 맞는다.
+ */
+const FOOTER_TAG_OPEN = '<!꼬리말:';
+
+export const makeFooterTag = (footer: string): string =>
+  `${FOOTER_TAG_OPEN}${footer.trim()}>`;
+
+/** 꼬리말 표식이면 그 꼬리말(빈 문자열 포함), 아니면 null. */
+export const footerTagOf = (text: string): string | null => {
+  const t = text.trim();
+  if (!t.startsWith(FOOTER_TAG_OPEN) || !t.endsWith('>')) return null;
+  return t.slice(FOOTER_TAG_OPEN.length, -1).trim();
+};
+
+// 한 번에 조판할 토막. 표식에서 잘리고, 토막마다 제 꼬리말을 들고 간다.
+interface Segment {
+  lines: LogicalLine[];
+  footer: string;
+}
+
+/** 표식(쪽바꿈·꼬리말)에서 논리 줄을 토막낸다. 표식 자체는 판면에 그리지 않는다. */
+const splitIntoSegments = (
+  lines: LogicalLine[],
+  baseFooter: string,
+): Segment[] => {
+  const segments: Segment[] = [{ lines: [], footer: baseFooter }];
+  let footer = baseFooter;
   for (const line of lines) {
-    if (isPageBreakLine(line.text)) {
-      // 앞 토막이 비어 있으면(문서 첫 줄이 쪽바꿈) 새 면을 만들 필요가 없다.
-      if (segments[segments.length - 1].length > 0) segments.push([]);
+    const tagged = footerTagOf(line.text);
+    if (tagged === null && !isPageBreakLine(line.text)) {
+      segments[segments.length - 1].lines.push(line);
       continue;
     }
-    segments[segments.length - 1].push(line);
+    if (tagged !== null) footer = tagged;
+    const last = segments[segments.length - 1];
+    // 앞 토막이 비어 있으면(문서 첫 줄이 표식·표식 두 개가 잇달아) 새 면을 만들
+    // 필요가 없다. 꼬리말만 그 토막에 얹는다.
+    if (last.lines.length === 0) last.footer = footer;
+    else segments.push({ lines: [], footer });
   }
-  return segments.filter((s) => s.length > 0);
+  return segments.filter((s) => s.lines.length > 0);
 };
+
+export type MarkInsert =
+  | { status: 'inserted'; blocks: TranslationBlock[] }
+  | { status: 'replaced'; blocks: TranslationBlock[] }
+  | { status: 'already' }
+  | { status: 'not-found' };
+
+const tagBlock = (text: string): TranslationBlock => ({
+  id: crypto.randomUUID(),
+  currentText: text,
+  candidates: [],
+});
 
 // 논리 줄 목록 → braille-assist가 받는 원본 쪽 묶음.
 // 블록들은 join('')으로 이어붙여지므로 각 논리 줄이 자기 개행을 들고 나가야 한다.
@@ -242,25 +356,28 @@ export const buildLayout = (
   // 채운다"를 계산하면 면 나눔 규칙을 다시 구현하는 셈이라(README 금지) 대신
   // 토막을 나눠 각각 조판하고, 다음 토막의 시작 면 번호를 앞 토막이 끝난 다음 면으로
   // 준다. 규칙은 전부 라이브러리가 그대로 적용한다.
-  const segments = splitAtPageBreaks(logical);
+  const segments = splitIntoSegments(logical, typeset.footerText);
   // 표식 줄을 뺀 "실제로 조판된" 줄 목록. 아래 출처 복원이 이 순서를 기준으로 센다 —
   // 원본(logical)을 그대로 쓰면 표식 줄만큼 번호가 밀린다.
-  const laidOut = segments.flat();
+  const laidOut = segments.flatMap((s) => s.lines);
 
   const real: string[][] = [];
   const marked: string[][] = [];
+  // 면마다 어떤 꼬리말이 걸렸는지 — real과 같은 길이로 나란히 쌓는다.
+  const pageFooters: string[] = [];
+  // 점자 면 번호를 1이 아닌 데서 시작할 수 있다(표지를 따로 찍거나 권을 나눌 때).
   let startPage = 1;
   let lineBase = 0;
   for (const seg of segments) {
     const r = buildPages(
-      toSources(seg, (l) => l.text),
+      toSources(seg.lines, (l) => l.text),
       footerBraille,
       startPage,
       opts,
     );
     const m = buildPages(
       // 표식은 전체 기준 줄 번호여야 한다 — 토막마다 0부터 세면 출처가 어긋난다.
-      toSources(seg, (l, idx) =>
+      toSources(seg.lines, (l, idx) =>
         markerFor(lineBase + idx).repeat([...l.text].length),
       ),
       footerBraille,
@@ -269,8 +386,9 @@ export const buildLayout = (
     );
     real.push(...r);
     marked.push(...m);
+    for (let i = 0; i < r.length; i++) pageFooters.push(seg.footer);
     startPage += r.length;
-    lineBase += seg.length;
+    lineBase += seg.lines.length;
   }
 
   // 표식 행을 순서대로 읽으며 본문 행에 출처를 붙인다.
@@ -280,6 +398,7 @@ export const buildLayout = (
 
   return real.map((rowTexts, pageIdx) => ({
     braillePage: pageIdx + 1,
+    footerText: pageFooters[pageIdx] ?? '',
     rows: rowTexts.map((text, rowIdx): LayoutRow => {
       const mark = marked[pageIdx]?.[rowIdx] ?? '';
       const head = [...mark][0];

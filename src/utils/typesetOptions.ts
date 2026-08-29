@@ -15,6 +15,7 @@ import { DEFAULT_OPTIONS } from '@semojum/braille-assist';
 
 export type PageRowOn = 'every' | 'odd' | 'none';
 export type FooterAlign = 'center' | 'right';
+export type FooterScope = 'rest' | 'page';
 
 export interface TypesetOptions {
   /** 한 줄 칸 수 (기본 32) */
@@ -37,6 +38,13 @@ export interface TypesetOptions {
   footerAlign: FooterAlign;
   /** 꼬리말 본문(묵자). 점역은 서버가 한다. */
   footerText: string;
+  /**
+   * 판면에서 꼬리말을 고칠 때의 기본 적용 범위.
+   * 'rest' = 그 자리부터 뒤 전부, 'page' = 그 면 하나만.
+   * (1차 PoC 1-3 기능2 — "해당 페이지만 / 이후 페이지 전부 중 선택,
+   *  마이페이지의 점역 기본 설정에 추가할 것")
+   */
+  footerScope: FooterScope;
 }
 
 export const DEFAULT_TYPESET: TypesetOptions = {
@@ -48,6 +56,7 @@ export const DEFAULT_TYPESET: TypesetOptions = {
   showBraillePage: true,
   footerAlign: 'center',
   footerText: '',
+  footerScope: 'rest',
 };
 
 // 규격은 지침·장비 한계 안에서만 받는다. 8칸 미만은 라이브러리가 거부하고,
@@ -78,7 +87,46 @@ export const normalizeTypeset = (
     showBraillePage: v.showBraillePage !== false,
     footerAlign: v.footerAlign === 'right' ? 'right' : 'center',
     footerText: typeof v.footerText === 'string' ? v.footerText : '',
+    footerScope: v.footerScope === 'page' ? 'page' : 'rest',
   };
+};
+
+// ── 꼬리말 길이 ────────────────────────────────────────────
+//
+// 1차 PoC(2026-08-26) 피드백: "꼬리말 길이 검증 필요(32칸 중 30칸 이상이면 버그 발생)".
+// 페이지행 한 줄에는 원본 쪽 번호(왼쪽)·점자 면 번호(오른쪽)가 먼저 자리를 잡고,
+// 항목 사이는 두 칸 이상 띄운다(지침 1장3-1). 꼬리말은 그 사이에 들어가고, 넘치면
+// 뒤가 잘린다(braille-assist `pageRow`). 그래서 몇 자까지 되는지 화면에서 미리 알린다.
+//
+// ⚠ FE는 점역을 하지 않으므로 정확한 칸 수는 알 수 없다 — 어림값이다. 실제 검증은
+//    점역한 뒤에 서버가 한다(docs/SERVER-REQUIREMENTS-3.3.0.md).
+
+// 쪽 번호가 쓰는 칸 — `#` + 세 자리까지 보고, 이어지는 면 표시(a·b…) 한 칸을 더 본다.
+const PAGE_NO_CELLS = 5;
+// 항목 사이 띄우기 두 칸.
+const GAP_CELLS = 2;
+
+/** 페이지행에서 꼬리말이 쓸 수 있는 칸 수(어림). */
+export const footerCellBudget = (o: TypesetOptions): number => {
+  const left = o.showOrigPage ? PAGE_NO_CELLS + GAP_CELLS : 0;
+  const right = o.showBraillePage ? PAGE_NO_CELLS + GAP_CELLS : 0;
+  return Math.max(0, o.cols - left - right);
+};
+
+// 한글 한 글자는 점자로 두세 칸을 쓴다(초성+중성, 받침이 있으면 한 칸 더).
+// 잘리는 것을 놓치는 쪽이 나쁘므로 넉넉한 쪽(3칸)으로 센다.
+const HANGUL = /[가-힣]/;
+
+/** 묵자 꼬리말이 점자로 몇 칸이 될지(어림). */
+export const estimateFooterCells = (footer: string): number =>
+  [...footer.trim()].reduce((n, ch) => n + (HANGUL.test(ch) ? 3 : 1), 0);
+
+/** 페이지행에 다 들어가지 못할 것 같으면 알림 문구, 넉넉하면 null. */
+export const footerOverflowHint = (o: TypesetOptions): string | null => {
+  const budget = footerCellBudget(o);
+  const cells = estimateFooterCells(o.footerText);
+  if (cells <= budget) return null;
+  return `페이지행에 들어갈 자리는 약 ${budget}칸인데 이 꼬리말은 약 ${cells}칸입니다 — 뒤가 잘릴 수 있습니다.`;
 };
 
 /** 규격이 기본값(32×26)에서 벗어났는지 — 화면에 눈에 띄게 알리는 데 쓴다. */
