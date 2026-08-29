@@ -22,6 +22,7 @@ import {
   ArrowRightCircle,
   Undo2,
   Redo2,
+  BookOpen,
   Lock,
   Minus,
   Plus,
@@ -65,6 +66,7 @@ import FindBar, {
 import LoginScreen from './component/features/auth/LoginScreen';
 import MyPage from './component/features/mypage/MyPage';
 import InquiryFab from './component/features/support/InquiryFab';
+import RuleSearchModal from './component/features/support/RuleSearchModal';
 import DevModeLayer from './component/features/dev/DevModeLayer';
 
 // Types
@@ -944,6 +946,10 @@ const Semojum: React.FC = () => {
 
   // 이 파일의 조판 설정 — 판면 우클릭에서 연다.
   const [isTypesetOpen, setIsTypesetOpen] = useState(false);
+  // 점자 규정 찾아보기(1차 PoC 부가 기능 3-2).
+  const [isRuleSearchOpen, setIsRuleSearchOpen] = useState(false);
+
+
   // HWP·HWPX는 **FE가 읽어 .txt로 바꿔** 올린다 — 서버 계약(b=TXT)은 건드리지 않는다.
   // 1차 PoC 3-1 요청 중 FE만으로 되는 절반이다(초안 생성·이미지 점자 번역은 문서를
   // 그대로 봐야 해서 서버 변환이 필요하다 — S-5).
@@ -2245,6 +2251,17 @@ const Semojum: React.FC = () => {
                 <Redo2 size={17} />
               </button>
 
+              {/* 점자 규정 찾아보기 — 조판하다 규정을 확인할 일이 잦다
+                  (1차 PoC 부가 기능 · 필요성 중). */}
+              <button
+                onClick={() => setIsRuleSearchOpen(true)}
+                title="점자 규정 찾아보기"
+                aria-label="점자 규정 찾아보기"
+                className="rounded p-1.5 text-gray-400 transition-colors hover:text-[#407FAC]"
+              >
+                <BookOpen size={17} />
+              </button>
+
               <span className="mx-1 h-4 w-px bg-gray-200" />
 
               <button
@@ -3024,6 +3041,11 @@ const Semojum: React.FC = () => {
           onClose={() => setOrigPageEdit(null)}
         />
       )}
+
+      <RuleSearchModal
+        isOpen={isRuleSearchOpen}
+        onClose={() => setIsRuleSearchOpen(false)}
+      />
 
       {/* 구간 꼬리말 — 우클릭으로 고른 자리에 "여기서부터"를 적는다 */}
       {footerMark && (
