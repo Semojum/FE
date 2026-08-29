@@ -272,6 +272,51 @@ const splitIntoSegments = (
   return segments.filter((s) => s.lines.length > 0);
 };
 
+// ── 토막 조판 메모 ─────────────────────────────────────────────────
+//
+// 편집 한 번마다 문서 전체가 다시 조판된다(App.tsx의 layout useMemo — 400쪽 문서에서
+// 24ms, 2026-08-29 실측). 그런데 토막은 서로 독립이고 이어 붙이는 값은 (면 수, 줄 수)
+// **덧셈뿐**이다 — 아래 buildLayout의 startPage/lineBase 누적이 그 모노이드다.
+// 그래서 손대지 않은 토막은 지난번 결과를 그대로 꺼내 쓴다.
+//
+// 자리(startPage·lineBase)를 열쇠에 넣는 까닭은 그것이 결과를 **바꾸기** 때문이다.
+// 앞 토막의 면 수가 달라지면 뒤 토막에 찍히는 점자 쪽번호가 달라지고, 줄 수가
+// 달라지면 표식 번호가 밀린다. 그래서 앞이 밀리면 뒤는 제대로 빗나간다 — 틀린 것을
+// 꺼내 쓰는 일이 없다.
+//
+// 지난 **한 번만** 들고 있는다. 편집 고리는 늘 직전 조판과 견주므로 그것으로 족하고,
+// 여러 벌을 쌓으면 문서 한 벌이 수 MB라 아끼려던 것을 도로 까먹는다. 작업을 갈아타면
+// 다음 조판이 lastRun을 통째로 갈아 끼우므로 저절로 놓인다.
+//
+// ⚠ 표식(쪽바꿈·구간꼬리말)이 하나도 없는 문서는 토막이 하나뿐이라 벌 것이 없다.
+//   그때는 메모를 아예 하지 않는다 — 다시 쓸 일 없는 결과로 메모리를 물지 않게.
+//   점역사가 쪽을 나눌수록 벌이가 커진다.
+interface SegMemo {
+  lines: LogicalLine[];
+  optsKey: string;
+  real: string[][];
+  marked: string[][];
+}
+let lastRun = new Map<string, SegMemo>();
+
+const memoKey = (startPage: number, lineBase: number, count: number): string =>
+  `${startPage}|${lineBase}|${count}`;
+
+// 조판이 실제로 보는 것은 글자와 원본 쪽 번호뿐이다(toSources). 첫 어긋남에서
+// 멈추므로 고친 토막은 금방 걸러진다.
+const sameLines = (a: LogicalLine[], b: LogicalLine[]): boolean => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i].text !== b[i].text || a[i].pageNo !== b[i].pageNo) return false;
+  }
+  return true;
+};
+
+/** 메모를 비운다 — 각 항목을 찬 상태에서 시작하려는 테스트가 쓴다. */
+export const resetLayoutMemo = (): void => {
+  lastRun = new Map();
+};
+
 export type MarkInsert =
   | { status: 'inserted'; blocks: TranslationBlock[] }
   | { status: 'replaced'; blocks: TranslationBlock[] }
@@ -393,31 +438,59 @@ export const buildLayout = (
   const pageShift = origPageShift(blocksByPage, typeset);
   let startPage = firstPage;
   let lineBase = 0;
+  // 토막이 하나면 메모할 것이 없다(위 SegMemo 주석).
+  const memoing = segments.length > 1;
+  const optsKey = JSON.stringify([
+    opts,
+    footerBraille,
+    pageShift,
+    typeset.origPageOverrides,
+  ]);
+  const prev = lastRun;
+  const next = new Map<string, SegMemo>();
   for (const seg of segments) {
-    const r = buildPages(
-      toSources(seg.lines, (l) => l.text, pageShift, typeset.origPageOverrides),
-      footerBraille,
-      startPage,
-      opts,
-    );
-    const m = buildPages(
-      // 표식은 전체 기준 줄 번호여야 한다 — 토막마다 0부터 세면 출처가 어긋난다.
-      toSources(
-        seg.lines,
-        (l, idx) => markerFor(lineBase + idx).repeat([...l.text].length),
-        pageShift,
-        typeset.origPageOverrides,
-      ),
-      footerBraille,
-      startPage,
-      opts,
-    );
+    const key = memoKey(startPage, lineBase, seg.lines.length);
+    const hit = memoing ? prev.get(key) : undefined;
+    const reuse =
+      hit && hit.optsKey === optsKey && sameLines(hit.lines, seg.lines)
+        ? hit
+        : null;
+    const r =
+      reuse?.real ??
+      buildPages(
+        toSources(
+          seg.lines,
+          (l) => l.text,
+          pageShift,
+          typeset.origPageOverrides,
+        ),
+        footerBraille,
+        startPage,
+        opts,
+      );
+    const m =
+      reuse?.marked ??
+      buildPages(
+        // 표식은 전체 기준 줄 번호여야 한다 — 토막마다 0부터 세면 출처가 어긋난다.
+        toSources(
+          seg.lines,
+          (l, idx) => markerFor(lineBase + idx).repeat([...l.text].length),
+          pageShift,
+          typeset.origPageOverrides,
+        ),
+        footerBraille,
+        startPage,
+        opts,
+      );
+    // 꺼내 쓴 판은 읽기만 한다(아래 real.map/marked 조회) — 그대로 다시 담아 둔다.
+    if (memoing) next.set(key, { lines: seg.lines, optsKey, real: r, marked: m });
     real.push(...r);
     marked.push(...m);
     for (let i = 0; i < r.length; i++) pageFooters.push(seg.footer);
     startPage += r.length;
     lineBase += seg.lines.length;
   }
+  lastRun = next;
 
   // 표식 행을 순서대로 읽으며 본문 행에 출처를 붙인다.
   let started = 0; // 아직 시작하지 않은 논리 줄 번호
