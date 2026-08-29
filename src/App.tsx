@@ -87,7 +87,9 @@ import {
   QueuePositionData,
 } from './types/apiTypes';
 import {
+  detectFileType,
   fileValidationMessage,
+  needsLocalTextExtraction,
   MAX_UPLOAD_LABEL,
   TAB_ALLOWED_FILE_LABEL,
 } from './utils/fileValidation';
@@ -942,6 +944,21 @@ const Semojum: React.FC = () => {
 
   // 이 파일의 조판 설정 — 판면 우클릭에서 연다.
   const [isTypesetOpen, setIsTypesetOpen] = useState(false);
+  // HWP·HWPX는 **FE가 읽어 .txt로 바꿔** 올린다 — 서버 계약(b=TXT)은 건드리지 않는다.
+  // 1차 PoC 3-1 요청 중 FE만으로 되는 절반이다(초안 생성·이미지 점자 번역은 문서를
+  // 그대로 봐야 해서 서버 변환이 필요하다 — S-5).
+  const prepareUploadFile = useCallback(async (file: File): Promise<File> => {
+    if (!needsLocalTextExtraction(detectFileType(file))) return file;
+    const { parseHwpToText } = await import('./component/shared/HwpParser');
+    const text = await parseHwpToText(file);
+    if (!text.trim()) {
+      throw new Error('한글 문서에서 글자를 찾지 못했습니다.');
+    }
+    return new File([text], file.name.replace(/\.hwpx?$/i, '.txt'), {
+      type: 'text/plain',
+    });
+  }, []);
+
   const outputPageCount = Math.max(1, layout.length);
 
   // 대체 초안 피커 대상 블록 — 지정된 페이지 안에서만 찾는다.
@@ -1971,7 +1988,12 @@ const Semojum: React.FC = () => {
   // 명세 모드별 허용 파일: a(OCR)=PDF, b(점역)=TXT/HWP, c(통합)=PDF
   const acceptConfig = useMemo<Accept>((): Accept => {
     if (activeTab === TABS.BRAILLE) {
-      return { 'text/plain': ['.txt'], 'application/x-hwp': ['.hwp'] };
+      // HWP·HWPX는 FE가 읽어 텍스트로 바꿔 올린다(HwpParser).
+      return {
+        'text/plain': ['.txt'],
+        'application/x-hwp': ['.hwp'],
+        'application/hwp+zip': ['.hwpx'],
+      };
     }
     return { 'application/pdf': ['.pdf'] };
   }, [activeTab]);
@@ -3086,7 +3108,14 @@ const Semojum: React.FC = () => {
           setTypeset(nextTypeset);
           // 업로드가 Job을 만들어 주면 이 값이 그 작업의 조판 설정이 된다.
           pendingTypesetRef.current = nextTypeset;
-          void handleFileDrop([picked], activeTab);
+          void (async () => {
+            try {
+              void handleFileDrop([await prepareUploadFile(picked)], activeTab);
+            } catch (err) {
+              pendingTypesetRef.current = null;
+              setToast(toUserMessage(err, '파일을 읽지 못했습니다.'));
+            }
+          })();
         }}
       />
 

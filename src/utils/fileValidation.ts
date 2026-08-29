@@ -5,22 +5,32 @@ import { ConversionTab, FileType, TAB_LABEL, TABS } from '../types';
 export const detectFileType = (file: File): FileType => {
   if (file.type.includes('pdf')) return 'pdf';
   if (file.type.includes('image')) return 'image';
-  if (file.name.toLowerCase().endsWith('.hwp')) return 'hwp';
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.hwpx')) return 'hwpx';
+  if (name.endsWith('.hwp')) return 'hwp';
   return 'text';
 };
 
 // HWP는 초안 생성(a)에서 받는다 — 서버가 PDF로 바꿔 처리한다(2026-08-26 변경).
 // 텍스트 점자 번역(b)은 더 이상 HWP를 받지 않는다.
+// 텍스트 점자 번역(b)의 HWP·HWPX는 **FE가 읽어 텍스트로 바꿔** 올린다
+// (`shared/HwpParser`). 서버 계약은 그대로 .txt다 — 1차 PoC 3-1 요청 중 FE만으로
+// 되는 절반이다. 초안 생성(a)·이미지 점자 번역(c)은 문서를 그대로 봐야 해서
+// 서버 변환이 필요하다(docs/SERVER-REQUIREMENTS-3.3.0.md S-5).
 export const TAB_ALLOWED_FILE_TYPES: Record<ConversionTab, FileType[]> = {
   [TABS.OCR]: ['pdf', 'hwp'],
-  [TABS.BRAILLE]: ['text'],
+  [TABS.BRAILLE]: ['text', 'hwp', 'hwpx'],
   [TABS.INTEGRATED]: ['pdf'],
 };
+
+/** FE가 텍스트로 바꿔서 올려야 하는 형식인지. */
+export const needsLocalTextExtraction = (type: FileType): boolean =>
+  type === 'hwp' || type === 'hwpx';
 
 // 에러 메시지/안내에 쓰는 사람이 읽을 수 있는 허용 형식 라벨
 export const TAB_ALLOWED_FILE_LABEL: Record<ConversionTab, string> = {
   [TABS.OCR]: 'PDF, HWP',
-  [TABS.BRAILLE]: 'TXT',
+  [TABS.BRAILLE]: 'TXT, HWP, HWPX',
   [TABS.INTEGRATED]: 'PDF',
 };
 
