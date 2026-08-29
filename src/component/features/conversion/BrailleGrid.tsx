@@ -158,6 +158,124 @@ const edgeCls = (
   return '';
 };
 
+// 빈 마스크는 하나를 돌려 쓴다 — 렌더마다 새 배열을 만들면 아래 메모가 늘 깨진다.
+const EMPTY_MASK: boolean[] = [];
+
+// 한 줄(32칸)을 그리는 조각.
+//
+// 면 단위로만 메모하면 커서가 한 칸 움직여도 그 면의 **920개 요소**가 통째로
+// 다시 조정된다. 드래그로 구간을 고르는 동안에는 mousemove마다 그 일이 벌어진다.
+// 줄 단위로 한 겹 더 메모해서, 실제로 값이 바뀐 한두 줄(34개)만 다시 그린다.
+// 그러려면 넘기는 값이 렌더마다 같아야 한다 — 그래서 선택 구간은 객체가 아니라
+// 숫자 두 개로, 마스크가 없는 줄은 EMPTY_MASK로 넘긴다.
+interface RowProps {
+  row: LayoutRow;
+  rowIndex: number;
+  rowInPage: number;
+  cols: number;
+  /** 이 줄에 커서가 있으면 그 칸, 없으면 null */
+  caretCell: number | null;
+  isHighlighted: boolean;
+  isHovered: boolean;
+  dimMask: boolean[];
+  hitCells?: Set<number>;
+  activeHitCells?: Set<number>;
+  /** 고른 구간 [selFrom, selTo) — 이 줄에 없으면 -1 */
+  selFrom: number;
+  selTo: number;
+  openTop: boolean;
+  openBottom: boolean;
+}
+
+const GridRow = React.memo<RowProps>(
+  ({
+    row,
+    rowIndex,
+    rowInPage,
+    cols,
+    caretCell,
+    isHighlighted,
+    isHovered,
+    dimMask,
+    hitCells,
+    activeHitCells,
+    selFrom,
+    selTo,
+    openTop,
+    openBottom,
+  }) => {
+    const editable = row.kind === 'body';
+    const isSelected = caretCell !== null && editable;
+    const cells = toCells(row.text, cols);
+    // 검토 필요(review) 블록은 디자인대로 주황 테두리로 감싼다 —
+    // 배경색만으로 알리는 선택(대조) 상태와 섞이지 않게 하는 구분이기도 하다.
+    // 한 블록이 여러 줄이면 줄마다 그리지 않고 한 덩어리로 두른다.
+    const isReview = !!row.source?.isBlocked;
+    // Tailwind는 클래스 문자열을 정적으로 훑으므로 색을 템플릿으로 조립하지 않는다.
+    // 좌우는 자리를 늘 비워 두는 테두리로, 위아래는 배치를 건드리지 않는
+    // 안쪽 그림자로 그린다(위 BLOCK_EDGE 주석 — 줄 높이는 항상 19px).
+    const sideCls = isReview
+      ? 'border-x-2 border-[#f47726]'
+      : isHovered
+        ? 'border-x-2 border-[#c3cfdd]'
+        : 'border-x-2 border-transparent';
+    const edge = isReview
+      ? BLOCK_EDGE.review
+      : isHovered
+        ? BLOCK_EDGE.hover
+        : null;
+
+    return (
+      <div
+        data-row={rowIndex}
+        data-block={row.source?.blockId ?? ''}
+        className={['flex', sideCls, edgeCls(edge, openTop, openBottom)].join(
+          ' ',
+        )}
+      >
+        {/* 대체 텍스트가 있는지는 결과 패널 위 [대체 텍스트] 버튼이 알려 준다 —
+            줄번호 옆 주황 점은 판면을 어지럽혀 뺐다. 안내는 툴팁으로만 남긴다. */}
+        <span
+          title={
+            row.source?.hasDrafts ? '대체 텍스트가 있는 블록입니다' : undefined
+          }
+          className="flex h-[19px] w-[26px] shrink-0 items-center justify-end pr-1.5 text-[9px] text-gray-400"
+        >
+          {rowInPage + 1}
+        </span>
+        {cells.map((ch, cellIdx) => (
+          // 칸마다 핸들러를 달지 않는다 — 칸이 3만 개면 렌더마다 클로저가
+          // 6만 개 새로 생긴다. 클릭·우클릭은 스크롤 컨테이너가 한 번에 받고
+          // 이 data 속성으로 어느 칸인지 알아낸다.
+          <div
+            key={cellIdx}
+            role="gridcell"
+            tabIndex={-1}
+            data-cell={cellIdx}
+            data-editable={editable ? '1' : undefined}
+            className={cellClassFor(
+              row,
+              isSelected,
+              isSelected && caretCell === cellIdx,
+              isHighlighted,
+              dimMask[cellIdx] === true,
+              activeHitCells?.has(cellIdx)
+                ? 'active'
+                : hitCells?.has(cellIdx)
+                  ? 'hit'
+                  : 'none',
+              cellIdx >= selFrom && cellIdx < selTo,
+            )}
+          >
+            {ch}
+          </div>
+        ))}
+      </div>
+    );
+  },
+);
+GridRow.displayName = 'GridRow';
+
 // 한 면(26줄)을 그리는 조각. 면 단위로 메모해 두면 커서·호버·검색처럼 한 곳만
 // 바뀌는 조작에서 그 면만 다시 그린다 — 예전에는 판면 전체(수만 칸)가 매번
 // 다시 조정돼 조작 한 번에 200ms씩 멈췄다(2026-08-25 실측).
@@ -186,7 +304,58 @@ interface PageProps {
 
 // 배경색은 여기 한 곳에서만 정한다 — 클래스를 뒤에 덧붙이는 방식은 CSS 순서에
 // 따라 앞의 bg-white에 져서 색이 안 먹는다(2026-08-24 확인).
-const cellCls = (
+//
+// 칸 하나가 가질 수 있는 모양은 아래 아홉 가지 × 흐리게 on/off = **열여덟 가지뿐**이다.
+// 그런데 예전에는 칸마다 배열을 만들어 join했다 — 한 면을 다시 그릴 때 920번,
+// 드래그로 구간을 고르는 동안에는 초당 수십 번씩 돌았다. 미리 만들어 두고 꺼내
+// 쓴다(flyweight). 같은 문자열 **참조**가 나가므로 React의 prop 비교도 값 비교가
+// 아니라 참조 비교로 끝난다.
+// 칸이 가질 수 있는 아홉 가지 모양. 색을 고르는 순서가 곧 우선순위다.
+const TONE = {
+  caret: 0, // 커서가 놓인 칸
+  sel: 1, // 드래그로 고른 구간
+  findActive: 2, // 찾기에서 지금 보고 있는 한 건
+  findHit: 3, // 나머지 찾기 결과
+  caretRow: 4, // 커서가 놓인 행
+  fixed: 5, // 변경선·페이지행 — 조판이 만든 줄이라 고칠 수 없다
+  review: 6, // 검토 필요(BLOCKED)
+  match: 7, // 원본 대조 강조
+  plain: 8,
+} as const;
+
+const CELL_BASE =
+  'flex h-[19px] w-[19px] shrink-0 items-center justify-center border-r border-b text-[13px] leading-none border-[#e4ebf5]';
+
+// 디자인 V3/BlockCard의 세 상태를 격자에 옮긴 것.
+//  review(검토 필요) — 크림 배경 + 주황 테두리 (테두리는 행 단위로 그린다)
+//  match(원본 대조) — 연한 주황 배경. 디자인은 주황 테두리지만 그 뜻이 전달되지
+//    않아 배경색으로 바꿨다 (QA "AI 생성 블록 표기 방식 변경"). review와 헷갈리지
+//    않도록 크림(노랑기)과 주황기로 색을 갈라 둔다.
+const TONE_CLASS: string[] = [];
+TONE_CLASS[TONE.caret] = 'bg-[#5b8ce6] text-white';
+// 고른 구간 — 커서 칸보다는 옅고, 커서가 놓인 행 배경(10%)보다는 진하게.
+TONE_CLASS[TONE.sel] = 'bg-[#5b8ce6]/35';
+TONE_CLASS[TONE.findActive] = 'bg-[#f9c74f] text-gray-900';
+TONE_CLASS[TONE.findHit] = 'bg-[#fdf1c7]';
+TONE_CLASS[TONE.caretRow] = 'bg-[#5b8ce6]/10';
+TONE_CLASS[TONE.fixed] = 'bg-[#f2f5fa] text-gray-400';
+TONE_CLASS[TONE.review] = 'bg-[#fdf8e3]';
+TONE_CLASS[TONE.match] = 'bg-[#fbe4d3]';
+TONE_CLASS[TONE.plain] = 'bg-white';
+
+// 점역자주 태그는 본문에 남겨 두되 흐리게 그려 읽기를 방해하지 않게 한다.
+// 커서 칸은 흰 글자라 흐리게 하지 않는다(아래 tone 계산에서 걸러진다).
+const CELL_DIM = 'text-[#c8ccd4]';
+
+// [모양][흐리게] 두 겹 배열로 둔다 — 조회 키를 문자열로 만들면 칸마다 문자열을
+// 새로 만드는 셈이라 미리 만들어 둔 뜻이 없어진다. 색인이면 할당이 0이다.
+const CELL_CLASS: string[][] = TONE_CLASS.map((tone) => [
+  `${CELL_BASE} ${tone}`,
+  `${CELL_BASE} ${tone} ${CELL_DIM}`,
+]);
+
+/** 칸 하나의 클래스 — 상태 조합마다 **같은 문자열 참조**를 돌려준다. */
+export const cellClassFor = (
   row: LayoutRow,
   selected: boolean,
   isCaret: boolean,
@@ -194,38 +363,26 @@ const cellCls = (
   dimmed: boolean,
   find: 'none' | 'hit' | 'active' = 'none',
   inSelection = false,
-): string =>
-  [
-    'flex h-[19px] w-[19px] shrink-0 items-center justify-center border-r border-b text-[13px] leading-none',
-    'border-[#e4ebf5]',
-    isCaret
-      ? 'bg-[#5b8ce6] text-white'
-      : // 고른 구간 — 커서 칸보다는 옅고, 커서가 놓인 행 배경(10%)보다는 진하게.
-        inSelection
-        ? 'bg-[#5b8ce6]/35'
-        : find === 'active'
-        ? // 찾기에서 지금 보고 있는 한 건
-          'bg-[#f9c74f] text-gray-900'
+): string => {
+  const tone = isCaret
+    ? TONE.caret
+    : inSelection
+      ? TONE.sel
+      : find === 'active'
+        ? TONE.findActive
         : find === 'hit'
-          ? 'bg-[#fdf1c7]'
+          ? TONE.findHit
           : selected
-            ? 'bg-[#5b8ce6]/10'
+            ? TONE.caretRow
             : row.kind === 'fixed'
-              ? // 변경선·페이지행은 조판이 만든 줄이라 고칠 수 없다 — 눌러서 구분되게 한다.
-                'bg-[#f2f5fa] text-gray-400'
-              : // 디자인 V3/BlockCard의 세 상태를 격자에 옮긴 것.
-                //  review(검토 필요) — 크림 배경 + 주황 테두리 (테두리는 행 단위로 그린다)
-                //  selected(원본 대조) — 연한 주황 배경. 디자인은 주황 테두리지만 그 뜻이
-                //    전달되지 않아 배경색으로 바꿨다 (QA "AI 생성 블록 표기 방식 변경").
-                //    review와 헷갈리지 않도록 크림(노랑기)과 주황기로 색을 갈라 둔다.
-                row.source?.isBlocked
-                ? 'bg-[#fdf8e3]'
+              ? TONE.fixed
+              : row.source?.isBlocked
+                ? TONE.review
                 : highlighted
-                  ? 'bg-[#fbe4d3]'
-                  : 'bg-white',
-    // 점역자주 태그는 본문에 남겨 두되 흐리게 그려 읽기를 방해하지 않게 한다.
-    dimmed && !isCaret ? 'text-[#c8ccd4]' : '',
-  ].join(' ');
+                  ? TONE.match
+                  : TONE.plain;
+  return CELL_CLASS[tone][dimmed && !isCaret ? 1 : 0];
+};
 
 const GridPage = React.memo<PageProps>(
   ({
@@ -276,95 +433,40 @@ const GridPage = React.memo<PageProps>(
       <div className="relative w-max border-l border-t border-[#e4ebf5]">
         {page.rows.map((row, rowInPage) => {
           const rowIndex = pageStart + rowInPage;
-          const editable = row.kind === 'body';
-          const isSelected = caret?.rowIndex === rowIndex && editable;
-          const isHighlighted =
-            !!highlightBlockId && row.source?.blockId === highlightBlockId;
-          const cells = toCells(row.text, cols);
-          const dimMaskRow = tagMask[rowIndex] ?? [];
-          const hitCells = findCells?.get(rowIndex);
-          const activeHitCells = activeFindCells?.get(rowIndex);
-          const selRow =
-            selection && selection.rowIndex === rowIndex ? selection : null;
-          // 검토 필요(review) 블록은 디자인대로 주황 테두리로 감싼다 —
-          // 배경색만으로 알리는 선택(대조) 상태와 섞이지 않게 하는 구분이기도 하다.
-          // 한 블록이 여러 줄이면 줄마다 그리지 않고 한 덩어리로 두른다.
-          const isReview = !!row.source?.isBlocked;
-          const sameBlock = (other?: LayoutRow) =>
-            other?.source?.blockId === row.source?.blockId;
-          // 마우스를 얹으면 그 블록을 상자로 감싼다 — 왼쪽 원본 패널의 텍스트 블록과
-          // 같은 방식으로, 어디까지가 한 블록인지 짚어 준다.
-          const isHovered =
-            !!row.source?.blockId && row.source.blockId === hoverBlockId;
-          // Tailwind는 클래스 문자열을 정적으로 훑으므로 색을 템플릿으로 조립하지 않는다.
-          // 좌우는 자리를 늘 비워 두는 테두리로, 위아래는 배치를 건드리지 않는
-          // 안쪽 그림자로 그린다(위 BLOCK_EDGE 주석 — 줄 높이는 항상 19px).
-          const sideCls = isReview
-            ? 'border-x-2 border-[#f47726]'
-            : isHovered
-              ? 'border-x-2 border-[#c3cfdd]'
-              : 'border-x-2 border-transparent';
-          const edge = isReview
-            ? BLOCK_EDGE.review
-            : isHovered
-              ? BLOCK_EDGE.hover
-              : null;
-
           return (
-            <div
+            <GridRow
               key={rowIndex}
-              data-row={rowIndex}
-              data-block={row.source?.blockId ?? ''}
-              className={[
-                'flex',
-                sideCls,
-                edgeCls(
-                  edge,
-                  !sameBlock(rows[rowIndex - 1]),
-                  !sameBlock(rows[rowIndex + 1]),
-                ),
-              ].join(' ')}
-            >
-              {/* 대체 텍스트가 있는지는 결과 패널 위 [대체 텍스트] 버튼이 알려 준다 —
-                  줄번호 옆 주황 점은 판면을 어지럽혀 뺐다. 안내는 툴팁으로만 남긴다. */}
-              <span
-                title={
-                  row.source?.hasDrafts
-                    ? '대체 텍스트가 있는 블록입니다'
-                    : undefined
-                }
-                className="flex h-[19px] w-[26px] shrink-0 items-center justify-end pr-1.5 text-[9px] text-gray-400"
-              >
-                {rowInPage + 1}
-              </span>
-              {cells.map((ch, cellIdx) => (
-                // 칸마다 핸들러를 달지 않는다 — 칸이 3만 개면 렌더마다 클로저가
-                // 6만 개 새로 생긴다. 클릭·우클릭은 스크롤 컨테이너가 한 번에 받고
-                // 이 data 속성으로 어느 칸인지 알아낸다.
-                <div
-                  key={cellIdx}
-                  role="gridcell"
-                  tabIndex={-1}
-                  data-cell={cellIdx}
-                  data-editable={editable ? '1' : undefined}
-                  className={cellCls(
-                    row,
-                    isSelected,
-                    isSelected && caret?.cell === cellIdx,
-                    isHighlighted,
-                    dimMaskRow[cellIdx] === true,
-                    activeHitCells?.has(cellIdx)
-                      ? 'active'
-                      : hitCells?.has(cellIdx)
-                        ? 'hit'
-                        : 'none',
-                    !!selRow && cellIdx >= selRow.from && cellIdx < selRow.to,
-                  )}
-                >
-                  {ch}
-                </div>
-              ))}
-            </div>
+              row={row}
+              rowIndex={rowIndex}
+              rowInPage={rowInPage}
+              cols={cols}
+              caretCell={caret?.rowIndex === rowIndex ? caret.cell : null}
+              isHighlighted={
+                !!highlightBlockId && row.source?.blockId === highlightBlockId
+              }
+              isHovered={
+                !!row.source?.blockId && row.source.blockId === hoverBlockId
+              }
+              dimMask={tagMask[rowIndex] ?? EMPTY_MASK}
+              hitCells={findCells?.get(rowIndex)}
+              activeHitCells={activeFindCells?.get(rowIndex)}
+              selFrom={
+                selection && selection.rowIndex === rowIndex
+                  ? selection.from
+                  : -1
+              }
+              selTo={
+                selection && selection.rowIndex === rowIndex ? selection.to : -1
+              }
+              // 블록 테두리는 앞뒤 줄이 같은 블록인지에 달렸다. 판단은 여기서 하고
+              // 결과(불리언)만 넘긴다 — 행 조각이 전체 줄 배열을 들지 않게.
+              openTop={
+                rows[rowIndex - 1]?.source?.blockId !== row.source?.blockId
+              }
+              openBottom={
+                rows[rowIndex + 1]?.source?.blockId !== row.source?.blockId
+              }
+            />
           );
         })}
 
