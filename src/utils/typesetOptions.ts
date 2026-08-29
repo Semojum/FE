@@ -16,6 +16,8 @@ import { DEFAULT_OPTIONS } from '@semojum/braille-assist';
 export type PageRowOn = 'every' | 'odd' | 'none';
 export type FooterAlign = 'center' | 'right';
 export type FooterScope = 'rest' | 'page';
+/** 원본 쪽 번호 표기. 로마자는 아직 라이브러리에 없다(설정만 저장한다). */
+export type OrigPageFormat = 'number' | 'roman';
 
 export interface TypesetOptions {
   /** 한 줄 칸 수 (기본 32) */
@@ -26,8 +28,32 @@ export interface TypesetOptions {
   pageRowOn: PageRowOn;
   /** 앞쪽 몇 면을 표지로 보고 쪽 번호를 매기지 않을지 */
   coverPages: number;
+  /**
+   * 점자 면 번호를 몇 번부터 셀지. 표지를 따로 찍어 붙이거나 권을 나눠 낼 때
+   * 1이 아닌 번호에서 시작한다(1차 PoC 1-2 기능2 "시작 페이지 지정").
+   * `coverPages`(표지 범위는 페이지행 생략)와는 다른 축이다.
+   */
+  startBraillePage: number;
   /** 페이지행에 원본 쪽 번호를 넣을지 */
   showOrigPage: boolean;
+  /**
+   * 첫 원본 쪽을 몇 번으로 셀지. 표지·속표지를 뺀 채 스캔했거나 책 중간부터
+   * 올릴 때 실제 쪽 번호와 맞춘다(1차 PoC 1-4 기능1).
+   * 편집 좌표(어느 블록의 몇 번째 줄인지)는 건드리지 않는다 — 표기만 옮긴다.
+   */
+  origPageStart: number;
+  /**
+   * 원본 쪽 번호 표기 방식(1차 PoC 1-4 기능2).
+   * ⚠ 로마자는 braille-assist의 `num()`에 없다 — 고르면 저장만 되고 숫자로 나온다.
+   *   점자 로마자 표기는 규정 확인이 필요해 FE가 지어내지 않는다(L-4).
+   */
+  origPageFormat: OrigPageFormat;
+  /**
+   * 원본 쪽 하나만 다른 번호로 적을 때(1차 PoC 1-4 기능4 "표시줄 편집").
+   * 키는 서버가 준 원본 쪽 번호, 값은 판면에 적을 번호다. 스캔이 한 장 빠졌거나
+   * 앞뒤 번호가 튀는 문서에서 그 쪽만 손으로 맞춘다 — 편집 좌표는 건드리지 않는다.
+   */
+  origPageOverrides: Record<string, number>;
   /** 페이지행에 점자 면 번호를 넣을지 */
   showBraillePage: boolean;
   /**
@@ -52,7 +78,11 @@ export const DEFAULT_TYPESET: TypesetOptions = {
   rows: DEFAULT_OPTIONS.rows,
   pageRowOn: 'odd',
   coverPages: 0,
+  startBraillePage: 1,
   showOrigPage: true,
+  origPageStart: 1,
+  origPageFormat: 'number',
+  origPageOverrides: {},
   showBraillePage: true,
   footerAlign: 'center',
   footerText: '',
@@ -65,11 +95,30 @@ export const COLS_MIN = 8;
 export const COLS_MAX = 48;
 export const ROWS_MIN = 4;
 export const ROWS_MAX = 40;
+// 점자 면 번호 시작값. 권을 나눠 내도 네 자리를 넘길 일은 없다.
+export const START_PAGE_MIN = 1;
+export const START_PAGE_MAX = 999;
 
 const clampInt = (v: unknown, lo: number, hi: number, fallback: number): number => {
   const n = typeof v === 'number' ? Math.round(v) : Number.NaN;
   if (!Number.isFinite(n)) return fallback;
   return Math.min(hi, Math.max(lo, n));
+};
+
+// 저장된 값이 손상돼도 판면이 깨지지 않게 — 숫자 키에 양수 값만 남긴다.
+const normalizeOverrides = (
+  raw: unknown,
+): Record<string, number> => {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const page = Number(k);
+    const shown = typeof v === 'number' ? Math.round(v) : Number.NaN;
+    if (!Number.isFinite(page) || page < 0) continue;
+    if (!Number.isFinite(shown) || shown < 0 || shown > 9999) continue;
+    out[String(page)] = shown;
+  }
+  return out;
 };
 
 export const normalizeTypeset = (
@@ -83,7 +132,21 @@ export const normalizeTypeset = (
       ? (v.pageRowOn as PageRowOn)
       : DEFAULT_TYPESET.pageRowOn,
     coverPages: clampInt(v.coverPages, 0, 99, DEFAULT_TYPESET.coverPages),
+    startBraillePage: clampInt(
+      v.startBraillePage,
+      START_PAGE_MIN,
+      START_PAGE_MAX,
+      DEFAULT_TYPESET.startBraillePage,
+    ),
     showOrigPage: v.showOrigPage !== false,
+    origPageStart: clampInt(
+      v.origPageStart,
+      START_PAGE_MIN,
+      START_PAGE_MAX,
+      DEFAULT_TYPESET.origPageStart,
+    ),
+    origPageFormat: v.origPageFormat === 'roman' ? 'roman' : 'number',
+    origPageOverrides: normalizeOverrides(v.origPageOverrides),
     showBraillePage: v.showBraillePage !== false,
     footerAlign: v.footerAlign === 'right' ? 'right' : 'center',
     footerText: typeof v.footerText === 'string' ? v.footerText : '',
@@ -144,6 +207,9 @@ export const describeTypeset = (o: TypesetOptions): string => {
         : '페이지행 홀수 면',
   );
   if (o.coverPages > 0) parts.push(`표지 ${o.coverPages}면 제외`);
+  if (o.startBraillePage !== 1) parts.push(`${o.startBraillePage}면부터`);
+  const overrides = Object.keys(o.origPageOverrides).length;
+  if (overrides > 0) parts.push(`원본 쪽 번호 ${overrides}곳 수정`);
   if (o.footerText) parts.push(`꼬리말 "${o.footerText}"`);
   return parts.join(' · ');
 };

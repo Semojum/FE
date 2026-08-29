@@ -289,12 +289,18 @@ const tagBlock = (text: string): TranslationBlock => ({
 const toSources = (
   lines: LogicalLine[],
   render: (line: LogicalLine, idx: number) => string,
+  // 화면에 적을 원본 쪽 번호에 더할 값. 편집 좌표(line.pageNo)는 그대로 두고
+  // 페이지행·변경선에 찍히는 숫자만 옮긴다(조판 설정 origPageStart).
+  pageShift = 0,
+  // 그 쪽만 다른 번호로 적기(조판 설정 origPageOverrides).
+  overrides: Record<string, number> = {},
 ): Source[] => {
   const pages: Source[] = [];
   lines.forEach((line, idx) => {
+    const shown = overrides[String(line.pageNo)] ?? line.pageNo + pageShift;
     let page = pages[pages.length - 1];
-    if (!page || page.orig_page !== line.pageNo) {
-      page = { orig_page: line.pageNo, blocks: [] };
+    if (!page || page.orig_page !== shown) {
+      page = { orig_page: shown, blocks: [] };
       pages.push(page);
     }
     page.blocks.push({ order: page.blocks.length, text: `${render(line, idx)}\n` });
@@ -319,6 +325,23 @@ const toLibOptions = (t: TypesetOptions): Partial<LibOptions> => ({
   showOrigPage: t.showOrigPage,
   showBraillePage: t.showBraillePage,
 });
+
+/**
+ * 판면에 적을 원본 쪽 번호에 더할 값.
+ *
+ * 첫 원본 쪽을 몇 번으로 셀지(`origPageStart`)만큼 표기를 옮긴다. 화면과 호출부가
+ * 따로 세면 어긋나므로 여기 한 곳에서만 센다.
+ */
+export const origPageShift = (
+  blocksByPage: Record<number, TranslationBlock[]>,
+  typeset: TypesetOptions,
+): number => {
+  const pages = Object.entries(blocksByPage)
+    .filter(([, blocks]) => (blocks?.length ?? 0) > 0)
+    .map(([page]) => Number(page));
+  if (pages.length === 0) return 0;
+  return typeset.origPageStart - Math.min(...pages);
+};
 
 /**
  * 블록들을 점자 판면으로 조판한다.
@@ -366,19 +389,24 @@ export const buildLayout = (
   // 면마다 어떤 꼬리말이 걸렸는지 — real과 같은 길이로 나란히 쌓는다.
   const pageFooters: string[] = [];
   // 점자 면 번호를 1이 아닌 데서 시작할 수 있다(표지를 따로 찍거나 권을 나눌 때).
-  let startPage = 1;
+  const firstPage = typeset.startBraillePage;
+  const pageShift = origPageShift(blocksByPage, typeset);
+  let startPage = firstPage;
   let lineBase = 0;
   for (const seg of segments) {
     const r = buildPages(
-      toSources(seg.lines, (l) => l.text),
+      toSources(seg.lines, (l) => l.text, pageShift, typeset.origPageOverrides),
       footerBraille,
       startPage,
       opts,
     );
     const m = buildPages(
       // 표식은 전체 기준 줄 번호여야 한다 — 토막마다 0부터 세면 출처가 어긋난다.
-      toSources(seg.lines, (l, idx) =>
-        markerFor(lineBase + idx).repeat([...l.text].length),
+      toSources(
+        seg.lines,
+        (l, idx) => markerFor(lineBase + idx).repeat([...l.text].length),
+        pageShift,
+        typeset.origPageOverrides,
       ),
       footerBraille,
       startPage,
@@ -397,7 +425,7 @@ export const buildLayout = (
   const rowsSeen = new Map<number, number>(); // 논리 줄 → 지금까지 그린 행 수
 
   return real.map((rowTexts, pageIdx) => ({
-    braillePage: pageIdx + 1,
+    braillePage: firstPage + pageIdx,
     footerText: pageFooters[pageIdx] ?? '',
     rows: rowTexts.map((text, rowIdx): LayoutRow => {
       const mark = marked[pageIdx]?.[rowIdx] ?? '';

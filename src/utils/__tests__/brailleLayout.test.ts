@@ -411,3 +411,52 @@ describe('구간 꼬리말', () => {
     });
   });
 });
+
+// 1차 PoC 1-2 기능2 · 1-4 기능1 — 시작 번호 지정.
+describe('시작 번호 지정', () => {
+  const opts = (over: Partial<typeof DEFAULT_TYPESET>) => ({
+    ...DEFAULT_TYPESET,
+    ...over,
+  });
+
+  it('점자 면 번호를 1이 아닌 데서 시작한다', () => {
+    const pages = buildLayout(
+      { 1: [block('b1', long), block('b2', long)] },
+      false,
+      '',
+      opts({ startBraillePage: 40, rows: 2 }),
+    );
+    expect(pages.map((p) => p.braillePage)).toEqual([40, 41]);
+  });
+
+  it('기본값은 1면부터', () => {
+    const pages = buildLayout({ 1: [block('b1', '⠁')] }, false, '', DEFAULT_TYPESET);
+    expect(pages[0].braillePage).toBe(1);
+  });
+
+  it('원본 쪽 번호를 그 쪽만 고쳐도 편집 좌표는 그대로다', () => {
+    const pages = buildLayout(
+      { 7: [block('b1', '⠁')] },
+      true,
+      '',
+      opts({ origPageOverrides: { '7': 42 } }),
+    );
+    const body = flattenRows(pages).find((r) => r.kind === 'body');
+    expect(body?.source?.pageNo).toBe(7);
+    // 판면에 적히는 번호는 42다 — 페이지행(fixed 행)에 42의 점자 숫자가 들어간다.
+    const fixed = flattenRows(pages).filter((r) => r.kind === 'fixed');
+    expect(fixed.length).toBeGreaterThan(0);
+  });
+
+  it('원본 쪽 번호 시작을 옮겨도 편집 좌표는 그대로다', () => {
+    const shifted = buildLayout(
+      { 7: [block('b1', '⠁')] },
+      true,
+      '',
+      opts({ origPageStart: 100 }),
+    );
+    // 판면 행의 출처는 서버가 준 원본 쪽(7) 그대로여야 편집이 어긋나지 않는다.
+    const body = flattenRows(shifted).find((r) => r.kind === 'body');
+    expect(body?.source?.pageNo).toBe(7);
+  });
+});

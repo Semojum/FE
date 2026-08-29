@@ -6,10 +6,13 @@ import {
   isNonStandardSize,
   ROWS_MAX,
   ROWS_MIN,
+  START_PAGE_MAX,
+  START_PAGE_MIN,
   footerCellBudget,
   footerOverflowHint,
   type FooterAlign,
   type FooterScope,
+  type OrigPageFormat,
   type PageRowOn,
   type TypesetOptions,
 } from '../../../utils/typesetOptions';
@@ -142,6 +145,68 @@ const TypesetSettings: React.FC<Props> = ({ value, onChange, compact }) => {
           compact
             ? undefined
             : '앞에서 이 수만큼은 페이지 번호를 매기지 않습니다. 표지·속표지가 있을 때 씁니다.'
+        }
+      />
+
+      {/* 원본 쪽 번호 시작값 — 표지를 빼고 스캔했거나 책 중간부터 올릴 때 맞춘다. */}
+      <NumberField
+        label="원본 쪽 번호 시작"
+        value={value.origPageStart}
+        min={START_PAGE_MIN}
+        max={START_PAGE_MAX}
+        onChange={(v) => set('origPageStart', v)}
+        hint={
+          compact
+            ? undefined
+            : '올린 문서의 첫 쪽이 실제로 몇 쪽인지입니다. 페이지행·변경선의 표기만 옮깁니다.'
+        }
+      />
+
+      {/* 원본 쪽 번호 표기 — 로마자는 라이브러리 대기 */}
+      <div className="flex flex-col gap-1.5">
+        <span className={labelCls}>원본 쪽 번호 표기</span>
+        <div className="flex gap-1.5">
+          {(
+            [
+              ['number', '숫자'],
+              ['roman', '로마자'],
+            ] as Array<[OrigPageFormat, string]>
+          ).map(([v, label]) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => set('origPageFormat', v)}
+              aria-pressed={value.origPageFormat === v}
+              className={`flex-1 rounded-lg border px-2 py-1.5 text-[12px] transition-colors ${
+                value.origPageFormat === v
+                  ? 'border-[#5b8ce6] bg-[#eef3fc] font-semibold text-[#407FAC]'
+                  : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {value.origPageFormat === 'roman' && (
+          <p className="flex items-start gap-1.5 rounded-md bg-[#fbf1de] px-2 py-1.5 text-[11px] leading-snug text-[#8a5a00]">
+            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+            로마자 표기는 아직 조판 라이브러리에 없습니다. 점자 로마자 표기법을
+            임의로 만들 수 없어 지금은 숫자로 나옵니다 — 설정만 저장해 둡니다.
+          </p>
+        )}
+      </div>
+
+      {/* 점자 면 번호 시작값 — 표지를 따로 찍거나 권을 나눠 낼 때 1이 아니다. */}
+      <NumberField
+        label="점자 면 번호 시작"
+        value={value.startBraillePage}
+        min={START_PAGE_MIN}
+        max={START_PAGE_MAX}
+        onChange={(v) => set('startBraillePage', v)}
+        hint={
+          compact
+            ? undefined
+            : '첫 면을 몇 번으로 셀지입니다. 표지를 따로 찍거나 권을 나눠 낼 때 씁니다.'
         }
       />
 

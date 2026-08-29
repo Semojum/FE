@@ -131,6 +131,7 @@ import {
   insertFooterTagAfter,
   insertPageBreakBefore,
   lastBlockOfPage,
+  origPageShift,
   pageIndexOfBlock,
   setSectionFooterBefore,
   buildLayout,
@@ -139,6 +140,7 @@ import {
 } from './utils/brailleLayout';
 import SectionFooterModal from './component/features/conversion/SectionFooterModal';
 import TypesetModal from './component/features/conversion/TypesetModal';
+import OrigPageModal from './component/features/conversion/OrigPageModal';
 import DownloadModal from './component/features/conversion/DownloadModal';
 import ConversionSettingsModal from './component/features/conversion/ConversionSettingsModal';
 import SendToBrailleModal from './component/features/conversion/SendToBrailleModal';
@@ -1381,6 +1383,24 @@ const Semojum: React.FC = () => {
     [workingJobId],
   );
 
+  // 원본 쪽 번호를 그 쪽만 고치기(1차 PoC 1-4 기능4). 값은 서버가 준 원본 쪽 번호다.
+  const [origPageEdit, setOrigPageEdit] = useState<number | null>(null);
+
+  const applyOrigPageOverride = useCallback(
+    (pageNo: number, shown: number | null) => {
+      setOrigPageEdit(null);
+      const next = { ...typeset.origPageOverrides };
+      if (shown === null) delete next[String(pageNo)];
+      else next[String(pageNo)] = shown;
+      changeTypeset({ ...typeset, origPageOverrides: next });
+      setToast(
+        shown === null
+          ? `원본 ${pageNo}쪽의 번호를 원래대로 되돌렸습니다.`
+          : `원본 ${pageNo}쪽을 ${shown}쪽으로 적습니다.`,
+      );
+    },
+    [typeset, changeTypeset],
+  );
 
   const handlePageMapped = usePageStreamHandler({
     // 결과 해석은 이 Job이 만들어진 모드 기준이다 (탭을 옮겨도 흔들리지 않게).
@@ -2946,6 +2966,11 @@ const Semojum: React.FC = () => {
                   }),
               },
               {
+                label: '원본 쪽 번호',
+                title: `이 줄이 속한 원본 ${line.pageNo}쪽의 번호만 고칩니다`,
+                onSelect: () => setOrigPageEdit(line.pageNo),
+              },
+              {
                 label: '조판 설정',
                 title: '규격·페이지행·표지 제외 — 이 파일에만 적용됩니다',
                 onSelect: () => setIsTypesetOpen(true),
@@ -2962,6 +2987,19 @@ const Semojum: React.FC = () => {
               },
             ];
           })()}
+        />
+      )}
+
+      {origPageEdit !== null && (
+        <OrigPageModal
+          pageNo={origPageEdit}
+          shown={
+            typeset.origPageOverrides[String(origPageEdit)] ??
+            origPageEdit + origPageShift(blocksByPage, typeset)
+          }
+          overridden={String(origPageEdit) in typeset.origPageOverrides}
+          onSubmit={(shown) => applyOrigPageOverride(origPageEdit, shown)}
+          onClose={() => setOrigPageEdit(null)}
         />
       )}
 
