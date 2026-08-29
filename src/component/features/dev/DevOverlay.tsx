@@ -139,7 +139,10 @@ const DevOverlay: React.FC<Props> = ({ version, onExitRequest }) => {
     };
   }, []);
 
-  // JS 힙은 참고값 — 크롬 계열에서만 있다.
+  // JS 힙은 참고값 — 크롬 계열에서만 있다. 그리고 **위 RAM과 견주면 안 되는** 값이다:
+  // 캔버스 백킹 스토어와 pdf.js가 스캔 이미지를 푸는 버퍼는 V8 힙 밖이라 여기 안 잡힌다.
+  // 2026-08-27 인수시험에서 이 값이 7MB일 때 렌더러는 1,236MB였다. 스캔본이 무거울 때
+  // 봐야 할 것은 이 줄이 아니라 위의 RAM이다.
   useEffect(() => {
     const id = window.setInterval(() => {
       const mem = (
@@ -215,7 +218,8 @@ const DevOverlay: React.FC<Props> = ({ version, onExitRequest }) => {
               />
             )}
             <Row
-              label="JS 힙"
+              // 이름에 단서를 단다 — 이 숫자만 보고 "메모리 문제 없다"로 읽는 것을 막는다.
+              label="JS 힙 (그림·디코드 제외)"
               value={jsHeap === null ? '—' : `${jsHeap.toFixed(1)} MB`}
             />
           </div>

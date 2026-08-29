@@ -144,6 +144,7 @@ import {
   firstRowIndexOfPage,
   flattenRows,
 } from './utils/brailleLayout';
+import { endOp, now } from './utils/perfBus';
 import SectionFooterModal from './component/features/conversion/SectionFooterModal';
 import TypesetModal from './component/features/conversion/TypesetModal';
 import OrigPageModal from './component/features/conversion/OrigPageModal';
@@ -878,10 +879,14 @@ const Semojum: React.FC = () => {
   // 판면 배치는 braille-assist가 만든다 — 32칸 줄바꿈·원본 쪽 변경선·26줄 면 나눔·
   // 페이지행까지 다운로드 .brf와 같은 자리에서 나뉜다. 하단 페이지네이션이 옮기는
   // 원본 파일 페이지와 여기의 "출력 쪽"(점자 면)은 별개다.
-  const layout = useMemo(
-    () => buildLayout(blocksByPage, insertPageNumber, '', typeset),
-    [blocksByPage, insertPageNumber, typeset],
-  );
+  // 편집 한 번마다 문서 전체가 다시 조판된다. 그 시간을 개발자 오버레이("최근 동작")로
+  // 흘린다 — 재지 않으면 느려졌을 때 조판인지 그리기인지 가릴 수가 없다.
+  const layout = useMemo(() => {
+    const at = now();
+    const out = buildLayout(blocksByPage, insertPageNumber, '', typeset);
+    endOp('판면 조판', at);
+    return out;
+  }, [blocksByPage, insertPageNumber, typeset]);
   const gridRows = useMemo(() => flattenRows(layout), [layout]);
   // 지금 보고 있는 면에 걸린 꼬리말 (구간 표식이 없으면 작업 전체 꼬리말).
   const visibleFooterText = layout[visibleOutputPage - 1]?.footerText ?? '';

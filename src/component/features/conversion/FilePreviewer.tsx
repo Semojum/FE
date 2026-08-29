@@ -15,6 +15,7 @@ import BBoxOverlay from './BboxOverlay'; // .tsx 확장자는 import 시 생략 
 // 경로가 http로 풀리고 CSP·오프라인에서도 막힌다. 워커가 안 뜨면 <Document>가
 // 아무것도 그리지 않아 원본 미리보기가 통째로 빈 화면이 됐다.
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { endOp, now } from '../../../utils/perfBus';
 import {
   captureThumb,
   dropOtherDocs,
@@ -117,6 +118,9 @@ const renderWithFind = (
 
 // pdf.js 문서에서 우리가 쓰는 것은 캐시 비우기뿐이다.
 type PdfCleanup = { cleanup: (keepLoadedFonts?: boolean) => Promise<unknown> };
+// 쪽 하나짜리 손잡이 — 라이브 업로드본은 두 슬롯이 **한 문서**를 나눠 쓰므로
+// 문서째 비울 수 없다(그리는 중인 쪽까지 날아간다). 나가는 쪽만 따로 놓는다.
+type PdfPageCleanup = { cleanup: () => unknown };
 
 // 원본을 그리는 동안 보여 주는 자리 표시. 쪽을 넘길 때 흰 종이만 남지 않게 한다.
 const PreviewLoading: React.FC<{ label?: string }> = ({
@@ -178,6 +182,41 @@ const FilePreviewer: React.FC<Props> = memo(
       a: null,
       b: null,
     });
+
+    // 라이브 슬롯이 그린 쪽의 손잡이 — 나가는 쪽의 디코드 결과를 놓는 데만 쓴다.
+    const livePageRef = useRef<Record<'a' | 'b', PdfPageCleanup | null>>({
+      a: null,
+      b: null,
+    });
+
+    // 나가는 쪽의 디코드 결과를 **새 쪽을 풀기 전에** 놓는다.
+    //
+    // 스캔 문제집은 한 장이 4959×7017(=139MB)이고 JPEG2000이라 푸는 동안 그 몇 배를
+    // 더 쓴다. 지금까지는 다 그린 **뒤** 800ms에 비웠는데(아래 cleanup effect), 그러면
+    // 넘기는 동안 이전 쪽과 새 쪽의 디코드가 겹쳐 최고치가 두 배가 됐다
+    // (2026-08-27 인수시험: 슬롯 둘 3.9GB · 하나 2.4GB).
+    //
+    // 캔버스에 이미 찍힌 그림은 문서와 별개라 여기서 비워도 **화면은 그대로 남는다** —
+    // 이전 쪽은 새 쪽이 올라올 때까지 예전처럼 보인다. 되돌아가면 다시 풀어야 하지만
+    // 그 사이는 쪽 축소본이 메운다(위 stashThumb).
+    const releaseDecoded = useCallback((drop: () => unknown) => {
+      try {
+        const r = drop() as Promise<unknown> | undefined;
+        if (r && typeof r.catch === 'function') r.catch(() => {});
+      } catch {
+        // 아직 그리는 중이면 pdf.js가 거부한다 — 그때는 다 그린 뒤 정리에 맡긴다.
+      }
+    }, []);
+
+    // 쪽 넘김에 걸린 시간을 개발자 오버레이("최근 동작")로 흘린다. 이 화면의 체감은
+    // 거의 이 값이라, 느려졌을 때 어디를 볼지 재지 않고는 알 수 없다.
+    const switchAtRef = useRef<number | null>(null);
+    const endSwitch = useCallback((label: string) => {
+      const at = switchAtRef.current;
+      if (at === null) return;
+      switchAtRef.current = null;
+      endOp(label, at);
+    }, []);
 
     // 축소본을 어느 문서의 것으로 담을지.
     //
@@ -247,6 +286,9 @@ const FilePreviewer: React.FC<Props> = memo(
     const [visibleSlot, setVisibleSlot] = useState<'a' | 'b'>('a');
     const previewUrlRef = useRef(previewUrl);
     previewUrlRef.current = previewUrl;
+    // painted를 effect에서 읽으려고 나란히 든다. 바뀌는 자리가 promoteLiveSlot
+    // 한 곳뿐이라 거기서 함께 적는다 — 렌더 중에 ref를 건드리지 않는다.
+    const paintedRef = useRef<{ slot: 'a' | 'b'; page: number } | null>(null);
     // 복원본 슬롯은 쪽마다 다른 단일 페이지 문서(pageNumber는 늘 1)라, 그 슬롯이
     // 실제로 어느 쪽인지는 지금 받아 둔 원본의 쪽 번호로 안다.
     const previewPageRef = useRef(previewPage);
@@ -266,9 +308,23 @@ const FilePreviewer: React.FC<Props> = memo(
         else setSlotA(null);
         return;
       }
+      const pending = visibleSlot === 'a' ? slotB : slotA;
+      if (pending === previewUrl) return; // 이미 이 쪽을 준비하고 있다
       if (visibleSlot === 'a') setSlotB(previewUrl);
       else setSlotA(previewUrl);
-    }, [isRestoredPages, fileType, previewUrl, visibleSlot, slotA, slotB]);
+      switchAtRef.current = now();
+      // 새 쪽을 풀기 전에 나가는 쪽을 놓는다(위 releaseDecoded). 복원본은 쪽마다
+      // 문서가 따로라 문서째 비워도 그리는 쪽을 건드리지 않는다.
+      releaseDecoded(() => restoredPdfRef.current[visibleSlot]?.cleanup(true));
+    }, [
+      isRestoredPages,
+      fileType,
+      previewUrl,
+      visibleSlot,
+      slotA,
+      slotB,
+      releaseDecoded,
+    ]);
 
     // 준비 슬롯이 다 그려지면 화면에 올린다. 그리는 사이 또 다른 쪽으로 넘어갔으면
     // (previewUrl이 벌써 바뀌었으면) 이 결과는 버린다 — 다음 effect가 다시 준비한다.
@@ -279,10 +335,11 @@ const FilePreviewer: React.FC<Props> = memo(
         if (slot === 'a') setSlotB(null);
         else setSlotA(null);
         setPageRendered(true);
+        endSwitch('원본 쪽 그리기');
         const page = previewPageRef.current;
         if (page !== undefined) stashThumb(slot, page);
       },
-      [stashThumb],
+      [stashThumb, endSwitch],
     );
 
     // 콜백 ref로 "지금 붙어 있는 노드"를 관찰한다.
@@ -320,9 +377,21 @@ const FilePreviewer: React.FC<Props> = memo(
     // (메모하지 않아도 된다 — react-pdf의 Canvas는 이 콜백을 렌더 의존성에 넣지 않는다)
     const promoteLiveSlot = (slot: 'a' | 'b', page: number) => {
       if (page !== currentPage || !previewUrl) return;
+      paintedRef.current = { slot, page };
       setPainted({ slot, url: previewUrl, page });
+      endSwitch('원본 쪽 그리기');
       stashThumb(slot, page);
     };
+
+    // 라이브 업로드본도 같다 — 넘기기 시작하면 지금 그려져 있는 쪽을 먼저 놓는다.
+    // 두 슬롯이 한 문서를 나눠 쓰므로 문서째가 아니라 **그 쪽만** 놓는다.
+    useEffect(() => {
+      if (isRestoredPages) return;
+      switchAtRef.current = now();
+      const cur = paintedRef.current;
+      if (!cur || cur.page === currentPage) return;
+      releaseDecoded(() => livePageRef.current[cur.slot]?.cleanup());
+    }, [currentPage, isRestoredPages, releaseDecoded]);
 
     // 다 그린 뒤에는 pdf.js가 들고 있는 디코드 결과를 비운다.
     //
@@ -654,9 +723,10 @@ const FilePreviewer: React.FC<Props> = memo(
                         devicePixelRatio={pageDevicePixelRatio}
                         renderTextLayer={false}
                         renderAnnotationLayer={false}
-                        onRenderSuccess={(page) =>
-                          promoteLiveSlot(slot, page.pageNumber)
-                        }
+                        onRenderSuccess={(page) => {
+                          livePageRef.current[slot] = page;
+                          promoteLiveSlot(slot, page.pageNumber);
+                        }}
                         // 그리다 실패해도 이전 쪽에 갇히지 않게 올려 준다 —
                         // 그래야 react-pdf의 오류 안내라도 보인다.
                         onRenderError={() => promoteLiveSlot(slot, slotPage)}
