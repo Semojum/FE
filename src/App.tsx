@@ -111,6 +111,10 @@ import { onAppClose } from './utils/appLifecycle';
 import { loadBrailleDefaults } from './utils/brailleDefaults';
 import type { TypesetOptions } from './utils/typesetOptions';
 import {
+  loadJobTypeset,
+  saveJobTypeset,
+} from './utils/jobTypeset';
+import {
   clampZoom,
   describeZoom,
   loadGridZoom,
@@ -128,6 +132,7 @@ import {
   firstRowIndexOfPage,
   flattenRows,
 } from './utils/brailleLayout';
+import TypesetModal from './component/features/conversion/TypesetModal';
 import DownloadModal from './component/features/conversion/DownloadModal';
 import ConversionSettingsModal from './component/features/conversion/ConversionSettingsModal';
 import SendToBrailleModal from './component/features/conversion/SendToBrailleModal';
@@ -283,6 +288,9 @@ const Semojum: React.FC = () => {
   const [typeset, setTypeset] = useState<TypesetOptions>(
     () => loadBrailleDefaults().typeset,
   );
+  // 변환 설정 모달에서 고른 값. 업로드가 Job을 만들어 돌려주면 그때 그 작업의
+  // 설정으로 굳는다 — 모달을 닫는 시점에는 아직 jobId가 없다.
+  const pendingTypesetRef = useRef<TypesetOptions | null>(null);
   // 판면 배율. 칸이 19px 고정이라 창을 키워도 모눈종이는 그대로였다 —
   // 2026-08-28 실측에서 결과 패널 1,644px 중 1,006px이 빈 자리였다.
   // 기본값 'fit'은 남는 폭을 칸 크기로 돌려준다.
@@ -500,6 +508,9 @@ const Semojum: React.FC = () => {
     setImgResolution({ width: 0, height: 0 });
     setSavedOriginalsByPage(null);
     setWorkingJobId(null);
+    // 업로드가 중간에 엎어졌으면 예약해 둔 조판 설정도 함께 버린다 —
+    // 남겨 두면 다음에 여는 **다른** 작업에 붙는다.
+    pendingTypesetRef.current = null;
     editor.resetEditor();
     setPageStatuses({});
     setOriginalFileName(null);
@@ -858,7 +869,8 @@ const Semojum: React.FC = () => {
     [blocksByPage, insertPageNumber, typeset],
   );
   const gridRows = useMemo(() => flattenRows(layout), [layout]);
-
+  // 이 파일의 조판 설정 — 판면 우클릭에서 연다.
+  const [isTypesetOpen, setIsTypesetOpen] = useState(false);
   const outputPageCount = Math.max(1, layout.length);
 
   // 대체 초안 피커 대상 블록 — 지정된 페이지 안에서만 찾는다.
@@ -1271,6 +1283,35 @@ const Semojum: React.FC = () => {
   useEffect(() => {
     if (jobId) setWorkingJobId(jobId);
   }, [jobId]);
+
+  // 조판 설정은 작업마다 다르다 — 작업이 바뀌면 그 작업의 값으로 판면을 다시 짠다.
+  //
+  // 들어오는 문은 넷이다(업로드·마이페이지 열기·세션 복구·진행 중 작업 이어받기).
+  // 넷 다 workingJobId를 세우므로 여기 한 곳에서 받는다. 방금 업로드한 작업만
+  // 화면의 값이 정답이고(변환 설정 모달에서 고른 값), 나머지는 저장된 값이 정답이다.
+  useEffect(() => {
+    if (!workingJobId) return;
+    const pending = pendingTypesetRef.current;
+    if (pending) {
+      pendingTypesetRef.current = null;
+      saveJobTypeset(workingJobId, pending);
+      return;
+    }
+    // 저장된 것이 없는 작업(이 기능 이전에 만든 것·다른 기기에서 만든 것)은
+    // 기본 설정으로 연다. 직전에 보던 파일의 규격을 물려받으면 안 된다.
+    setTypeset(loadJobTypeset(workingJobId) ?? loadBrailleDefaults().typeset);
+  }, [workingJobId]);
+
+  // 조판 설정을 바꾸면 지금 열려 있는 작업에 곧바로 붙여 둔다 — 다음에 이 파일을
+  // 열 때도 같은 판면이어야 한다.
+  const changeTypeset = useCallback(
+    (next: TypesetOptions) => {
+      setTypeset(next);
+      if (workingJobId) saveJobTypeset(workingJobId, next);
+    },
+    [workingJobId],
+  );
+
 
   const handlePageMapped = usePageStreamHandler({
     // 결과 해석은 이 Job이 만들어진 모드 기준이다 (탭을 옮겨도 흔들리지 않게).
@@ -2807,6 +2848,11 @@ const Semojum: React.FC = () => {
                   }),
               },
               {
+                label: '조판 설정',
+                title: '규격·페이지행·표지 제외 — 이 파일에만 적용됩니다',
+                onSelect: () => setIsTypesetOpen(true),
+              },
+              {
                 label: '블록 삭제',
                 danger: true,
                 onSelect: () =>
@@ -2820,6 +2866,15 @@ const Semojum: React.FC = () => {
           })()}
         />
       )}
+
+      {/* 이 파일의 조판 설정 — 바꾸면 판면이 바로 다시 짜인다 */}
+      <TypesetModal
+        isOpen={isTypesetOpen}
+        value={typeset}
+        fileName={originalFileName}
+        onChange={changeTypeset}
+        onClose={() => setIsTypesetOpen(false)}
+      />
 
       {/* 대체 초안 피커 — 방식(라벨)을 탭으로 두고 한 안을 크게 본다 */}
       {draftBlock && (
@@ -2865,15 +2920,17 @@ const Semojum: React.FC = () => {
         fileName={pendingFile?.name ?? null}
         onCancel={() => setPendingFile(null)}
         onStart={(withPageNumber, footer, nextTypeset) => {
-          const file = pendingFile;
+          const picked = pendingFile;
           setPendingFile(null);
-          if (!file) return;
+          if (!picked) return;
           // 업로드 effect가 이 값들을 함께 읽는다 — 같은 배치에서 갱신되므로
           // effect가 도는 시점에는 새 값이 반영돼 있다.
           setInsertPageNumber(withPageNumber);
           setFooterText(footer);
           setTypeset(nextTypeset);
-          void handleFileDrop([file], activeTab);
+          // 업로드가 Job을 만들어 주면 이 값이 그 작업의 조판 설정이 된다.
+          pendingTypesetRef.current = nextTypeset;
+          void handleFileDrop([picked], activeTab);
         }}
       />
 
