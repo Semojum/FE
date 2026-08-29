@@ -129,6 +129,8 @@ import {
   type GridZoom,
 } from './utils/gridZoom';
 import { logDiag } from './utils/diagLog';
+import { brfFromLayout, countPendingMarks } from './utils/localBrf';
+import { getBuildChannel } from './utils/devMode';
 import {
   blockTextWithRowEdit,
   footerMarkBefore,
@@ -950,6 +952,24 @@ const Semojum: React.FC = () => {
   const [isRuleSearchOpen, setIsRuleSearchOpen] = useState(false);
 
 
+  // 개발 빌드에서만 여는 임시 경로들(화면 그대로 내려받기). 프로덕션에는 안 보인다.
+  const [isDevBuild, setIsDevBuild] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void getBuildChannel().then((c) => {
+      if (alive) setIsDevBuild(c === 'development');
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // 서버가 아직 읽지 못하는 표식 수 — 다운로드 모달이 미리 알린다(L-2·L-3).
+  const pendingMarks = useMemo(
+    () => countPendingMarks(blocksByPage),
+    [blocksByPage],
+  );
+
   // HWP·HWPX는 **FE가 읽어 .txt로 바꿔** 올린다 — 서버 계약(b=TXT)은 건드리지 않는다.
   // 1차 PoC 3-1 요청 중 FE만으로 되는 절반이다(초안 생성·이미지 점자 번역은 문서를
   // 그대로 봐야 해서 서버 변환이 필요하다 — S-5).
@@ -964,6 +984,23 @@ const Semojum: React.FC = () => {
       type: 'text/plain',
     });
   }, []);
+
+  // 화면 판면을 그대로 .brf로. S-1이 열리면 이 경로는 통째로 지운다.
+  const handleDownloadLocalBrf = useCallback(
+    async (fileName: string) => {
+      if (layout.length === 0) throw new Error('내려받을 판면이 없습니다.');
+      const blob = new Blob([brfFromLayout(layout)], {
+        type: 'text/plain;charset=utf-8',
+      });
+      const saved = await saveBlob(blob, `${fileName}.brf`);
+      setToast(
+        saved
+          ? `화면 그대로 저장했습니다 (임시) — ${saved}`
+          : '화면 그대로 저장했습니다 (임시)',
+      );
+    },
+    [layout],
+  );
 
   const outputPageCount = Math.max(1, layout.length);
 
@@ -2861,6 +2898,11 @@ const Semojum: React.FC = () => {
                       activeFindCells={activeFindCells}
                       onPageBreak={handlePageBreak}
                       cols={typeset.cols}
+                      // 꼬리말은 아직 점역본이 없어 묵자로 얹어 보여 준다(S-4).
+                      // 어느 면에 어떤 꼬리말이 걸렸는지·정렬이 어떻게 보이는지를
+                      // 확인하는 미리보기다 — 개발 빌드에서만 켠다.
+                      showFooterPreview={isDevBuild}
+                      footerAlign={typeset.footerAlign}
                       zoom={gridZoom}
                       onResolvedZoom={setResolvedZoom}
                     />
@@ -3112,6 +3154,13 @@ const Semojum: React.FC = () => {
         mode={activeTab}
         onClose={() => setIsDownloadOpen(false)}
         onDownload={handleDownloadFile}
+        pendingMarks={activeTab === TABS.OCR ? undefined : pendingMarks}
+        // 점자 판면이 있는 탭에서만, 그것도 개발 빌드에서만 연다.
+        onDownloadLocal={
+          isDevBuild && activeTab !== TABS.OCR && layout.length > 0
+            ? handleDownloadLocalBrf
+            : undefined
+        }
       />
 
       {/* 파일을 고른 직후의 변환 설정 — 여기서 [변환 시작]을 눌러야 업로드된다. */}
