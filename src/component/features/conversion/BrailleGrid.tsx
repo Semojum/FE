@@ -76,38 +76,80 @@ export interface GridEditActions {
 // 표식이 아니라 우연히 나온 글자로 본다 — 판면이 통째로 회색이 되는 쪽이 더 나쁘다.
 const MAX_TAG_LEN = 40;
 
-// 본문 행을 순서대로 이어 읽으며 표식이 차지하는 칸을 표시한다.
-// 표식이 32칸 경계에서 잘려 다음 행으로 넘어가도 이어서 잡힌다.
-const buildTagMask = (rows: LayoutRow[]): boolean[][] => {
-  const mask = rows.map((r) => [...r.text].map(() => false));
-  const coords: Array<[number, number]> = [];
-  const chars: string[] = [];
-  const blockIds: Array<string | undefined> = [];
-  rows.forEach((row, rowIdx) => {
-    if (row.kind !== 'body') return;
-    [...row.text].forEach((ch, cellIdx) => {
-      coords.push([rowIdx, cellIdx]);
-      chars.push(ch);
-      blockIds.push(row.source?.blockId);
-    });
-  });
+// 표식이 차지하는 칸을 표시한다 — **보이는 면만.**
+//
+// 예전에는 문서 전체를 훑으며 칸마다 [행,칸] 짝·글자·블록 id를 평평한 배열 세 개로
+// 폈다. 1239면(32,214줄·91만 칸) 문서에서 편집 한 번에 **104MB**가 생겼다 사라지고
+// 67ms가 갔다(2026-08-29 실측). 정작 화면에 붙는 것은 두어 면뿐이다.
+//
+// 그래서 (1) 창 안의 줄만 훑고, (2) 좌표는 Int32Array 두 개로 든다 — 짝 배열
+// 91만 개가 그 104MB의 절반이었다. 글자와 블록 id는 좌표로 그때그때 되짚으면
+// 되므로 따로 들지 않는다.
+//
+// 표식은 **한 블록 안에서만** 이어지고 MAX_TAG_LEN 칸을 넘지 않는다. 그래서 창
+// 앞뒤로 그만큼만 더 훑으면 줄·면 경계에서 잘린 표식도 예전처럼 잡힌다.
+//
+// 돌려주는 마스크는 **from 기준**이다(mask[0]이 from번째 줄).
+export const buildTagMask = (
+  rows: LayoutRow[],
+  from: number,
+  to: number,
+  cols: number,
+): boolean[][] => {
+  const pad = Math.ceil(MAX_TAG_LEN / Math.max(1, cols)) + 1;
+  const scanFrom = Math.max(0, from - pad);
+  const scanTo = Math.min(rows.length, to + pad);
 
-  // 코드포인트 배열 위에서 직접 찾는다 — 인덱스가 곧 칸 번호라 좌표가 어긋나지 않는다.
-  for (let i = 0; i < chars.length; i += 1) {
-    if (chars[i] !== '<' || chars[i + 1] !== '!') continue;
-    const block = blockIds[i];
-    const limit = Math.min(chars.length, i + MAX_TAG_LEN);
+  // 훑는 구간의 줄만 코드포인트로 편다(창 밖 수만 줄은 건드리지 않는다).
+  const cells: string[][] = [];
+  for (let r = scanFrom; r < scanTo; r += 1) cells.push([...rows[r].text]);
+  const lineOf = (r: number) => cells[r - scanFrom];
+
+  const mask: boolean[][] = [];
+  for (let r = from; r < Math.min(to, rows.length); r += 1) {
+    mask.push(lineOf(r).map(() => false));
+  }
+
+  // 본문 칸을 순서대로 이은 좌표 — 표식이 줄을 넘어가도 이어서 잡으려면 이 순서가
+  // 필요하다. 훑는 구간만큼이라 길어야 수십 줄이다.
+  let n = 0;
+  for (let r = scanFrom; r < scanTo; r += 1) {
+    if (rows[r].kind === 'body') n += lineOf(r).length;
+  }
+  const coordRow = new Int32Array(n);
+  const coordCell = new Int32Array(n);
+  let k = 0;
+  for (let r = scanFrom; r < scanTo; r += 1) {
+    if (rows[r].kind !== 'body') continue;
+    const len = lineOf(r).length;
+    for (let c = 0; c < len; c += 1) {
+      coordRow[k] = r;
+      coordCell[k] = c;
+      k += 1;
+    }
+  }
+  // 범위 밖은 undefined로 — 아래 charAt(i + 1)이 마지막 칸에서 넘어간다.
+  const charAt = (i: number): string | undefined =>
+    i >= 0 && i < n ? lineOf(coordRow[i])[coordCell[i]] : undefined;
+  const blockAt = (i: number): string | undefined =>
+    i >= 0 && i < n ? rows[coordRow[i]].source?.blockId : undefined;
+
+  for (let i = 0; i < n; i += 1) {
+    if (charAt(i) !== '<' || charAt(i + 1) !== '!') continue;
+    const block = blockAt(i);
+    const limit = Math.min(n, i + MAX_TAG_LEN);
     let end = -1;
-    for (let j = i + 2; j < limit && blockIds[j] === block; j += 1) {
-      if (chars[j] === '>') {
+    for (let j = i + 2; j < limit && blockAt(j) === block; j += 1) {
+      if (charAt(j) === '>') {
         end = j;
         break;
       }
     }
     if (end === -1) continue; // 닫히지 않았으면 표식으로 보지 않는다
-    for (let k = i; k <= end; k += 1) {
-      const [rowIdx, cellIdx] = coords[k];
-      mask[rowIdx][cellIdx] = true;
+    for (let m = i; m <= end; m += 1) {
+      const r = coordRow[m];
+      // 창 밖으로 삐져나온 부분은 그 면이 그릴 때 자기 몫으로 다시 잡는다.
+      if (r >= from && r < to) mask[r - from][coordCell[m]] = true;
     }
     i = end;
   }
@@ -159,7 +201,8 @@ const edgeCls = (
 };
 
 // 빈 마스크는 하나를 돌려 쓴다 — 렌더마다 새 배열을 만들면 아래 메모가 늘 깨진다.
-const EMPTY_MASK: boolean[] = [];
+// 모든 줄이 같은 것을 나눠 보므로 아무도 쓰지 못하게 잠가 둔다(읽기만 한다).
+const EMPTY_MASK: readonly boolean[] = Object.freeze([]);
 
 // 한 줄(32칸)을 그리는 조각.
 //
@@ -177,7 +220,7 @@ interface RowProps {
   caretCell: number | null;
   isHighlighted: boolean;
   isHovered: boolean;
-  dimMask: boolean[];
+  dimMask: readonly boolean[];
   hitCells?: Set<number>;
   activeHitCells?: Set<number>;
   /** 고른 구간 [selFrom, selTo) — 이 줄에 없으면 -1 */
@@ -284,7 +327,6 @@ interface PageProps {
   pageStart: number;
   // 면 경계에서 앞뒤 줄이 같은 블록인지 보려면 전체 줄이 필요하다(참조는 안정적).
   rows: LayoutRow[];
-  tagMask: boolean[][];
   // 아래 값들은 "이 면에 해당할 때만" 채워 넘긴다 — 그래야 다른 면이 안 흔들린다.
   caret: GridCaret | null;
   highlightBlockId: string | null;
@@ -389,7 +431,6 @@ const GridPage = React.memo<PageProps>(
     page,
     pageStart,
     rows,
-    tagMask,
     caret,
     highlightBlockId,
     hoverBlockId,
@@ -400,7 +441,15 @@ const GridPage = React.memo<PageProps>(
     selection,
     footerPreview,
     footerAlign = 'center',
-  }) => (
+  }) => {
+    // 이 면의 표식 마스크만 만든다 — 붙어 있는 면만 계산하므로 문서가 아무리 길어도
+    // 값이 일정하다(위 buildTagMask 주석). 이 조각이 메모돼 있어 스크롤로 창이
+    // 움직여도 이미 붙은 면은 다시 계산하지 않는다.
+    const tagMask = useMemo(
+      () => buildTagMask(rows, pageStart, pageStart + page.rows.length, cols),
+      [rows, pageStart, page.rows.length, cols],
+    );
+    return (
     // w-max: 면의 폭은 패널이 아니라 32칸 내용이 정한다. 예전에는 행이 패널 폭에
     // 맞춰지고 칸은 그 밖으로 넘쳐서, 블록 강조 테두리가 32칸까지 가지 못하고
     // 31칸 언저리에서 잘렸다. 패널이 좁으면 가로로 스크롤한다.
@@ -447,7 +496,7 @@ const GridPage = React.memo<PageProps>(
               isHovered={
                 !!row.source?.blockId && row.source.blockId === hoverBlockId
               }
-              dimMask={tagMask[rowIndex] ?? EMPTY_MASK}
+              dimMask={tagMask[rowInPage] ?? EMPTY_MASK}
               hitCells={findCells?.get(rowIndex)}
               activeHitCells={activeFindCells?.get(rowIndex)}
               selFrom={
@@ -494,7 +543,8 @@ const GridPage = React.memo<PageProps>(
         )}
       </div>
     </div>
-  ),
+    );
+  },
 );
 GridPage.displayName = 'GridPage';
 
@@ -619,9 +669,6 @@ const BrailleGrid: React.FC<Props> = React.memo(
 
     const isBraille = mode !== TABS.OCR;
     const rows = useMemo(() => flattenRows(pages), [pages]);
-    // 점역자주 태그가 놓인 칸 — 회색으로 흐리게 그린다.
-    const tagMask = useMemo(() => buildTagMask(rows), [rows]);
-
     // 각 면의 첫 행이 전체에서 몇 번째인지 — 행 번호와 커서는 전체 기준으로 센다.
     const pageStarts = useMemo(() => {
       let acc = 0;
@@ -1333,7 +1380,6 @@ const BrailleGrid: React.FC<Props> = React.memo(
               page={page}
               pageStart={start}
               rows={rows}
-              tagMask={tagMask}
               caret={pageCaret}
               highlightBlockId={pageHighlight}
               hoverBlockId={pageHover}
