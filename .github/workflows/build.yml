@@ -4,7 +4,17 @@ name: Build Desktop App
 # (개발은 다른 OS에서 해도 되지만 릴리스 산출물은 Windows만 발행한다.)
 
 on:
+  # 수동 실행만 채널을 고를 수 있다. 태그 푸시는 inputs가 비어 있어 늘 프로덕션이다 —
+  # 정식 릴리스가 실수로 개발 빌드로 나가는 길을 아예 두지 않는다.
   workflow_dispatch:
+    inputs:
+      channel:
+        description: '빌드 채널'
+        type: choice
+        default: production
+        options:
+          - production
+          - development
   push:
     tags:
       - 'v*'
@@ -23,6 +33,15 @@ jobs:
       TARGET: x86_64-pc-windows-msvc
 
     steps:
+      # 태그에서 수동 실행하면 아래 "릴리스 생성" 단계가 돈다 — 그 경로는 inputs를
+      # 보지 않으므로, 거기서 development를 골라 두면 선택이 조용히 무시되고
+      # **정식 릴리스**가 나간다. 빌드를 시작하기 전에 멈춘다.
+      - name: 태그에서는 개발 채널을 고를 수 없다
+        if: ${{ startsWith(github.ref, 'refs/tags/') && inputs.channel == 'development' }}
+        run: |
+          echo "::error::태그(${{ github.ref_name }})에서는 개발 채널을 쓸 수 없습니다. 개발 빌드는 브랜치에서 수동 실행하세요."
+          exit 1
+
       # 점자 조판 라이브러리(vendor/braille-assist)를 서브모듈로 받는다. 없으면
       # vite alias가 가리키는 소스가 비어 프런트 빌드가 실패한다.
       - uses: actions/checkout@v4
@@ -59,6 +78,15 @@ jobs:
           args: --target ${{ env.TARGET }}
 
       # 수동 트리거: 빌드만 수행하고 산출물을 artifact로 업로드
+      #
+      # channel=development면 tauri.dev.conf.json을 얹는다. 그 설정은 productName과
+      # identifier를 따로 줘서 프로덕션과 **나란히** 설치되게 하고(설치 경로·설정·
+      # 웹뷰 데이터가 전부 분리된다), 자동 업데이트를 끊는다
+      # (createUpdaterArtifacts=false · updater.endpoints=[]).
+      # 현장 시험판을 돌릴 때 쓴다 — 받는 사람의 3.2.1을 덮지 않는다.
+      #
+      # ⚠ 개발 빌드는 스스로 업데이트를 확인하지 않는다. 받은 사람은 그 버전에
+      #   갇히므로 GitHub Release에 올리지 말고 이 artifact로만 나눠 준다.
       - name: Build only (manual trigger)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: tauri-apps/tauri-action@v0
@@ -67,13 +95,15 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          args: --target ${{ env.TARGET }}
+          args: --target ${{ env.TARGET }}${{ inputs.channel == 'development' && ' --config src-tauri/tauri.dev.conf.json' || '' }}
 
+      # 이름을 갈라 둔다 — 내려받은 파일만 보고 어느 채널인지 알 수 있어야 한다.
+      # 개발 빌드에는 .nsis.zip(업데이터 산출물)이 없다 — 없어도 경고만 남기고 넘어간다.
       - name: Upload artifacts (manual trigger)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
-          name: semojum-windows
+          name: semojum-windows${{ inputs.channel == 'development' && '-dev' || '' }}
           path: |
             src-tauri/target/${{ env.TARGET }}/release/bundle/**/*.msi*
             src-tauri/target/${{ env.TARGET }}/release/bundle/**/*.exe
