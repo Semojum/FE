@@ -51,6 +51,7 @@ import { getJobPage, listActiveJobs } from './api/HistoryService';
 import FilePreviewer from './component/features/conversion/FilePreviewer';
 import Pagination from './component/features/conversion/Pagination';
 import BrailleGrid, {
+  type GridEditActions,
   GridCaret,
 } from './component/features/conversion/BrailleGrid';
 import ContextMenu from './component/shared/ContextMenu';
@@ -309,6 +310,8 @@ const Semojum: React.FC = () => {
     rowIndex: number;
     x: number;
     y: number;
+    // 메뉴를 여는 순간의 선택으로 닫아 둔 편집 동작(격자가 넘겨준다).
+    edit: GridEditActions;
   } | null>(null);
   const [visibleOutputPage, setVisibleOutputPage] = useState(1);
   const [scrollToRow, setScrollToRow] = useState<number | null>(null);
@@ -1248,7 +1251,8 @@ const Semojum: React.FC = () => {
   // 격자 우클릭 위치. 인라인 화살표로 넘기면 렌더마다 새 함수가 되어 격자 메모가
   // 깨진다 — 판면이 수만 칸이라 그 한 번이 그대로 멈춤으로 보인다.
   const handleGridContextMenu = useCallback(
-    (rowIndex: number, x: number, y: number) => setGridMenu({ rowIndex, x, y }),
+    (rowIndex: number, x: number, y: number, edit: GridEditActions) =>
+      setGridMenu({ rowIndex, x, y, edit }),
     [],
   );
 
@@ -2667,6 +2671,7 @@ const Semojum: React.FC = () => {
                       onCaretChange={handleCaretChange}
                       onEditRow={handleEditRow}
                       onContextMenu={handleGridContextMenu}
+                      onNotice={setToast}
                       hoverBlockId={hoverBlockId}
                       onHoverBlockChange={handleHoverBlock}
                       onVisiblePageChange={setVisibleOutputPage}
@@ -2730,6 +2735,29 @@ const Semojum: React.FC = () => {
             const blocks = blocksByPage[line.pageNo] ?? [];
             const index = blocks.findIndex((b) => b.id === line.blockId);
             return [
+              // 편집 — 1차 PoC 요청(필요성 최상). 단축키(Ctrl+C/X/V)와 같은 동작이다.
+              {
+                label: '복사',
+                title: gridMenu.edit.hasSelection
+                  ? '고른 구간을 복사합니다 (Ctrl+C)'
+                  : '먼저 판면에서 끌어 구간을 고르세요',
+                disabled: !gridMenu.edit.hasSelection,
+                onSelect: () => gridMenu.edit.copy(),
+              },
+              {
+                label: '잘라내기',
+                title: gridMenu.edit.hasSelection
+                  ? '고른 구간을 잘라냅니다 (Ctrl+X)'
+                  : '먼저 판면에서 끌어 구간을 고르세요',
+                disabled: !gridMenu.edit.hasSelection,
+                onSelect: () => gridMenu.edit.cut(),
+              },
+              {
+                label: '붙여넣기',
+                title: '커서 자리에 붙여넣습니다 (Ctrl+V)',
+                disabled: !gridMenu.edit.canPaste,
+                onSelect: () => gridMenu.edit.paste(),
+              },
               {
                 label: '블록 추가',
                 onSelect: () =>
