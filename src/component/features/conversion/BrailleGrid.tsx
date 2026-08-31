@@ -12,14 +12,21 @@ import {
   deleteAt,
   deleteBefore,
   insertAt,
+  replaceRange,
+  sanitizePaste,
+  sliceCells,
   toCells,
 } from '../../../utils/brailleGrid';
 import {
+  anchorAt,
+  resolveAnchor,
+  type CaretAnchor,
   CELLS_PER_ROW,
   flattenRows,
   LayoutPage,
   LayoutRow,
 } from '../../../utils/brailleLayout';
+import { ZOOM_FIT_MAX, type GridZoom } from '../../../utils/gridZoom';
 
 // Figma V3-03 에디터 — 26줄 × 32칸 점자 판면 격자.
 //
@@ -37,6 +44,28 @@ export interface GridCaret {
   cell: number;
 }
 
+/**
+ * 판면에서 고른 구간. **한 행 안에서만** 잡힌다(`utils/brailleGrid` 머리말 참고).
+ * [from, to) 반열린 구간이고, from === to면 고른 것이 없다.
+ */
+export interface GridSelection {
+  rowIndex: number;
+  from: number;
+  to: number;
+}
+
+/**
+ * 우클릭 메뉴가 쓰는 편집 동작. 메뉴는 App이 그리지만 선택·행 텍스트는 격자가
+ * 들고 있어, 메뉴를 여는 순간의 동작을 그대로 넘겨 준다.
+ */
+export interface GridEditActions {
+  hasSelection: boolean;
+  canPaste: boolean;
+  copy: () => void;
+  cut: () => void;
+  paste: () => void;
+}
+
 // `<!…>` 꼴 표식(`<!점역자주>`, `<!/점역자주>`, `<!표>` …)은 **표식 자체만**
 // 글자색을 흐리게 그린다. 안쪽 내용은 본문이므로 그대로 두고, 칸 배경도 건드리지
 // 않는다 — 배경을 칠하면 선택(대조)·검토 필요 표시와 섞인다.
@@ -50,38 +79,80 @@ export interface GridCaret {
 // 표식이 아니라 우연히 나온 글자로 본다 — 판면이 통째로 회색이 되는 쪽이 더 나쁘다.
 const MAX_TAG_LEN = 40;
 
-// 본문 행을 순서대로 이어 읽으며 표식이 차지하는 칸을 표시한다.
-// 표식이 32칸 경계에서 잘려 다음 행으로 넘어가도 이어서 잡힌다.
-const buildTagMask = (rows: LayoutRow[]): boolean[][] => {
-  const mask = rows.map((r) => [...r.text].map(() => false));
-  const coords: Array<[number, number]> = [];
-  const chars: string[] = [];
-  const blockIds: Array<string | undefined> = [];
-  rows.forEach((row, rowIdx) => {
-    if (row.kind !== 'body') return;
-    [...row.text].forEach((ch, cellIdx) => {
-      coords.push([rowIdx, cellIdx]);
-      chars.push(ch);
-      blockIds.push(row.source?.blockId);
-    });
-  });
+// 표식이 차지하는 칸을 표시한다 — **보이는 면만.**
+//
+// 예전에는 문서 전체를 훑으며 칸마다 [행,칸] 짝·글자·블록 id를 평평한 배열 세 개로
+// 폈다. 1239면(32,214줄·91만 칸) 문서에서 편집 한 번에 **104MB**가 생겼다 사라지고
+// 67ms가 갔다(2026-08-29 실측). 정작 화면에 붙는 것은 두어 면뿐이다.
+//
+// 그래서 (1) 창 안의 줄만 훑고, (2) 좌표는 Int32Array 두 개로 든다 — 짝 배열
+// 91만 개가 그 104MB의 절반이었다. 글자와 블록 id는 좌표로 그때그때 되짚으면
+// 되므로 따로 들지 않는다.
+//
+// 표식은 **한 블록 안에서만** 이어지고 MAX_TAG_LEN 칸을 넘지 않는다. 그래서 창
+// 앞뒤로 그만큼만 더 훑으면 줄·면 경계에서 잘린 표식도 예전처럼 잡힌다.
+//
+// 돌려주는 마스크는 **from 기준**이다(mask[0]이 from번째 줄).
+export const buildTagMask = (
+  rows: LayoutRow[],
+  from: number,
+  to: number,
+  cols: number,
+): boolean[][] => {
+  const pad = Math.ceil(MAX_TAG_LEN / Math.max(1, cols)) + 1;
+  const scanFrom = Math.max(0, from - pad);
+  const scanTo = Math.min(rows.length, to + pad);
 
-  // 코드포인트 배열 위에서 직접 찾는다 — 인덱스가 곧 칸 번호라 좌표가 어긋나지 않는다.
-  for (let i = 0; i < chars.length; i += 1) {
-    if (chars[i] !== '<' || chars[i + 1] !== '!') continue;
-    const block = blockIds[i];
-    const limit = Math.min(chars.length, i + MAX_TAG_LEN);
+  // 훑는 구간의 줄만 코드포인트로 편다(창 밖 수만 줄은 건드리지 않는다).
+  const cells: string[][] = [];
+  for (let r = scanFrom; r < scanTo; r += 1) cells.push([...rows[r].text]);
+  const lineOf = (r: number) => cells[r - scanFrom];
+
+  const mask: boolean[][] = [];
+  for (let r = from; r < Math.min(to, rows.length); r += 1) {
+    mask.push(lineOf(r).map(() => false));
+  }
+
+  // 본문 칸을 순서대로 이은 좌표 — 표식이 줄을 넘어가도 이어서 잡으려면 이 순서가
+  // 필요하다. 훑는 구간만큼이라 길어야 수십 줄이다.
+  let n = 0;
+  for (let r = scanFrom; r < scanTo; r += 1) {
+    if (rows[r].kind === 'body') n += lineOf(r).length;
+  }
+  const coordRow = new Int32Array(n);
+  const coordCell = new Int32Array(n);
+  let k = 0;
+  for (let r = scanFrom; r < scanTo; r += 1) {
+    if (rows[r].kind !== 'body') continue;
+    const len = lineOf(r).length;
+    for (let c = 0; c < len; c += 1) {
+      coordRow[k] = r;
+      coordCell[k] = c;
+      k += 1;
+    }
+  }
+  // 범위 밖은 undefined로 — 아래 charAt(i + 1)이 마지막 칸에서 넘어간다.
+  const charAt = (i: number): string | undefined =>
+    i >= 0 && i < n ? lineOf(coordRow[i])[coordCell[i]] : undefined;
+  const blockAt = (i: number): string | undefined =>
+    i >= 0 && i < n ? rows[coordRow[i]].source?.blockId : undefined;
+
+  for (let i = 0; i < n; i += 1) {
+    if (charAt(i) !== '<' || charAt(i + 1) !== '!') continue;
+    const block = blockAt(i);
+    const limit = Math.min(n, i + MAX_TAG_LEN);
     let end = -1;
-    for (let j = i + 2; j < limit && blockIds[j] === block; j += 1) {
-      if (chars[j] === '>') {
+    for (let j = i + 2; j < limit && blockAt(j) === block; j += 1) {
+      if (charAt(j) === '>') {
         end = j;
         break;
       }
     }
     if (end === -1) continue; // 닫히지 않았으면 표식으로 보지 않는다
-    for (let k = i; k <= end; k += 1) {
-      const [rowIdx, cellIdx] = coords[k];
-      mask[rowIdx][cellIdx] = true;
+    for (let m = i; m <= end; m += 1) {
+      const r = coordRow[m];
+      // 창 밖으로 삐져나온 부분은 그 면이 그릴 때 자기 몫으로 다시 잡는다.
+      if (r >= from && r < to) mask[r - from][coordCell[m]] = true;
     }
     i = end;
   }
@@ -132,6 +203,125 @@ const edgeCls = (
   return '';
 };
 
+// 빈 마스크는 하나를 돌려 쓴다 — 렌더마다 새 배열을 만들면 아래 메모가 늘 깨진다.
+// 모든 줄이 같은 것을 나눠 보므로 아무도 쓰지 못하게 잠가 둔다(읽기만 한다).
+const EMPTY_MASK: readonly boolean[] = Object.freeze([]);
+
+// 한 줄(32칸)을 그리는 조각.
+//
+// 면 단위로만 메모하면 커서가 한 칸 움직여도 그 면의 **920개 요소**가 통째로
+// 다시 조정된다. 드래그로 구간을 고르는 동안에는 mousemove마다 그 일이 벌어진다.
+// 줄 단위로 한 겹 더 메모해서, 실제로 값이 바뀐 한두 줄(34개)만 다시 그린다.
+// 그러려면 넘기는 값이 렌더마다 같아야 한다 — 그래서 선택 구간은 객체가 아니라
+// 숫자 두 개로, 마스크가 없는 줄은 EMPTY_MASK로 넘긴다.
+interface RowProps {
+  row: LayoutRow;
+  rowIndex: number;
+  rowInPage: number;
+  cols: number;
+  /** 이 줄에 커서가 있으면 그 칸, 없으면 null */
+  caretCell: number | null;
+  isHighlighted: boolean;
+  isHovered: boolean;
+  dimMask: readonly boolean[];
+  hitCells?: Set<number>;
+  activeHitCells?: Set<number>;
+  /** 고른 구간 [selFrom, selTo) — 이 줄에 없으면 -1 */
+  selFrom: number;
+  selTo: number;
+  openTop: boolean;
+  openBottom: boolean;
+}
+
+const GridRow = React.memo<RowProps>(
+  ({
+    row,
+    rowIndex,
+    rowInPage,
+    cols,
+    caretCell,
+    isHighlighted,
+    isHovered,
+    dimMask,
+    hitCells,
+    activeHitCells,
+    selFrom,
+    selTo,
+    openTop,
+    openBottom,
+  }) => {
+    const editable = row.kind === 'body';
+    const isSelected = caretCell !== null && editable;
+    const cells = toCells(row.text, cols);
+    // 검토 필요(review) 블록은 디자인대로 주황 테두리로 감싼다 —
+    // 배경색만으로 알리는 선택(대조) 상태와 섞이지 않게 하는 구분이기도 하다.
+    // 한 블록이 여러 줄이면 줄마다 그리지 않고 한 덩어리로 두른다.
+    const isReview = !!row.source?.isBlocked;
+    // Tailwind는 클래스 문자열을 정적으로 훑으므로 색을 템플릿으로 조립하지 않는다.
+    // 좌우는 자리를 늘 비워 두는 테두리로, 위아래는 배치를 건드리지 않는
+    // 안쪽 그림자로 그린다(위 BLOCK_EDGE 주석 — 줄 높이는 항상 19px).
+    const sideCls = isReview
+      ? 'border-x-2 border-[#f47726]'
+      : isHovered
+        ? 'border-x-2 border-[#c3cfdd]'
+        : 'border-x-2 border-transparent';
+    const edge = isReview
+      ? BLOCK_EDGE.review
+      : isHovered
+        ? BLOCK_EDGE.hover
+        : null;
+
+    return (
+      <div
+        data-row={rowIndex}
+        data-block={row.source?.blockId ?? ''}
+        className={['flex', sideCls, edgeCls(edge, openTop, openBottom)].join(
+          ' ',
+        )}
+      >
+        {/* 대체 텍스트가 있는지는 결과 패널 위 [대체 텍스트] 버튼이 알려 준다 —
+            줄번호 옆 주황 점은 판면을 어지럽혀 뺐다. 안내는 툴팁으로만 남긴다. */}
+        <span
+          title={
+            row.source?.hasDrafts ? '대체 텍스트가 있는 블록입니다' : undefined
+          }
+          className="flex h-[19px] w-[26px] shrink-0 items-center justify-end pr-1.5 text-[9px] text-gray-400"
+        >
+          {rowInPage + 1}
+        </span>
+        {cells.map((ch, cellIdx) => (
+          // 칸마다 핸들러를 달지 않는다 — 칸이 3만 개면 렌더마다 클로저가
+          // 6만 개 새로 생긴다. 클릭·우클릭은 스크롤 컨테이너가 한 번에 받고
+          // 이 data 속성으로 어느 칸인지 알아낸다.
+          <div
+            key={cellIdx}
+            role="gridcell"
+            tabIndex={-1}
+            data-cell={cellIdx}
+            data-editable={editable ? '1' : undefined}
+            className={cellClassFor(
+              row,
+              isSelected,
+              isSelected && caretCell === cellIdx,
+              isHighlighted,
+              dimMask[cellIdx] === true,
+              activeHitCells?.has(cellIdx)
+                ? 'active'
+                : hitCells?.has(cellIdx)
+                  ? 'hit'
+                  : 'none',
+              cellIdx >= selFrom && cellIdx < selTo,
+            )}
+          >
+            {ch}
+          </div>
+        ))}
+      </div>
+    );
+  },
+);
+GridRow.displayName = 'GridRow';
+
 // 한 면(26줄)을 그리는 조각. 면 단위로 메모해 두면 커서·호버·검색처럼 한 곳만
 // 바뀌는 조작에서 그 면만 다시 그린다 — 예전에는 판면 전체(수만 칸)가 매번
 // 다시 조정돼 조작 한 번에 200ms씩 멈췄다(2026-08-25 실측).
@@ -140,7 +330,6 @@ interface PageProps {
   pageStart: number;
   // 면 경계에서 앞뒤 줄이 같은 블록인지 보려면 전체 줄이 필요하다(참조는 안정적).
   rows: LayoutRow[];
-  tagMask: boolean[][];
   // 아래 값들은 "이 면에 해당할 때만" 채워 넘긴다 — 그래야 다른 면이 안 흔들린다.
   caret: GridCaret | null;
   highlightBlockId: string | null;
@@ -149,60 +338,121 @@ interface PageProps {
   activeFindCells?: Map<number, Set<number>>;
   // 화면 밖일 때 브라우저가 이 면의 배치·그리기를 건너뛰게 하는 예상 크기.
   intrinsic: string;
+  // 한 줄 칸 수 — 조판 설정으로 32에서 달라질 수 있다.
+  cols: number;
+  // 이 면 안에 걸린 선택 구간(없으면 undefined).
+  selection?: GridSelection;
+  // 페이지행에 얹어 보여 줄 꼬리말(묵자)과 정렬. 점역 전이라 **미리보기**다.
+  footerPreview?: string;
+  footerAlign?: 'center' | 'right';
 }
 
 // 배경색은 여기 한 곳에서만 정한다 — 클래스를 뒤에 덧붙이는 방식은 CSS 순서에
 // 따라 앞의 bg-white에 져서 색이 안 먹는다(2026-08-24 확인).
-const cellCls = (
+//
+// 칸 하나가 가질 수 있는 모양은 아래 아홉 가지 × 흐리게 on/off = **열여덟 가지뿐**이다.
+// 그런데 예전에는 칸마다 배열을 만들어 join했다 — 한 면을 다시 그릴 때 920번,
+// 드래그로 구간을 고르는 동안에는 초당 수십 번씩 돌았다. 미리 만들어 두고 꺼내
+// 쓴다(flyweight). 같은 문자열 **참조**가 나가므로 React의 prop 비교도 값 비교가
+// 아니라 참조 비교로 끝난다.
+// 칸이 가질 수 있는 아홉 가지 모양. 색을 고르는 순서가 곧 우선순위다.
+const TONE = {
+  caret: 0, // 커서가 놓인 칸
+  sel: 1, // 드래그로 고른 구간
+  findActive: 2, // 찾기에서 지금 보고 있는 한 건
+  findHit: 3, // 나머지 찾기 결과
+  caretRow: 4, // 커서가 놓인 행
+  fixed: 5, // 변경선·페이지행 — 조판이 만든 줄이라 고칠 수 없다
+  review: 6, // 검토 필요(BLOCKED)
+  match: 7, // 원본 대조 강조
+  plain: 8,
+} as const;
+
+const CELL_BASE =
+  'flex h-[19px] w-[19px] shrink-0 items-center justify-center border-r border-b text-[13px] leading-none border-[#e4ebf5]';
+
+// 디자인 V3/BlockCard의 세 상태를 격자에 옮긴 것.
+//  review(검토 필요) — 크림 배경 + 주황 테두리 (테두리는 행 단위로 그린다)
+//  match(원본 대조) — 연한 주황 배경. 디자인은 주황 테두리지만 그 뜻이 전달되지
+//    않아 배경색으로 바꿨다 (QA "AI 생성 블록 표기 방식 변경"). review와 헷갈리지
+//    않도록 크림(노랑기)과 주황기로 색을 갈라 둔다.
+const TONE_CLASS: string[] = [];
+TONE_CLASS[TONE.caret] = 'bg-[#5b8ce6] text-white';
+// 고른 구간 — 커서 칸보다는 옅고, 커서가 놓인 행 배경(10%)보다는 진하게.
+TONE_CLASS[TONE.sel] = 'bg-[#5b8ce6]/35';
+TONE_CLASS[TONE.findActive] = 'bg-[#f9c74f] text-gray-900';
+TONE_CLASS[TONE.findHit] = 'bg-[#fdf1c7]';
+TONE_CLASS[TONE.caretRow] = 'bg-[#5b8ce6]/10';
+TONE_CLASS[TONE.fixed] = 'bg-[#f2f5fa] text-gray-400';
+TONE_CLASS[TONE.review] = 'bg-[#fdf8e3]';
+TONE_CLASS[TONE.match] = 'bg-[#fbe4d3]';
+TONE_CLASS[TONE.plain] = 'bg-white';
+
+// 점역자주 태그는 본문에 남겨 두되 흐리게 그려 읽기를 방해하지 않게 한다.
+// 커서 칸은 흰 글자라 흐리게 하지 않는다(아래 tone 계산에서 걸러진다).
+const CELL_DIM = 'text-[#c8ccd4]';
+
+// [모양][흐리게] 두 겹 배열로 둔다 — 조회 키를 문자열로 만들면 칸마다 문자열을
+// 새로 만드는 셈이라 미리 만들어 둔 뜻이 없어진다. 색인이면 할당이 0이다.
+const CELL_CLASS: string[][] = TONE_CLASS.map((tone) => [
+  `${CELL_BASE} ${tone}`,
+  `${CELL_BASE} ${tone} ${CELL_DIM}`,
+]);
+
+/** 칸 하나의 클래스 — 상태 조합마다 **같은 문자열 참조**를 돌려준다. */
+export const cellClassFor = (
   row: LayoutRow,
   selected: boolean,
   isCaret: boolean,
   highlighted: boolean,
   dimmed: boolean,
   find: 'none' | 'hit' | 'active' = 'none',
-): string =>
-  [
-    'flex h-[19px] w-[19px] shrink-0 items-center justify-center border-r border-b text-[13px] leading-none',
-    'border-[#e4ebf5]',
-    isCaret
-      ? 'bg-[#5b8ce6] text-white'
+  inSelection = false,
+): string => {
+  const tone = isCaret
+    ? TONE.caret
+    : inSelection
+      ? TONE.sel
       : find === 'active'
-        ? // 찾기에서 지금 보고 있는 한 건
-          'bg-[#f9c74f] text-gray-900'
+        ? TONE.findActive
         : find === 'hit'
-          ? 'bg-[#fdf1c7]'
+          ? TONE.findHit
           : selected
-            ? 'bg-[#5b8ce6]/10'
+            ? TONE.caretRow
             : row.kind === 'fixed'
-              ? // 변경선·페이지행은 조판이 만든 줄이라 고칠 수 없다 — 눌러서 구분되게 한다.
-                'bg-[#f2f5fa] text-gray-400'
-              : // 디자인 V3/BlockCard의 세 상태를 격자에 옮긴 것.
-                //  review(검토 필요) — 크림 배경 + 주황 테두리 (테두리는 행 단위로 그린다)
-                //  selected(원본 대조) — 연한 주황 배경. 디자인은 주황 테두리지만 그 뜻이
-                //    전달되지 않아 배경색으로 바꿨다 (QA "AI 생성 블록 표기 방식 변경").
-                //    review와 헷갈리지 않도록 크림(노랑기)과 주황기로 색을 갈라 둔다.
-                row.source?.isBlocked
-                ? 'bg-[#fdf8e3]'
+              ? TONE.fixed
+              : row.source?.isBlocked
+                ? TONE.review
                 : highlighted
-                  ? 'bg-[#fbe4d3]'
-                  : 'bg-white',
-    // 점역자주 태그는 본문에 남겨 두되 흐리게 그려 읽기를 방해하지 않게 한다.
-    dimmed && !isCaret ? 'text-[#c8ccd4]' : '',
-  ].join(' ');
+                  ? TONE.match
+                  : TONE.plain;
+  return CELL_CLASS[tone][dimmed && !isCaret ? 1 : 0];
+};
 
 const GridPage = React.memo<PageProps>(
   ({
     page,
     pageStart,
     rows,
-    tagMask,
     caret,
     highlightBlockId,
     hoverBlockId,
     findCells,
     activeFindCells,
     intrinsic,
-  }) => (
+    cols,
+    selection,
+    footerPreview,
+    footerAlign = 'center',
+  }) => {
+    // 이 면의 표식 마스크만 만든다 — 붙어 있는 면만 계산하므로 문서가 아무리 길어도
+    // 값이 일정하다(위 buildTagMask 주석). 이 조각이 메모돼 있어 스크롤로 창이
+    // 움직여도 이미 붙은 면은 다시 계산하지 않는다.
+    const tagMask = useMemo(
+      () => buildTagMask(rows, pageStart, pageStart + page.rows.length, cols),
+      [rows, pageStart, page.rows.length, cols],
+    );
+    return (
     // w-max: 면의 폭은 패널이 아니라 32칸 내용이 정한다. 예전에는 행이 패널 폭에
     // 맞춰지고 칸은 그 밖으로 넘쳐서, 블록 강조 테두리가 32칸까지 가지 못하고
     // 31칸 언저리에서 잘렸다. 패널이 좁으면 가로로 스크롤한다.
@@ -225,107 +475,79 @@ const GridPage = React.memo<PageProps>(
         <span className="w-[26px] shrink-0 whitespace-nowrap pr-1.5 text-right font-bold text-[#407FAC]">
           {page.braillePage}쪽
         </span>
-        {Array.from({ length: CELLS_PER_ROW }, (_, i) => (
+        {Array.from({ length: cols }, (_, i) => (
           <span key={i} className="w-[19px] shrink-0 text-center">
             {i === 0 || (i + 1) % 8 === 0 ? i + 1 : ''}
           </span>
         ))}
       </div>
 
-      <div className="w-max border-l border-t border-[#e4ebf5]">
+      <div className="relative w-max border-l border-t border-[#e4ebf5]">
         {page.rows.map((row, rowInPage) => {
           const rowIndex = pageStart + rowInPage;
-          const editable = row.kind === 'body';
-          const isSelected = caret?.rowIndex === rowIndex && editable;
-          const isHighlighted =
-            !!highlightBlockId && row.source?.blockId === highlightBlockId;
-          const cells = toCells(row.text);
-          const dimMaskRow = tagMask[rowIndex] ?? [];
-          const hitCells = findCells?.get(rowIndex);
-          const activeHitCells = activeFindCells?.get(rowIndex);
-          // 검토 필요(review) 블록은 디자인대로 주황 테두리로 감싼다 —
-          // 배경색만으로 알리는 선택(대조) 상태와 섞이지 않게 하는 구분이기도 하다.
-          // 한 블록이 여러 줄이면 줄마다 그리지 않고 한 덩어리로 두른다.
-          const isReview = !!row.source?.isBlocked;
-          const sameBlock = (other?: LayoutRow) =>
-            other?.source?.blockId === row.source?.blockId;
-          // 마우스를 얹으면 그 블록을 상자로 감싼다 — 왼쪽 원본 패널의 텍스트 블록과
-          // 같은 방식으로, 어디까지가 한 블록인지 짚어 준다.
-          const isHovered =
-            !!row.source?.blockId && row.source.blockId === hoverBlockId;
-          // Tailwind는 클래스 문자열을 정적으로 훑으므로 색을 템플릿으로 조립하지 않는다.
-          // 좌우는 자리를 늘 비워 두는 테두리로, 위아래는 배치를 건드리지 않는
-          // 안쪽 그림자로 그린다(위 BLOCK_EDGE 주석 — 줄 높이는 항상 19px).
-          const sideCls = isReview
-            ? 'border-x-2 border-[#f47726]'
-            : isHovered
-              ? 'border-x-2 border-[#c3cfdd]'
-              : 'border-x-2 border-transparent';
-          const edge = isReview
-            ? BLOCK_EDGE.review
-            : isHovered
-              ? BLOCK_EDGE.hover
-              : null;
-
           return (
-            <div
+            <GridRow
               key={rowIndex}
-              data-row={rowIndex}
-              data-block={row.source?.blockId ?? ''}
-              className={[
-                'flex',
-                sideCls,
-                edgeCls(
-                  edge,
-                  !sameBlock(rows[rowIndex - 1]),
-                  !sameBlock(rows[rowIndex + 1]),
-                ),
-              ].join(' ')}
-            >
-              {/* 대체 텍스트가 있는지는 결과 패널 위 [대체 텍스트] 버튼이 알려 준다 —
-                  줄번호 옆 주황 점은 판면을 어지럽혀 뺐다. 안내는 툴팁으로만 남긴다. */}
-              <span
-                title={
-                  row.source?.hasDrafts
-                    ? '대체 텍스트가 있는 블록입니다'
-                    : undefined
-                }
-                className="flex h-[19px] w-[26px] shrink-0 items-center justify-end pr-1.5 text-[9px] text-gray-400"
-              >
-                {rowInPage + 1}
-              </span>
-              {cells.map((ch, cellIdx) => (
-                // 칸마다 핸들러를 달지 않는다 — 칸이 3만 개면 렌더마다 클로저가
-                // 6만 개 새로 생긴다. 클릭·우클릭은 스크롤 컨테이너가 한 번에 받고
-                // 이 data 속성으로 어느 칸인지 알아낸다.
-                <div
-                  key={cellIdx}
-                  role="gridcell"
-                  tabIndex={-1}
-                  data-cell={cellIdx}
-                  data-editable={editable ? '1' : undefined}
-                  className={cellCls(
-                    row,
-                    isSelected,
-                    isSelected && caret?.cell === cellIdx,
-                    isHighlighted,
-                    dimMaskRow[cellIdx] === true,
-                    activeHitCells?.has(cellIdx)
-                      ? 'active'
-                      : hitCells?.has(cellIdx)
-                        ? 'hit'
-                        : 'none',
-                  )}
-                >
-                  {ch}
-                </div>
-              ))}
-            </div>
+              row={row}
+              rowIndex={rowIndex}
+              rowInPage={rowInPage}
+              cols={cols}
+              caretCell={caret?.rowIndex === rowIndex ? caret.cell : null}
+              isHighlighted={
+                !!highlightBlockId && row.source?.blockId === highlightBlockId
+              }
+              isHovered={
+                !!row.source?.blockId && row.source.blockId === hoverBlockId
+              }
+              dimMask={tagMask[rowInPage] ?? EMPTY_MASK}
+              hitCells={findCells?.get(rowIndex)}
+              activeHitCells={activeFindCells?.get(rowIndex)}
+              selFrom={
+                selection && selection.rowIndex === rowIndex
+                  ? selection.from
+                  : -1
+              }
+              selTo={
+                selection && selection.rowIndex === rowIndex ? selection.to : -1
+              }
+              // 블록 테두리는 앞뒤 줄이 같은 블록인지에 달렸다. 판단은 여기서 하고
+              // 결과(불리언)만 넘긴다 — 행 조각이 전체 줄 배열을 들지 않게.
+              openTop={
+                rows[rowIndex - 1]?.source?.blockId !== row.source?.blockId
+              }
+              openBottom={
+                rows[rowIndex + 1]?.source?.blockId !== row.source?.blockId
+              }
+            />
           );
         })}
+
+        {/* 꼬리말 미리보기 — 페이지행 가운데(또는 우측)에 얹는다.
+            ⚠ **묵자 그대로**다. 점역은 AI 서버 몫이라 FE에는 점역기가 없고
+            (SERVER-REQUIREMENTS-3.3.0.md S-4), 우측 정렬도 아직 라이브러리에
+            없다(L-1). 그래서 점자처럼 보이지 않게 회색 기울임으로 그리고, 실제
+            파일에 들어가는 값이 아니라는 것을 툴팁으로 밝힌다.
+            페이지행은 그 면의 마지막 줄이고 가운데가 비어 있어 겹칠 글자가 없다. */}
+        {!!footerPreview && page.rows[page.rows.length - 1]?.kind === 'fixed' && (
+          <div
+            aria-hidden
+            title="점역 전 묵자입니다 — 실제 파일에는 서버가 점역한 점자가 들어갑니다"
+            className={`pointer-events-none absolute bottom-0 left-[26px] h-[19px] leading-[19px] text-[11px] italic text-gray-400 ${
+              footerAlign === 'right' ? 'text-right' : 'text-center'
+            }`}
+            style={{
+              // 양 끝 쪽번호와 두 칸씩 띄운다(지침 1장3-1) — 칸 폭 19px 기준.
+              width: cols * ROW_H - 4 * ROW_H,
+              marginLeft: 2 * ROW_H,
+            }}
+          >
+            {footerPreview}
+          </div>
+        )}
       </div>
     </div>
-  ),
+    );
+  },
 );
 GridPage.displayName = 'GridPage';
 
@@ -377,7 +599,14 @@ interface Props {
   highlightBlockId: string | null;
   onCaretChange: (caret: GridCaret) => void;
   onEditRow: (rowIndex: number, text: string) => void;
-  onContextMenu: (rowIndex: number, x: number, y: number) => void;
+  onContextMenu: (
+    rowIndex: number,
+    x: number,
+    y: number,
+    edit: GridEditActions,
+  ) => void;
+  // 붙여넣기가 걸러졌을 때처럼 사용자에게 한 줄 알릴 일이 있을 때.
+  onNotice?: (message: string) => void;
   // 마우스가 얹힌 블록 — 원본 패널과 같은 값을 공유해 양쪽에 같은 상자를 그린다.
   // 주지 않으면 격자 안에서만 쓰는 자체 상태로 동작한다.
   hoverBlockId?: string | null;
@@ -389,6 +618,17 @@ interface Props {
   // 문서에서 찾기(Ctrl+F) — 걸린 칸을 옅게, 지금 보고 있는 한 건은 진하게 칠한다.
   findCells?: Map<number, Set<number>>;
   activeFindCells?: Map<number, Set<number>>;
+  // Ctrl+Enter — 커서가 있는 블록 앞에서 면을 끊는다(1차 PoC 요청 · 필요성 최상).
+  onPageBreak?: (page: number, blockId: string) => void;
+  // 한 줄 칸 수(조판 설정). 눈금·커서 이동·칸 채우기가 이 값을 따른다. 기본 32칸.
+  cols?: number;
+  // 판면 배율. 'fit'이면 패널 폭에 맞춰 칸을 키운다.
+  zoom?: GridZoom;
+  // 실제로 적용된 배율 — 위쪽 배지에 "폭 맞춤 148%"처럼 보여 주려고 올려 보낸다.
+  onResolvedZoom?: (z: number) => void;
+  // 꼬리말 미리보기를 페이지행에 얹을지와 그 정렬(점역 전 묵자 — 위 GridPage 주석).
+  showFooterPreview?: boolean;
+  footerAlign?: 'center' | 'right';
 }
 
 // 격자 자체도 메모한다 — 위쪽(App)이 다른 이유로 다시 그려질 때 판면까지 딸려
@@ -402,12 +642,19 @@ const BrailleGrid: React.FC<Props> = React.memo(
     onCaretChange,
     onEditRow,
     onContextMenu,
+    onNotice,
     hoverBlockId: hoverBlockIdProp,
     onHoverBlockChange,
     onVisiblePageChange,
     scrollToRow,
     findCells,
     activeFindCells,
+    onPageBreak,
+    cols = CELLS_PER_ROW,
+    zoom = 'fit',
+    onResolvedZoom,
+    showFooterPreview = false,
+    footerAlign = 'center',
   }) => {
     const scrollRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -425,9 +672,6 @@ const BrailleGrid: React.FC<Props> = React.memo(
 
     const isBraille = mode !== TABS.OCR;
     const rows = useMemo(() => flattenRows(pages), [pages]);
-    // 점역자주 태그가 놓인 칸 — 회색으로 흐리게 그린다.
-    const tagMask = useMemo(() => buildTagMask(rows), [rows]);
-
     // 각 면의 첫 행이 전체에서 몇 번째인지 — 행 번호와 커서는 전체 기준으로 센다.
     const pageStarts = useMemo(() => {
       let acc = 0;
@@ -476,6 +720,25 @@ const BrailleGrid: React.FC<Props> = React.memo(
     }, [pages]);
 
     // 붙여 둘 면 구간. 스크롤 중에도 구간이 실제로 달라질 때만 다시 그린다.
+    // 폭 맞춤 계산에 쓰는 스크롤 칸 폭. ResizeObserver가 갱신한다.
+    const [panelWidth, setPanelWidth] = useState(0);
+
+    // 판면 한 줄이 차지하는 내용 폭(배율 1일 때): 줄번호 26 + 칸들 + 좌우 여백 8
+    const contentWidth = 26 + cols * ROW_H + 8;
+    const z =
+      zoom === 'fit'
+        ? panelWidth > 0
+          ? Math.min(
+              ZOOM_FIT_MAX,
+              Math.max(1, (panelWidth - 8) / contentWidth),
+            )
+          : 1
+        : zoom;
+
+    useEffect(() => {
+      onResolvedZoom?.(z);
+    }, [z, onResolvedZoom]);
+
     const [range, setRange] = useState({ start: 0, end: 0 });
     const recomputeRange = useCallback(() => {
       const el = scrollRef.current;
@@ -488,8 +751,11 @@ const BrailleGrid: React.FC<Props> = React.memo(
           ? { start: 0, end: pages.length }
           : (() => {
               const { offsets } = pageOffsets;
-              const first = lastAtOrBefore(offsets, el.scrollTop);
-              const last = lastAtOrBefore(offsets, el.scrollTop + height);
+              // 컨테이너 좌표에는 배율이 곱해져 있다 — 내용 좌표로 되돌려 비교한다.
+              const top = el.scrollTop / z;
+              const view = height / z;
+              const first = lastAtOrBefore(offsets, top);
+              const last = lastAtOrBefore(offsets, top + view);
               return {
                 start: Math.max(0, first - OVERSCAN_PAGES),
                 end: Math.min(pages.length, last + 1 + OVERSCAN_PAGES),
@@ -498,7 +764,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
       setRange((prev) =>
         prev.start === next.start && prev.end === next.end ? prev : next,
       );
-    }, [pageOffsets, pages.length]);
+    }, [pageOffsets, pages.length, z]);
 
     // 면 수가 바뀌면(변환이 진행되며 판면이 자란다) 구간을 다시 잡는다.
     // useEffect로 두면 "아무 면도 안 붙은" 첫 프레임이 한 번 그려져 판면이 깜빡인다 —
@@ -511,7 +777,11 @@ const BrailleGrid: React.FC<Props> = React.memo(
     useEffect(() => {
       const el = scrollRef.current;
       if (!el || typeof ResizeObserver === 'undefined') return;
-      const ro = new ResizeObserver(() => recomputeRange());
+      const ro = new ResizeObserver(() => {
+        setPanelWidth(el.clientWidth);
+        recomputeRange();
+      });
+      setPanelWidth(el.clientWidth);
       ro.observe(el);
       return () => ro.disconnect();
     }, [recomputeRange]);
@@ -526,6 +796,35 @@ const BrailleGrid: React.FC<Props> = React.memo(
     );
 
     const caretRow = caret ? rows[caret.rowIndex] : null;
+
+    // 고른 구간(한 행 안). 드래그·Shift 이동으로 잡고, 그냥 움직이면 풀린다.
+    const [selection, setSelection] = useState<GridSelection | null>(null);
+    // 드래그 시작 칸. 마우스를 누른 채 움직이는 동안만 값이 있다.
+    const dragFromRef = useRef<{ rowIndex: number; cell: number } | null>(null);
+
+    // 편집한 직후 커서가 가야 할 자리 — **줄 번호가 아니라 블록 좌표**로 적어 둔다.
+    // 한 글자만 고쳐도 그 논리 줄이 다시 접히고 뒤가 밀려서, 줄 번호로 옮기면
+    // 엉뚱한 자리에 앉는다(utils/brailleLayout의 CaretAnchor 주석).
+    const pendingAnchorRef = useRef<CaretAnchor | null>(null);
+    const caretAfterEdit = (cell: number) => {
+      const src = caretRow?.source;
+      if (src) pendingAnchorRef.current = anchorAt(src, cell);
+    };
+
+    // 새 판면이 나오면 적어 둔 자리를 찾아 커서를 앉힌다. 편집 직후에만 값이 있다.
+    useLayoutEffect(() => {
+      const anchor = pendingAnchorRef.current;
+      if (!anchor) return;
+      pendingAnchorRef.current = null;
+      const hit = resolveAnchor(rows, anchor);
+      if (hit) onCaretChange(hit);
+    }, [rows, onCaretChange]);
+
+    // 커서가 다른 행으로 가면 선택은 의미가 없다 — 한 행 안에서만 잡기 때문이다.
+    useEffect(() => {
+      if (!selection) return;
+      if (!caret || caret.rowIndex !== selection.rowIndex) setSelection(null);
+    }, [caret, selection]);
 
     // 커서는 본문 행에만 놓인다 — 변경선·페이지행·여백은 건너뛴다.
     const nearestBody = useCallback(
@@ -563,8 +862,8 @@ const BrailleGrid: React.FC<Props> = React.memo(
         pageOffsets.offsets[pageIdx] +
         PAGE_ROWS_TOP +
         (scrollToRow - pageStarts[pageIdx]) * ROW_H;
-      el.scrollTo({ top: Math.max(0, top - 4), behavior: 'smooth' });
-    }, [scrollToRow, pageStarts, pageOffsets, pages.length]);
+      el.scrollTo({ top: Math.max(0, (top - 4) * z), behavior: 'smooth' });
+    }, [scrollToRow, pageStarts, pageOffsets, pages.length, z]);
 
     // 스크롤 위치로 현재 보고 있는 출력 쪽을 계산한다.
     //
@@ -584,12 +883,12 @@ const BrailleGrid: React.FC<Props> = React.memo(
         recomputeRange();
         if (!onVisiblePageChange || pages.length === 0) return;
         // 면 높이는 줄 수마다 다르다 — 평균으로 나누면 뒤로 갈수록 어긋난다.
-        const page = lastAtOrBefore(pageOffsets.offsets, el.scrollTop) + 1;
+        const page = lastAtOrBefore(pageOffsets.offsets, el.scrollTop / z) + 1;
         if (reportedPageRef.current === page) return;
         reportedPageRef.current = page;
         onVisiblePageChange(page);
       });
-    }, [onVisiblePageChange, pages.length, pageOffsets, recomputeRange]);
+    }, [onVisiblePageChange, pages.length, pageOffsets, recomputeRange, z]);
 
     useEffect(
       () => () => {
@@ -613,10 +912,10 @@ const BrailleGrid: React.FC<Props> = React.memo(
           target = prev;
           targetCell = Math.max(0, [...rows[prev].text].length - 1);
         }
-      } else if (cell >= CELLS_PER_ROW) {
+      } else if (cell >= cols) {
         // 32칸을 넘어가면 다음 본문 행 첫 칸으로 — 접힌 글자를 따라간다.
         const next = nearestBody(rowIndex + 1, 1);
-        if (next === -1) targetCell = CELLS_PER_ROW - 1;
+        if (next === -1) targetCell = cols - 1;
         else {
           target = next;
           targetCell = 0;
@@ -626,7 +925,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
       if (rows[target]?.kind !== 'body') return;
       onCaretChange({
         rowIndex: target,
-        cell: Math.min(CELLS_PER_ROW - 1, Math.max(0, targetCell)),
+        cell: Math.min(cols - 1, Math.max(0, targetCell)),
       });
     };
 
@@ -649,16 +948,57 @@ const BrailleGrid: React.FC<Props> = React.memo(
       const hit = cellAt(e.target);
       if (!hit) return;
       e.preventDefault();
-      if (hit.editable) moveCaret(hit.rowIndex, hit.cell);
+      if (!hit.editable) return;
+      moveCaret(hit.rowIndex, hit.cell);
+      // 여기서부터 끌면 구간을 고른다. 누르기만 하면 선택은 풀린다.
+      dragFromRef.current = { rowIndex: hit.rowIndex, cell: hit.cell };
+      setSelection(null);
     };
+
+    // 끌고 있는 동안만 구간을 넓힌다. 다른 행으로 넘어가도 시작한 행에 묶어 둔다 —
+    // 선택은 한 행 안에서만 잡기 때문이다(utils/brailleGrid 머리말).
+    const handleGridMouseMove = (e: React.MouseEvent) => {
+      const from = dragFromRef.current;
+      if (!from) return;
+      const hit = cellAt(e.target);
+      if (!hit) return;
+      const cell =
+        hit.rowIndex === from.rowIndex
+          ? hit.cell
+          : hit.rowIndex > from.rowIndex
+            ? cols
+            : 0;
+      const lo = Math.min(from.cell, cell);
+      const hi = Math.max(from.cell, cell);
+      setSelection(lo === hi ? null : { rowIndex: from.rowIndex, from: lo, to: hi });
+      if (hit.rowIndex === from.rowIndex) moveCaret(from.rowIndex, hit.cell);
+    };
+
+    // 격자 밖에서 손을 떼도 드래그는 끝나야 한다.
+    useEffect(() => {
+      const stop = () => {
+        dragFromRef.current = null;
+      };
+      window.addEventListener('mouseup', stop);
+      return () => window.removeEventListener('mouseup', stop);
+    }, []);
 
     const handleGridContextMenu = (e: React.MouseEvent) => {
       const hit = cellAt(e.target);
       if (!hit) return;
       e.preventDefault();
       if (!hit.editable) return;
-      moveCaret(hit.rowIndex, hit.cell);
-      onContextMenu(hit.rowIndex, e.clientX, e.clientY);
+      // 고른 구간 위에서 누르면 그 선택을 유지한다(다른 편집기와 같은 방식) —
+      // 커서를 옮기면 방금 고른 것이 풀려 복사할 것이 없어진다.
+      const sel =
+        selection &&
+        selection.rowIndex === hit.rowIndex &&
+        hit.cell >= selection.from &&
+        hit.cell < selection.to
+          ? selection
+          : null;
+      if (!sel) moveCaret(hit.rowIndex, hit.cell);
+      onContextMenu(hit.rowIndex, e.clientX, e.clientY, editActionsFor(sel));
     };
 
     const handleGridMouseOver = (e: React.MouseEvent) => {
@@ -672,6 +1012,81 @@ const BrailleGrid: React.FC<Props> = React.memo(
     const applyText = (text: string) => {
       if (!caret) return;
       onEditRow(caret.rowIndex, text);
+    };
+
+    // ── 잘라내기 · 복사 · 붙여넣기 ────────────────────────────
+    //
+    // 1차 PoC(2026-08-26 · 필요성 최상): "드래그 및 우클릭해서 잘라내기/복사/붙여넣기
+    // 메뉴창(or ctrl+x / ctrl+c / ctrl+v)". 단축키와 우클릭 메뉴가 같은 동작을 부른다.
+
+    // 클립보드 쓰기 — 웹뷰에서 navigator.clipboard가 막히는 경우가 있어 숨은 input을
+    // 통한 옛 경로를 남겨 둔다(execCommand는 폐기 예정이지만 웹뷰에서는 아직 동작한다).
+    const writeClipboard = async (text: string): Promise<boolean> => {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        const el = inputRef.current;
+        if (!el) return false;
+        el.value = text;
+        el.select();
+        const ok = document.execCommand('copy');
+        el.value = '';
+        return ok;
+      }
+    };
+
+    const insertPaste = (raw: string) => {
+      if (!caret || !caretRow) return;
+      const text = sanitizePaste(raw, isBraille);
+      if (!text) {
+        if (raw) onNotice?.('점자 판면에는 점형만 붙여넣을 수 있습니다.');
+        return;
+      }
+      const base = selection
+        ? replaceRange(caretRow.text, selection.from, selection.to)
+        : caretRow.text;
+      const at = selection ? selection.from : caret.cell;
+      applyText(insertAt(base, at, text));
+      setSelection(null);
+      caretAfterEdit(at + [...text].length);
+    };
+
+    // 우클릭 메뉴에서 부를 때만 클립보드를 읽는다. 웹뷰가 읽기를 막으면 단축키를 안내한다.
+    const pasteFromClipboard = async () => {
+      try {
+        insertPaste(await navigator.clipboard.readText());
+      } catch {
+        onNotice?.('붙여넣기는 Ctrl+V로 해 주세요.');
+      }
+    };
+
+    // 메뉴는 App이 그리므로 **여는 순간의 선택**을 닫아 둔 동작으로 넘긴다 —
+    // 상태를 나중에 읽으면 그 사이 커서가 움직여 엉뚱한 구간을 잘라낸다.
+    const editActionsFor = (sel: GridSelection | null): GridEditActions => {
+      const row = sel ? rows[sel.rowIndex] : null;
+      const text = sel && row ? sliceCells(row.text, sel.from, sel.to) : '';
+      return {
+        hasSelection: !!text,
+        canPaste: !!caret,
+        copy: () => {
+          if (text) void writeClipboard(text);
+        },
+        cut: () => {
+          if (!text || !sel || !row) return;
+          void writeClipboard(text);
+          onEditRow(sel.rowIndex, replaceRange(row.text, sel.from, sel.to));
+          setSelection(null);
+          if (row.source) pendingAnchorRef.current = anchorAt(row.source, sel.from);
+        },
+        paste: () => void pasteFromClipboard(),
+      };
+    };
+
+    const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+      if (!caret || !caretRow) return;
+      e.preventDefault();
+      insertPaste(e.clipboardData.getData('text/plain'));
     };
 
     // 조합 중인 글자를 격자에 미리 넣어 둔다 — 예전에는 조합이 확정돼야 글자가
@@ -719,6 +1134,74 @@ const BrailleGrid: React.FC<Props> = React.memo(
       // 지우기가 두 번 먹거나 조합 도중에 커서가 튄다.
       if (isComposing || (e.nativeEvent as KeyboardEvent).isComposing) return;
 
+      // Ctrl+Enter — 이 줄에서 면을 끊는다. 단원이 바뀌는 자리에서 새 면부터
+      // 시작하게 하는 조작으로, 실제 점자 책에서 위계에 따라 자주 쓴다
+      // (1차 PoC 2026-08-26 · 필요성 최상). 넣은 자리는 표식 줄로 남는다.
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        if (onPageBreak && caretRow.source) {
+          onPageBreak(caretRow.source.pageNo, caretRow.source.blockId);
+        }
+        return;
+      }
+
+      // Ctrl+C · Ctrl+X. 붙여넣기는 keydown이 아니라 paste 이벤트로 온다
+      // (클립보드 읽기 권한 없이 값을 받을 수 있는 유일한 길이다).
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        const key = e.key.toLowerCase();
+        if (key === 'c' || key === 'x') {
+          if (!selection) return; // 고른 것이 없으면 기본 동작에 맡긴다
+          e.preventDefault();
+          const actions = editActionsFor(selection);
+          if (key === 'c') actions.copy();
+          else actions.cut();
+          return;
+        }
+      }
+
+      // Shift+좌우·Home·End — 커서를 옮기면서 구간을 넓힌다.
+      if (
+        e.shiftKey &&
+        (e.key === 'ArrowLeft' ||
+          e.key === 'ArrowRight' ||
+          e.key === 'Home' ||
+          e.key === 'End')
+      ) {
+        e.preventDefault();
+        const len = [...caretRow.text].length;
+        const next =
+          e.key === 'ArrowLeft'
+            ? Math.max(0, caret.cell - 1)
+            : e.key === 'ArrowRight'
+              ? Math.min(cols, caret.cell + 1)
+              : e.key === 'Home'
+                ? 0
+                : Math.min(cols, len);
+        // 늘리는 기준점은 커서 반대쪽 끝이다 — 방향을 되돌리면 줄어들어야 한다.
+        const anchor = selection
+          ? caret.cell === selection.from
+            ? selection.to
+            : selection.from
+          : caret.cell;
+        const lo = Math.min(anchor, next);
+        const hi = Math.max(anchor, next);
+        setSelection(
+          lo === hi ? null : { rowIndex: caret.rowIndex, from: lo, to: hi },
+        );
+        moveCaret(caret.rowIndex, Math.min(next, cols - 1));
+        return;
+      }
+
+      // 고른 구간이 있으면 지우기가 그 구간을 통째로 지운다.
+      if (selection && (e.key === 'Backspace' || e.key === 'Delete')) {
+        e.preventDefault();
+        const at = selection.from;
+        applyText(replaceRange(caretRow.text, selection.from, selection.to));
+        setSelection(null);
+        caretAfterEdit(at);
+        return;
+      }
+
       switch (e.key) {
         case 'ArrowLeft':
           e.preventDefault();
@@ -756,11 +1239,13 @@ const BrailleGrid: React.FC<Props> = React.memo(
           e.preventDefault();
           // 앞 글자를 지우고 뒤쪽을 왼쪽으로 당긴다.
           applyText(deleteBefore(caretRow.text, caret.cell));
-          moveCaret(caret.rowIndex, caret.cell - 1);
+          caretAfterEdit(Math.max(0, caret.cell - 1));
           return;
         case 'Delete':
           e.preventDefault();
           applyText(deleteAt(caretRow.text, caret.cell));
+          // 지운 자리에 그대로 머문다 — 뒤 글자가 당겨져 오므로 칸 번호는 같다.
+          caretAfterEdit(caret.cell);
           return;
         default:
           break;
@@ -781,8 +1266,13 @@ const BrailleGrid: React.FC<Props> = React.memo(
         // 나머지 문자키는 삼킨다 — 퍼킨스 타법에서 S·D·F·J·K·L 옆의 A·G·H 등을
         // 잘못 눌렀을 때 그 영문자가 그대로 판면에 찍히던 문제를 막는다.
         if (isBraille && e.key !== ' ') return;
-        applyText(insertAt(caretRow.text, caret.cell, e.key));
-        moveCaret(caret.rowIndex, caret.cell + 1);
+        const base = selection
+          ? replaceRange(caretRow.text, selection.from, selection.to)
+          : caretRow.text;
+        const at = selection ? selection.from : caret.cell;
+        applyText(insertAt(base, at, e.key));
+        setSelection(null);
+        caretAfterEdit(at + 1);
       }
     };
 
@@ -795,8 +1285,13 @@ const BrailleGrid: React.FC<Props> = React.memo(
       const cell = codesToCell(pressedDots.current);
       pressedDots.current.clear();
 
-      applyText(insertAt(caretRow.text, caret.cell, cell));
-      moveCaret(caret.rowIndex, caret.cell + 1);
+      const base = selection
+        ? replaceRange(caretRow.text, selection.from, selection.to)
+        : caretRow.text;
+      const at = selection ? selection.from : caret.cell;
+      applyText(insertAt(base, at, cell));
+      setSelection(null);
+      caretAfterEdit(at + 1);
     };
 
     // 비제어 input이라 조합이 끝나지 않은 사이에도 값이 남는다. 조합 중이 아닌 입력
@@ -811,7 +1306,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
       if (!value || !caret || !caretRow) return;
       if (isBraille) return; // 점자 모드는 6점 키 조합만 받는다
       applyText(insertAt(caretRow.text, caret.cell, value));
-      moveCaret(caret.rowIndex, caret.cell + [...value].length);
+      caretAfterEdit(caret.cell + [...value].length);
     };
 
     const handleCompositionEnd = (
@@ -832,7 +1327,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
       const { text, end } = withComposing(e.data ?? '');
       composingRef.current = null;
       applyText(text);
-      moveCaret(caret.rowIndex, end);
+      caretAfterEdit(end);
     };
 
     return (
@@ -840,6 +1335,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
         ref={scrollRef}
         onScroll={handleScroll}
         onMouseDown={handleGridMouseDown}
+        onMouseMove={handleGridMouseMove}
         onContextMenu={handleGridContextMenu}
         onMouseOver={handleGridMouseOver}
         onMouseLeave={() => setHoverBlockId(null)}
@@ -863,13 +1359,22 @@ const BrailleGrid: React.FC<Props> = React.memo(
           }}
           onCompositionUpdate={handleCompositionUpdate}
           onCompositionEnd={handleCompositionEnd}
+          onPaste={handlePaste}
           className="pointer-events-none fixed h-0 w-0 opacity-0"
         />
 
+        {/* 판면 배율. CSS zoom은 **배치 크기 자체**를 키우므로 스크롤 높이도 같이
+            커진다 — transform: scale과 달리 가상 스크롤 계산이 그대로 맞아떨어진다.
+            (컨테이너 좌표 ↔ 내용 좌표 환산만 위에서 z로 나눠 준다) */}
+        <div
+          className="flex flex-col items-center"
+          style={z === 1 ? undefined : { zoom: z }}
+        >
         {/* 화면 위쪽 — 아직 안 붙인 면들이 차지할 자리 */}
         {range.start > 0 && (
           <div
             aria-hidden
+            className="w-full shrink-0"
             style={{ height: pageOffsets.offsets[range.start] }}
           />
         )}
@@ -898,13 +1403,22 @@ const BrailleGrid: React.FC<Props> = React.memo(
               page={page}
               pageStart={start}
               rows={rows}
-              tagMask={tagMask}
               caret={pageCaret}
               highlightBlockId={pageHighlight}
               hoverBlockId={pageHover}
               findCells={findByPage?.[pageIdx]}
               activeFindCells={activeFindByPage?.[pageIdx]}
-              intrinsic={`auto ${26 + CELLS_PER_ROW * ROW_H + 8}px auto ${pageHeightOf(page.rows.length) - 20}px`}
+              cols={cols}
+              footerPreview={showFooterPreview ? page.footerText : undefined}
+              footerAlign={footerAlign}
+              selection={
+                selection &&
+                selection.rowIndex >= start &&
+                selection.rowIndex < end
+                  ? selection
+                  : undefined
+              }
+              intrinsic={`auto ${26 + cols * ROW_H + 8}px auto ${pageHeightOf(page.rows.length) - 20}px`}
             />
           );
         })}
@@ -913,6 +1427,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
         {range.end < pages.length && (
           <div
             aria-hidden
+            className="w-full shrink-0"
             style={{
               height:
                 pageOffsets.total -
@@ -920,6 +1435,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
             }}
           />
         )}
+        </div>
       </div>
     );
   },

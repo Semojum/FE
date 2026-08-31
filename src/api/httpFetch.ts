@@ -11,6 +11,7 @@
 
 import { getClientOs } from '../utils/clientOs';
 import { logDiag } from '../utils/diagLog';
+import { labelOf, now, recordHttp } from '../utils/perfBus';
 
 // Tauri(데스크톱) 런타임 여부. 일반 브라우저/테스트에서는 false. (UseOAuth.ts와 동일 기준)
 const isTauri = (): boolean =>
@@ -76,18 +77,45 @@ export const httpFetch = async (
   init?: RequestInit,
 ): Promise<Response> => {
   const options = withClientOs(input, init);
+  // 첫 바이트까지 걸린 시간을 개발자 모드 오버레이로 흘려보낸다. 여기서 재야
+  // 웹뷰 fetch·플러그인 fetch 두 경로가 같은 기준으로 잡힌다(플러그인 요청은
+  // 개발자도구 Network에 `ipc.localhost`로만 보여 URL조차 알 수 없다).
+  const startedAt = now();
+  const mark = (res: Response) => {
+    recordHttp({
+      t: Date.now(),
+      label: labelOf(input),
+      ttfb: Math.round(now() - startedAt),
+      status: res.status,
+      ok: res.ok,
+    });
+    return res;
+  };
+  const markError = (err: unknown) => {
+    recordHttp({
+      t: Date.now(),
+      label: labelOf(input),
+      ttfb: Math.round(now() - startedAt),
+      status: 0,
+      ok: false,
+    });
+    throw err;
+  };
 
   if (isTauri() && hasBinaryBody(init?.body)) {
     try {
-      return await fetch(input, options);
+      return mark(await fetch(input, options));
     } catch (err) {
       logDiag('업로드', '웹뷰 fetch가 막혀 플러그인 경로로 재시도', err);
     }
   }
 
   const fetchFn = await loadFetch();
-  if (!isTauri() || !options.signal) return fetchFn(input, options);
-  return fetchWithSafeAbort(fetchFn, input, options);
+  const run =
+    !isTauri() || !options.signal
+      ? fetchFn(input, options)
+      : fetchWithSafeAbort(fetchFn, input, options);
+  return run.then(mark, markError);
 };
 
 // tauri-plugin-http의 abort는 "요청 rid 취소"(fetch_cancel) 하나뿐인데, 응답 헤더가

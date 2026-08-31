@@ -4,6 +4,9 @@ import {
   deleteBefore,
   insertAt,
   previewRows,
+  replaceRange,
+  sanitizePaste,
+  sliceCells,
   toCells,
 } from '../brailleGrid';
 
@@ -68,5 +71,62 @@ describe('previewRows', () => {
 
   it('빈 줄도 한 줄을 차지한다', () => {
     expect(previewRows('a\n\nb', 4, 8)).toEqual(['a', '', 'b']);
+  });
+});
+
+// 1차 PoC(2026-08-26 · 필요성 최상) — 드래그·우클릭·Ctrl+C/X/V로 판면을 편집한다.
+describe('구간 선택 편집', () => {
+  describe('sliceCells', () => {
+    it('고른 구간의 글자만 가져온다', () => {
+      expect(sliceCells('가나다라마', 1, 3)).toBe('나다');
+    });
+
+    it('줄 끝을 넘겨도 있는 데까지만 준다', () => {
+      expect(sliceCells('가나', 1, 10)).toBe('나');
+    });
+
+    it('빈 구간은 빈 문자열', () => {
+      expect(sliceCells('가나다', 2, 2)).toBe('');
+    });
+  });
+
+  describe('replaceRange', () => {
+    it('고른 구간을 지운다 (잘라내기)', () => {
+      expect(replaceRange('가나다라', 1, 3)).toBe('가라');
+    });
+
+    it('고른 구간을 다른 글자로 갈아치운다', () => {
+      expect(replaceRange('가나다라', 1, 3, 'XY')).toBe('가XY라');
+    });
+
+    it('커서가 줄 끝보다 뒤면 사이를 공백으로 메운다 (insertAt과 같은 규칙)', () => {
+      expect(replaceRange('가', 3, 3, 'X')).toBe('가  X');
+    });
+
+    it('구간이 줄 끝을 넘어가도 있는 데까지만 지운다', () => {
+      expect(replaceRange('가나다', 1, 99, 'X')).toBe('가X');
+    });
+
+    it('점자 셀도 한 글자 한 칸으로 센다', () => {
+      expect(replaceRange('⠁⠃⠉⠙', 1, 3, '⠭')).toBe('⠁⠭⠙');
+    });
+  });
+
+  describe('sanitizePaste', () => {
+    it('묵자 판면에는 그대로 붙여넣는다', () => {
+      expect(sanitizePaste('가나다 abc', false)).toBe('가나다 abc');
+    });
+
+    it('점자 판면에서는 점형·공백·개행만 남긴다', () => {
+      expect(sanitizePaste('⠁⠃가나 ⠉', true)).toBe('⠁⠃ ⠉');
+    });
+
+    it('점자 판면에 묵자만 붙여넣으면 남는 것이 없다', () => {
+      expect(sanitizePaste('가나다', true)).toBe('');
+    });
+
+    it('여러 줄은 개행을 지킨다 — 블록 본문이 논리 줄로 나뉜다', () => {
+      expect(sanitizePaste('⠁\n⠃', true)).toBe('⠁\n⠃');
+    });
   });
 });

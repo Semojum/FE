@@ -22,7 +22,9 @@ export const TAB_LABEL: Record<ConversionTab, string> = {
   [TABS.INTEGRATED]: '이미지 점자 번역',
 };
 
-export type FileType = 'image' | 'pdf' | 'text' | 'hwp'; // 확장
+// hwp = 옛 OLE2 한글 문서, hwpx = ZIP 기반 한글 문서. 서버가 받는 형식이 서로 달라
+// (2026-08-26 기준 hwp만) 한 종류로 묶지 않는다 — FE가 읽어 텍스트로 바꾸는 경로도 다르다.
+export type FileType = 'image' | 'pdf' | 'text' | 'hwp' | 'hwpx';
 
 export interface FileState {
   file: File | null;

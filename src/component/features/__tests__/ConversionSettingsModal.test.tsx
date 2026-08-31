@@ -39,20 +39,50 @@ describe('ConversionSettingsModal', () => {
     const user = userEvent.setup();
     const { onStart } = setup();
     await user.click(screen.getByRole('button', { name: '변환 시작' }));
-    expect(onStart).toHaveBeenCalledWith(false, '');
+    expect(onStart).toHaveBeenCalledWith(
+      false,
+      '',
+      expect.objectContaining({ footerText: '', pageRowOn: 'odd' }),
+    );
+  });
+
+  // 조판 설정은 평소 한 줄 요약으로 접혀 있다 — 1차 PoC로 항목이 늘어나
+  // 전부 펼쳐 두면 "변환 시작"이 화면 밖으로 밀린다(2026-08-27).
+  it('조판 설정은 접혀 있고 요약만 보인다', () => {
+    setup();
+    expect(screen.getByText(/26줄 × 32칸/)).toBeTruthy();
+    expect(screen.queryByPlaceholderText('예: 수학 익힘책 1')).toBeNull();
   });
 
   it('정한 값을 그대로 넘긴다', async () => {
     const user = userEvent.setup();
     const { onStart } = setup();
     await user.click(screen.getByRole('checkbox'));
+    await user.click(screen.getByRole('button', { name: '조판 설정 바꾸기' }));
     await user.type(
       screen.getByPlaceholderText('예: 수학 익힘책 1'),
       '  수학 익힘책 1  ',
     );
     await user.click(screen.getByRole('button', { name: '변환 시작' }));
     // 앞뒤 공백은 떼고 넘긴다 — 페이지행 가운데에 그대로 점역되는 값이다.
-    expect(onStart).toHaveBeenCalledWith(true, '수학 익힘책 1');
+    expect(onStart).toHaveBeenCalledWith(
+      true,
+      '수학 익힘책 1',
+      expect.objectContaining({ footerText: '수학 익힘책 1' }),
+    );
+  });
+
+  it('조판 설정을 바꾸면 그 값이 함께 넘어간다', async () => {
+    const user = userEvent.setup();
+    const { onStart } = setup();
+    await user.click(screen.getByRole('button', { name: '조판 설정 바꾸기' }));
+    await user.click(screen.getByRole('button', { name: '모든 면' }));
+    await user.click(screen.getByRole('button', { name: '변환 시작' }));
+    expect(onStart).toHaveBeenCalledWith(
+      false,
+      '',
+      expect.objectContaining({ pageRowOn: 'every' }),
+    );
   });
 
   it('취소하면 시작하지 않는다', async () => {
@@ -63,8 +93,10 @@ describe('ConversionSettingsModal', () => {
     expect(onStart).not.toHaveBeenCalled();
   });
 
-  it('꼬리말은 200자까지만 받는다', () => {
+  it('꼬리말은 200자까지만 받는다', async () => {
+    const user = userEvent.setup();
     setup();
+    await user.click(screen.getByRole('button', { name: '조판 설정 바꾸기' }));
     const input = screen.getByPlaceholderText(
       '예: 수학 익힘책 1',
     ) as HTMLInputElement;

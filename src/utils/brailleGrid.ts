@@ -66,3 +66,47 @@ export const deleteAt = (text: string, index: number): string => {
   chars.splice(index, 1);
   return chars.join('');
 };
+
+// ── 구간 선택 ──────────────────────────────────────────────
+//
+// 선택은 **한 행 안에서만** 잡는다. 편집이 행 단위로 블록 본문에 되돌아가고
+// (`blockTextWithRowEdit`), 행마다 속한 블록·논리 줄이 다를 수 있어 여러 행을 한 번에
+// 고치면 앞 행을 고친 결과를 읽기도 전에 다음 행을 고치게 된다. 32칸 한 줄 안에서
+// 고르고 복사·잘라내기·붙여넣기하는 것이 판면 편집의 실제 쓰임이기도 하다.
+
+/** [from, to) 구간의 글자. 줄 끝을 넘는 칸은 없는 것으로 본다. */
+export const sliceCells = (text: string, from: number, to: number): string =>
+  [...text].slice(Math.max(0, from), Math.max(0, to)).join('');
+
+/** [from, to) 구간을 지우고 그 자리에 input을 넣는다(선택 바꿔치기·잘라내기 공용). */
+export const replaceRange = (
+  text: string,
+  from: number,
+  to: number,
+  input = '',
+): string => {
+  const chars = [...text];
+  const start = Math.max(0, from);
+  // 커서가 줄 끝보다 뒤면 사이를 공백으로 메운다(insertAt과 같은 규칙).
+  while (chars.length < start) chars.push(' ');
+  const end = Math.max(start, Math.min(to, chars.length));
+  chars.splice(start, end - start, ...[...input]);
+  return chars.join('');
+};
+
+// 점자 판면에 붙여넣을 수 있는 글자 — 점형(U+2800~U+283F)과 공백뿐이다.
+// 묵자를 그대로 받으면 점자 줄에 한글이 섞여 조판이 어긋난다.
+const BRAILLE_CELL = /[\u2800-\u283f]/;
+
+export const isBrailleCell = (ch: string): boolean => BRAILLE_CELL.test(ch);
+
+/** 붙여넣기 감리 — 점자 판면이면 점형·공백·개행만 남긴다. */
+export const sanitizePaste = (
+  text: string,
+  isBraille: boolean,
+): string => {
+  if (!isBraille) return text;
+  return [...text]
+    .filter((ch) => isBrailleCell(ch) || ch === ' ' || ch === '\n' || ch === '\u3000')
+    .join('');
+};

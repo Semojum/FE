@@ -1,15 +1,44 @@
 // src/components/common/Pagination/index.tsx
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { PaginationProps } from '../../../types';
 import { usePagination } from '../../../hooks/UsePagination.ts';
+
+// 번호 하나가 차지하는 폭(w-8 32px + gap-1 4px)과 좌우 화살표 네 개가 쓰는 폭.
+const BTN_W = 36;
+const ARROWS_W = 4 * 40 + 16;
+// 한 번에 보여줄 번호 개수의 아래/위 한계. 위 한계가 없으면 넓은 화면에서 번호가
+// 수십 개 늘어서 오히려 짚기 어렵다.
+const MIN_LIMIT = 10;
+const MAX_LIMIT = 24;
 
 const Pagination: React.FC<PaginationProps> = ({
   currentPage,
   totalPages,
   onPageChange,
-  limit = 10, // 기본값 10 설정
+  limit,
 }) => {
+  // 창을 키우면 아래에 자리가 남는데도 번호는 늘 열 개에서 끊겼다 — 넓은 화면에서는
+  // 목록이 잘린 것처럼 보인다(2026-08-28). 실제 폭을 재서 들어가는 만큼 보여준다.
+  // 콜백 ref로 받는다 — 쪽이 하나뿐이면 nav 자체가 없다가 나중에 생기는데,
+  // useRef + 빈 의존성 useEffect로는 그때 폭을 다시 재지 못한다.
+  const [box, setBox] = useState<HTMLElement | null>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    if (!box || typeof ResizeObserver === 'undefined') return;
+    // observe()는 등록 즉시 현재 크기로 한 번 호출된다 — 첫 값은 그것으로 받는다.
+    const ro = new ResizeObserver(() => setWidth(box.clientWidth));
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [box]);
+  const fitLimit =
+    width > 0
+      ? Math.min(
+          MAX_LIMIT,
+          Math.max(MIN_LIMIT, Math.floor((width - ARROWS_W) / BTN_W)),
+        )
+      : MIN_LIMIT;
+
   // Custom Hook을 통해 로직 호출
   // (훅보다 먼저 return하면 안 된다 — 쪽수가 1↔2를 오갈 때 훅 개수가 달라져
   //  React가 상태를 잘못 이어 붙인다. 렌더 생략은 훅 호출 뒤에서 한다.)
@@ -17,33 +46,37 @@ const Pagination: React.FC<PaginationProps> = ({
     usePagination({
       currentPage,
       totalPages,
-      limit,
+      limit: limit ?? fitLimit,
     });
 
   // 예외 처리: 페이지가 없거나 1개뿐인 경우 렌더링 하지 않음
+  // (폭을 재는 useEffect가 먼저 돌아야 하므로 훅 뒤에서 걸러낸다. 여기서 null을
+  //  돌려주면 ref가 비어 다음에 다시 뜰 때 폭을 못 재는데, ResizeObserver가
+  //  붙는 시점이 마운트라 문제되지 않는다 — 조건이 바뀌면 새로 마운트된다.)
   if (totalPages <= 1) return null;
 
-  // 핸들러: 이전 그룹(10페이지 전)으로 이동
+  // 핸들러: 한 묶음 앞으로 이동
   const handlePrevGroup = () => {
-    onPageChange(Math.max(startPage - limit, 1));
+    onPageChange(Math.max(startPage - (endPage - startPage + 1), 1));
   };
 
-  // 핸들러: 다음 그룹(10페이지 후)으로 이동
+  // 핸들러: 한 묶음 뒤로 이동
   const handleNextGroup = () => {
     onPageChange(Math.min(endPage + 1, totalPages));
   };
 
   return (
     <nav
+      ref={setBox}
       aria-label="Pagination"
-      className="flex items-center justify-center gap-2 mt-8 text-sm font-medium text-gray-500"
+      className="flex items-center justify-center gap-2 mt-4 text-sm font-medium text-gray-500"
     >
-      {/* << 10페이지 이전 이동 (첫 그룹일 때 숨김) */}
+      {/* << 한 묶음 앞으로 (첫 묶음일 때 숨김) */}
       <button
         onClick={handlePrevGroup}
         disabled={!hasPrevGroup}
         className="w-8 h-8 flex items-center justify-center hover:text-gray-900 disabled:opacity-0 transition-opacity"
-        aria-label="Previous 10 pages"
+        aria-label="이전 묶음"
       >
         &lt;&lt;
       </button>
@@ -53,7 +86,7 @@ const Pagination: React.FC<PaginationProps> = ({
         onClick={() => onPageChange(currentPage - 1)}
         disabled={currentPage === 1}
         className="w-8 h-8 flex items-center justify-center hover:text-gray-900 disabled:opacity-30 transition-colors"
-        aria-label="Previous page"
+        aria-label="이전 쪽"
       >
         &lt;
       </button>
@@ -82,17 +115,17 @@ const Pagination: React.FC<PaginationProps> = ({
         onClick={() => onPageChange(currentPage + 1)}
         disabled={currentPage === totalPages}
         className="w-8 h-8 flex items-center justify-center hover:text-gray-900 disabled:opacity-30 transition-colors"
-        aria-label="Next page"
+        aria-label="다음 쪽"
       >
         &gt;
       </button>
 
-      {/* >> 10페이지 다음 이동 (마지막 그룹일 때 숨김) */}
+      {/* >> 한 묶음 뒤로 (마지막 묶음일 때 숨김) */}
       <button
         onClick={handleNextGroup}
         disabled={!hasNextGroup}
         className="w-8 h-8 flex items-center justify-center hover:text-gray-900 disabled:opacity-0 transition-opacity"
-        aria-label="Next 10 pages"
+        aria-label="다음 묶음"
       >
         &gt;&gt;
       </button>

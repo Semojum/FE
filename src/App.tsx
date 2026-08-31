@@ -22,7 +22,9 @@ import {
   ArrowRightCircle,
   Undo2,
   Redo2,
+  BookOpen,
   Lock,
+  Minus,
   Plus,
   ArrowUp,
   ArrowDown,
@@ -50,6 +52,7 @@ import { getJobPage, listActiveJobs } from './api/HistoryService';
 import FilePreviewer from './component/features/conversion/FilePreviewer';
 import Pagination from './component/features/conversion/Pagination';
 import BrailleGrid, {
+  type GridEditActions,
   GridCaret,
 } from './component/features/conversion/BrailleGrid';
 import ContextMenu from './component/shared/ContextMenu';
@@ -63,7 +66,8 @@ import FindBar, {
 import LoginScreen from './component/features/auth/LoginScreen';
 import MyPage from './component/features/mypage/MyPage';
 import InquiryFab from './component/features/support/InquiryFab';
-import AppVersionBadge from './component/shared/AppVersionBadge';
+import RuleSearchModal from './component/features/support/RuleSearchModal';
+import DevModeLayer from './component/features/dev/DevModeLayer';
 
 // Types
 import {
@@ -85,7 +89,9 @@ import {
   QueuePositionData,
 } from './types/apiTypes';
 import {
+  detectFileType,
   fileValidationMessage,
+  needsLocalTextExtraction,
   MAX_UPLOAD_LABEL,
   TAB_ALLOWED_FILE_LABEL,
 } from './utils/fileValidation';
@@ -107,15 +113,43 @@ import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
 import { isTextOriginal, renderableOriginals } from './utils/pageOriginals';
 import { onAppClose } from './utils/appLifecycle';
 import { loadBrailleDefaults } from './utils/brailleDefaults';
+import type { FooterScope, TypesetOptions } from './utils/typesetOptions';
+import {
+  loadJobTypeset,
+  saveJobTypeset,
+} from './utils/jobTypeset';
+import {
+  clampZoom,
+  describeZoom,
+  loadGridZoom,
+  saveGridZoom,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  ZOOM_STEP,
+  type GridZoom,
+} from './utils/gridZoom';
 import { logDiag } from './utils/diagLog';
+import { brfFromLayout, countPendingMarks } from './utils/localBrf';
+import { useIsDevBuild } from './hooks/UseIsDevBuild';
+import UnfinishedModal from './component/shared/UnfinishedModal';
+import type { UnfinishedId } from './utils/unfinished';
 import {
   blockTextWithRowEdit,
+  footerMarkBefore,
+  insertFooterTagAfter,
+  insertPageBreakBefore,
+  lastBlockOfPage,
+  origPageShift,
+  pageIndexOfBlock,
+  setSectionFooterBefore,
   buildLayout,
-  CELLS_PER_ROW,
   firstRowIndexOfPage,
   flattenRows,
-  ROWS_PER_PAGE,
 } from './utils/brailleLayout';
+import { endOp, now } from './utils/perfBus';
+import SectionFooterModal from './component/features/conversion/SectionFooterModal';
+import TypesetModal from './component/features/conversion/TypesetModal';
+import OrigPageModal from './component/features/conversion/OrigPageModal';
 import DownloadModal from './component/features/conversion/DownloadModal';
 import ConversionSettingsModal from './component/features/conversion/ConversionSettingsModal';
 import SendToBrailleModal from './component/features/conversion/SendToBrailleModal';
@@ -266,6 +300,23 @@ const Semojum: React.FC = () => {
   // 페이지행 가운데에 들어갈 꼬리말(묵자). 쪽번호와 마찬가지로 업로드 시점에 확정된다
   // (2026-08-07 명세 추가). 점역은 다운로드 시점에 서버가 한다.
   const [footerText, setFooterText] = useState('');
+  // 조판 설정(규격·페이지행 범위·표지 제외·꼬리말 정렬). 1차 PoC 요청으로 들어왔고
+  // 쪽번호·꼬리말과 같은 시점(업로드)에 확정된다 — 판면이 통째로 다시 짜이기 때문이다.
+  const [typeset, setTypeset] = useState<TypesetOptions>(
+    () => loadBrailleDefaults().typeset,
+  );
+  // 변환 설정 모달에서 고른 값. 업로드가 Job을 만들어 돌려주면 그때 그 작업의
+  // 설정으로 굳는다 — 모달을 닫는 시점에는 아직 jobId가 없다.
+  const pendingTypesetRef = useRef<TypesetOptions | null>(null);
+  // 판면 배율. 칸이 19px 고정이라 창을 키워도 모눈종이는 그대로였다 —
+  // 2026-08-28 실측에서 결과 패널 1,644px 중 1,006px이 빈 자리였다.
+  // 기본값 'fit'은 남는 폭을 칸 크기로 돌려준다.
+  const [gridZoom, setGridZoom] = useState<GridZoom>(() => loadGridZoom());
+  const [resolvedZoom, setResolvedZoom] = useState(1);
+  const changeGridZoom = useCallback((next: GridZoom) => {
+    setGridZoom(next);
+    saveGridZoom(next);
+  }, []);
   // 파일을 골랐지만 아직 변환 설정(쪽번호·꼬리말)을 정하지 않은 상태.
   // 값이 있으면 [변환 설정] 모달이 뜨고, [변환 시작]을 눌러야 업로드가 시작된다.
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -284,6 +335,8 @@ const Semojum: React.FC = () => {
     rowIndex: number;
     x: number;
     y: number;
+    // 메뉴를 여는 순간의 선택으로 닫아 둔 편집 동작(격자가 넘겨준다).
+    edit: GridEditActions;
   } | null>(null);
   const [visibleOutputPage, setVisibleOutputPage] = useState(1);
   const [scrollToRow, setScrollToRow] = useState<number | null>(null);
@@ -472,6 +525,9 @@ const Semojum: React.FC = () => {
     setImgResolution({ width: 0, height: 0 });
     setSavedOriginalsByPage(null);
     setWorkingJobId(null);
+    // 업로드가 중간에 엎어졌으면 예약해 둔 조판 설정도 함께 버린다 —
+    // 남겨 두면 다음에 여는 **다른** 작업에 붙는다.
+    pendingTypesetRef.current = null;
     editor.resetEditor();
     setPageStatuses({});
     setOriginalFileName(null);
@@ -735,6 +791,48 @@ const Semojum: React.FC = () => {
     [editor, removeBlock],
   );
 
+  // 쪽 바꿈 — 커서가 있는 블록 **앞에** 표식 블록을 하나 넣는다.
+  //
+  // 판면에서 "여기서부터 새 면"을 만드는 조작이다(1차 PoC 2026-08-26 · 필요성 최상).
+  // 표식은 본문에 남는 `<!…>` 문법을 그대로 쓰므로 저장·되돌리기가 다른 편집과 같고,
+  // 조판은 buildLayout이 이 표식에서 토막을 나눠 라이브러리에 각각 맡긴다.
+  // 개발 빌드에서만 여는 임시 경로들(화면 그대로 내려받기). 프로덕션에는 안 보인다.
+  const isDevBuild = useIsDevBuild();
+
+  // 아직 완성되지 않은 기능 — 프로덕션에서는 막고 이유를 알린다.
+  // 화면에서만 되고 내려받는 파일에는 반영되지 않는 것들이라, 되는 척하면 점역사가
+  // 마지막에야 알게 된다(utils/unfinished.ts 머리말).
+  const [unfinished, setUnfinished] = useState<UnfinishedId | null>(null);
+  /** 막았으면 true — 호출부는 그대로 돌아간다. */
+  const blockUnfinished = useCallback(
+    (id: UnfinishedId): boolean => {
+      if (isDevBuild) return false;
+      setUnfinished(id);
+      return true;
+    },
+    [isDevBuild],
+  );
+
+  const handlePageBreak = useCallback(
+    (page: number, blockId: string) => {
+      if (blockUnfinished('pageBreak')) return;
+      // 넣을 배열은 insertPageBreakBefore가 통째로 만들어 준다 — 여기서 넣고 다시
+      // 읽는 방식은 ref가 아직 갱신되기 전이라 엉뚱한 배열을 조립한다.
+      const result = insertPageBreakBefore(readBlocks(page), blockId);
+      if (result.status === 'not-found') return;
+      if (result.status === 'already') {
+        setToast('이미 이 자리에서 면이 바뀝니다.');
+        return;
+      }
+      editor.pushHistory(page);
+      setBlocksForPage(page, result.blocks);
+      editor.markDirty(page);
+      setToast('이 자리에서 면을 바꿉니다. (Ctrl+Z로 되돌리기)');
+    },
+    [readBlocks, setBlocksForPage, editor, blockUnfinished],
+  );
+
+
   // 블록 순서 변경 — 저장 시 배열 순서가 그대로 reading_order가 되므로
   // 화면 배열만 바꾸고 페이지 저장에 맡긴다.
   const handleMoveBlock = useCallback(
@@ -801,11 +899,122 @@ const Semojum: React.FC = () => {
   // 판면 배치는 braille-assist가 만든다 — 32칸 줄바꿈·원본 쪽 변경선·26줄 면 나눔·
   // 페이지행까지 다운로드 .brf와 같은 자리에서 나뉜다. 하단 페이지네이션이 옮기는
   // 원본 파일 페이지와 여기의 "출력 쪽"(점자 면)은 별개다.
-  const layout = useMemo(
-    () => buildLayout(blocksByPage, insertPageNumber),
-    [blocksByPage, insertPageNumber],
-  );
+  // 편집 한 번마다 문서 전체가 다시 조판된다. 그 시간을 개발자 오버레이("최근 동작")로
+  // 흘린다 — 재지 않으면 느려졌을 때 조판인지 그리기인지 가릴 수가 없다.
+  const layout = useMemo(() => {
+    const at = now();
+    const out = buildLayout(blocksByPage, insertPageNumber, '', typeset);
+    endOp('판면 조판', at);
+    return out;
+  }, [blocksByPage, insertPageNumber, typeset]);
   const gridRows = useMemo(() => flattenRows(layout), [layout]);
+  // 지금 보고 있는 면에 걸린 꼬리말 (구간 표식이 없으면 작업 전체 꼬리말).
+  const visibleFooterText = layout[visibleOutputPage - 1]?.footerText ?? '';
+
+  // 구간 꼬리말 — "여기서부터 이 꼬리말". 어느 자리에 넣을지는 우클릭이 정하고,
+  // 문구는 모달이 받는다(1차 PoC 피드백: 단원마다 꼬리말이 달라야 한다).
+  const [footerMark, setFooterMark] = useState<{
+    page: number;
+    blockId: string;
+    current: string | null;
+  } | null>(null);
+
+  // 어느 자리인지는 호출부(모달)가 들고 있다 — 핸들러가 열려 있는 자리 상태를
+  // 다시 읽으면 그 상태에 매여, 자리를 바꿀 때마다 판면 메모가 통째로 풀린다.
+  const handleSectionFooter = useCallback(
+    (page: number, blockId: string, footer: string, scope: FooterScope) => {
+      setFooterMark(null);
+      const started = setSectionFooterBefore(readBlocks(page), blockId, footer);
+      if (started.status === 'not-found') return;
+      if (started.status === 'already') {
+        setToast('이미 이 자리부터 그 꼬리말을 씁니다.');
+        return;
+      }
+
+      let next = started.blocks;
+      let scoped = scope === 'page';
+      if (scoped) {
+        // "이 면만" — 시작 표식을 넣은 판면을 **다시 짜서** 그 면이 어디서 끝나는지
+        // 보고, 원래 꼬리말로 되돌리는 표식을 그 뒤에 넣는다. 면이 어디서 끊기는지는
+        // 조판이 정하므로 넣어 보기 전에는 알 수 없다.
+        const before =
+          layout[pageIndexOfBlock(layout, blockId)]?.footerText ??
+          typeset.footerText;
+        const nextLayout = buildLayout(
+          { ...blocksRef.current, [page]: next },
+          insertPageNumber,
+          '',
+          typeset,
+        );
+        const pageIdx = pageIndexOfBlock(nextLayout, blockId);
+        const endBlock =
+          pageIdx === -1 ? null : lastBlockOfPage(nextLayout[pageIdx]);
+        const closed = endBlock
+          ? insertFooterTagAfter(next, endBlock, before)
+          : { status: 'not-found' as const };
+        if (closed.status === 'inserted') next = closed.blocks;
+        // 그 면이 다음 원본 쪽까지 이어지면 끝 표식을 놓을 자리가 이 쪽에 없다.
+        // 편집은 원본 쪽 단위라 넘어가지 못하므로, 솔직하게 "뒤 전부"로 알린다.
+        else scoped = false;
+      }
+
+      editor.pushHistory(page);
+      setBlocksForPage(page, next);
+      editor.markDirty(page);
+      const where = scoped ? '이 면에만' : '이 자리부터';
+      setToast(
+        footer
+          ? `${where} 꼬리말을 "${footer}"로 씁니다. (Ctrl+Z로 되돌리기)`
+          : `${where} 꼬리말을 넣지 않습니다. (Ctrl+Z로 되돌리기)`,
+      );
+    },
+    [readBlocks, setBlocksForPage, editor, layout, typeset, insertPageNumber],
+  );
+
+  // 이 파일의 조판 설정 — 판면 우클릭에서 연다.
+  const [isTypesetOpen, setIsTypesetOpen] = useState(false);
+  // 점자 규정 찾아보기(1차 PoC 부가 기능 3-2).
+  const [isRuleSearchOpen, setIsRuleSearchOpen] = useState(false);
+
+
+
+  // 서버가 아직 읽지 못하는 표식 수 — 다운로드 모달이 미리 알린다(L-2·L-3).
+  const pendingMarks = useMemo(
+    () => countPendingMarks(blocksByPage),
+    [blocksByPage],
+  );
+
+  // HWP·HWPX는 **FE가 읽어 .txt로 바꿔** 올린다 — 서버 계약(b=TXT)은 건드리지 않는다.
+  // 1차 PoC 3-1 요청 중 FE만으로 되는 절반이다(초안 생성·이미지 점자 번역은 문서를
+  // 그대로 봐야 해서 서버 변환이 필요하다 — S-5).
+  const prepareUploadFile = useCallback(async (file: File): Promise<File> => {
+    if (!needsLocalTextExtraction(detectFileType(file))) return file;
+    const { parseHwpToText } = await import('./component/shared/HwpParser');
+    const text = await parseHwpToText(file);
+    if (!text.trim()) {
+      throw new Error('한글 문서에서 글자를 찾지 못했습니다.');
+    }
+    return new File([text], file.name.replace(/\.hwpx?$/i, '.txt'), {
+      type: 'text/plain',
+    });
+  }, []);
+
+  // 화면 판면을 그대로 .brf로. S-1이 열리면 이 경로는 통째로 지운다.
+  const handleDownloadLocalBrf = useCallback(
+    async (fileName: string) => {
+      if (layout.length === 0) throw new Error('내려받을 판면이 없습니다.');
+      const blob = new Blob([brfFromLayout(layout)], {
+        type: 'text/plain;charset=utf-8',
+      });
+      const saved = await saveBlob(blob, `${fileName}.brf`);
+      setToast(
+        saved
+          ? `화면 그대로 저장했습니다 (임시) — ${saved}`
+          : '화면 그대로 저장했습니다 (임시)',
+      );
+    },
+    [layout],
+  );
 
   const outputPageCount = Math.max(1, layout.length);
 
@@ -1199,7 +1408,8 @@ const Semojum: React.FC = () => {
   // 격자 우클릭 위치. 인라인 화살표로 넘기면 렌더마다 새 함수가 되어 격자 메모가
   // 깨진다 — 판면이 수만 칸이라 그 한 번이 그대로 멈춤으로 보인다.
   const handleGridContextMenu = useCallback(
-    (rowIndex: number, x: number, y: number) => setGridMenu({ rowIndex, x, y }),
+    (rowIndex: number, x: number, y: number, edit: GridEditActions) =>
+      setGridMenu({ rowIndex, x, y, edit }),
     [],
   );
 
@@ -1218,6 +1428,53 @@ const Semojum: React.FC = () => {
   useEffect(() => {
     if (jobId) setWorkingJobId(jobId);
   }, [jobId]);
+
+  // 조판 설정은 작업마다 다르다 — 작업이 바뀌면 그 작업의 값으로 판면을 다시 짠다.
+  //
+  // 들어오는 문은 넷이다(업로드·마이페이지 열기·세션 복구·진행 중 작업 이어받기).
+  // 넷 다 workingJobId를 세우므로 여기 한 곳에서 받는다. 방금 업로드한 작업만
+  // 화면의 값이 정답이고(변환 설정 모달에서 고른 값), 나머지는 저장된 값이 정답이다.
+  useEffect(() => {
+    if (!workingJobId) return;
+    const pending = pendingTypesetRef.current;
+    if (pending) {
+      pendingTypesetRef.current = null;
+      saveJobTypeset(workingJobId, pending);
+      return;
+    }
+    // 저장된 것이 없는 작업(이 기능 이전에 만든 것·다른 기기에서 만든 것)은
+    // 기본 설정으로 연다. 직전에 보던 파일의 규격을 물려받으면 안 된다.
+    setTypeset(loadJobTypeset(workingJobId) ?? loadBrailleDefaults().typeset);
+  }, [workingJobId]);
+
+  // 조판 설정을 바꾸면 지금 열려 있는 작업에 곧바로 붙여 둔다 — 다음에 이 파일을
+  // 열 때도 같은 판면이어야 한다.
+  const changeTypeset = useCallback(
+    (next: TypesetOptions) => {
+      setTypeset(next);
+      if (workingJobId) saveJobTypeset(workingJobId, next);
+    },
+    [workingJobId],
+  );
+
+  // 원본 쪽 번호를 그 쪽만 고치기(1차 PoC 1-4 기능4). 값은 서버가 준 원본 쪽 번호다.
+  const [origPageEdit, setOrigPageEdit] = useState<number | null>(null);
+
+  const applyOrigPageOverride = useCallback(
+    (pageNo: number, shown: number | null) => {
+      setOrigPageEdit(null);
+      const next = { ...typeset.origPageOverrides };
+      if (shown === null) delete next[String(pageNo)];
+      else next[String(pageNo)] = shown;
+      changeTypeset({ ...typeset, origPageOverrides: next });
+      setToast(
+        shown === null
+          ? `원본 ${pageNo}쪽의 번호를 원래대로 되돌렸습니다.`
+          : `원본 ${pageNo}쪽을 ${shown}쪽으로 적습니다.`,
+      );
+    },
+    [typeset, changeTypeset],
+  );
 
   const handlePageMapped = usePageStreamHandler({
     // 결과 해석은 이 Job이 만들어진 모드 기준이다 (탭을 옮겨도 흔들리지 않게).
@@ -1788,7 +2045,12 @@ const Semojum: React.FC = () => {
   // 명세 모드별 허용 파일: a(OCR)=PDF, b(점역)=TXT/HWP, c(통합)=PDF
   const acceptConfig = useMemo<Accept>((): Accept => {
     if (activeTab === TABS.BRAILLE) {
-      return { 'text/plain': ['.txt'], 'application/x-hwp': ['.hwp'] };
+      // HWP·HWPX는 FE가 읽어 텍스트로 바꿔 올린다(HwpParser).
+      return {
+        'text/plain': ['.txt'],
+        'application/x-hwp': ['.hwp'],
+        'application/hwp+zip': ['.hwpx'],
+      };
     }
     return { 'application/pdf': ['.pdf'] };
   }, [activeTab]);
@@ -2040,6 +2302,20 @@ const Semojum: React.FC = () => {
                 <Redo2 size={17} />
               </button>
 
+              {/* 점자 규정 찾아보기 — 조판하다 규정을 확인할 일이 잦다
+                  (1차 PoC 부가 기능 · 필요성 중). */}
+              <button
+                onClick={() => {
+                  if (blockUnfinished('ruleSearch')) return;
+                  setIsRuleSearchOpen(true);
+                }}
+                title="점자 규정 찾아보기"
+                aria-label="점자 규정 찾아보기"
+                className="rounded p-1.5 text-gray-400 transition-colors hover:text-[#407FAC]"
+              >
+                <BookOpen size={17} />
+              </button>
+
               <span className="mx-1 h-4 w-px bg-gray-200" />
 
               <button
@@ -2087,7 +2363,10 @@ const Semojum: React.FC = () => {
         )}
       </header>
 
-      <main className="relative flex min-h-0 w-full flex-1 flex-col items-center px-2 py-3">
+      {/* 아래 여백(pb-6)은 쪽 넘김 줄이 창 맨 아래에 딱 붙지 않게 하는 값이다.
+          창을 최대화하면 그 줄 바로 밑이 작업 표시줄이라, 12px(py-3)로는 잘린 것처럼
+          보였다(2026-08-28 실측: 5120×2160·150% 배율에서 버튼 아래가 18물리px). */}
+      <main className="relative flex min-h-0 w-full flex-1 flex-col items-center px-2 pt-3 pb-6">
         {/* 작업을 불러오는 동안은 두 패널을 함께 덮는다 — 결과만 먼저 그려 놓으면
             아직 원본이 없는 자리에 대조 상자를 그리려다 화면이 어긋난다.
             "원본을 불러오지 못했습니다"를 성급히 띄우지 않는 효과도 있다. */}
@@ -2228,6 +2507,9 @@ const Semojum: React.FC = () => {
                             }
                           : null
                       }
+                      // 쪽 축소본을 어느 문서의 것으로 담을지 — 작업이 바뀌면
+                      // 키가 달라져 이전 문서의 그림이 새 문서에 뜨지 않는다.
+                      docKey={workingJobId ?? originalFileName}
                       onBlockClick={handleSelectFromOriginal}
                       hoveredBlockId={hoverBlockId}
                       onBlockHover={handleHoverBlock}
@@ -2326,7 +2608,19 @@ const Semojum: React.FC = () => {
                     <div className="flex items-center gap-2">
                       {gridRows.length > 0 && (
                         <span className="rounded-md bg-[#eef3fc] px-2 py-1 text-[11px] font-semibold text-[#5b8ce6]">
-                          {ROWS_PER_PAGE}줄 × {CELLS_PER_ROW}칸
+                          {typeset.rows}줄 × {typeset.cols}칸
+                        </span>
+                      )}
+                      {/* 지금 보고 있는 면의 꼬리말. 구간마다 다를 수 있어(우클릭 →
+                          여기부터 꼬리말) 어느 면에 무엇이 걸렸는지 여기서 읽는다.
+                          페이지행에 점자로 찍히는 것은 서버가 꼬리말을 점역해 준
+                          뒤다(SERVER-REQUIREMENTS-3.3.0.md S-4). */}
+                      {visibleFooterText && (
+                        <span
+                          title={`${visibleOutputPage}쪽 꼬리말 — 점역은 다운로드 때 서버가 합니다`}
+                          className="max-w-[180px] truncate rounded-md bg-gray-100 px-2 py-1 text-[11px] text-gray-500"
+                        >
+                          꼬리말 {visibleFooterText}
                         </span>
                       )}
                       {/* 이 작업의 페이지행 설정. 값을 바꾸면 판면이 통째로 다시 짜이는데,
@@ -2348,6 +2642,53 @@ const Semojum: React.FC = () => {
                           페이지행(쪽번호·꼬리말)
                           <Lock size={10} />
                         </label>
+                      )}
+                      {/* 판면 배율. 기본은 패널 폭에 맞추고(fit), 눈이 편한 크기로
+                          직접 고정할 수도 있다 — 고른 값은 다음 실행에도 남는다. */}
+                      {gridRows.length > 0 && (
+                        <div className="flex items-center gap-0.5 rounded-md border border-gray-200 px-1 py-0.5">
+                          <button
+                            type="button"
+                            aria-label="판면 축소"
+                            title="판면 축소"
+                            disabled={resolvedZoom <= ZOOM_MIN + 0.001}
+                            onClick={() =>
+                              changeGridZoom(
+                                clampZoom(resolvedZoom - ZOOM_STEP),
+                              )
+                            }
+                            className="flex h-5 w-5 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 disabled:opacity-30"
+                          >
+                            <Minus size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            title="눌러서 폭 맞춤으로 되돌리기"
+                            aria-label={`판면 배율 ${describeZoom(gridZoom, resolvedZoom)} — 폭 맞춤으로`}
+                            onClick={() => changeGridZoom('fit')}
+                            className={`min-w-[74px] rounded px-1 text-[11px] tabular-nums transition-colors hover:bg-gray-100 ${
+                              gridZoom === 'fit'
+                                ? 'font-semibold text-[#407FAC]'
+                                : 'text-gray-500'
+                            }`}
+                          >
+                            {describeZoom(gridZoom, resolvedZoom)}
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="판면 확대"
+                            title="판면 확대"
+                            disabled={resolvedZoom >= ZOOM_MAX - 0.001}
+                            onClick={() =>
+                              changeGridZoom(
+                                clampZoom(resolvedZoom + ZOOM_STEP),
+                              )
+                            }
+                            className="flex h-5 w-5 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 disabled:opacity-30"
+                          >
+                            <Plus size={12} />
+                          </button>
+                        </div>
                       )}
                     </div>
                     <div className="flex items-center gap-3">
@@ -2568,12 +2909,22 @@ const Semojum: React.FC = () => {
                       onCaretChange={handleCaretChange}
                       onEditRow={handleEditRow}
                       onContextMenu={handleGridContextMenu}
+                      onNotice={setToast}
                       hoverBlockId={hoverBlockId}
                       onHoverBlockChange={handleHoverBlock}
                       onVisiblePageChange={setVisibleOutputPage}
                       scrollToRow={scrollToRow}
                       findCells={findCells}
                       activeFindCells={activeFindCells}
+                      onPageBreak={handlePageBreak}
+                      cols={typeset.cols}
+                      // 꼬리말은 아직 점역본이 없어 묵자로 얹어 보여 준다(S-4).
+                      // 어느 면에 어떤 꼬리말이 걸렸는지·정렬이 어떻게 보이는지를
+                      // 확인하는 미리보기다 — 개발 빌드에서만 켠다.
+                      showFooterPreview={isDevBuild}
+                      footerAlign={typeset.footerAlign}
+                      zoom={gridZoom}
+                      onResolvedZoom={setResolvedZoom}
                     />
                   ) : pageStatuses[currentPage] === 'BLOCKED' ? (
                     // 서버가 이 페이지를 변환하지 못한 경우(page_done status=BLOCKED /
@@ -2627,6 +2978,29 @@ const Semojum: React.FC = () => {
             const blocks = blocksByPage[line.pageNo] ?? [];
             const index = blocks.findIndex((b) => b.id === line.blockId);
             return [
+              // 편집 — 1차 PoC 요청(필요성 최상). 단축키(Ctrl+C/X/V)와 같은 동작이다.
+              {
+                label: '복사',
+                title: gridMenu.edit.hasSelection
+                  ? '고른 구간을 복사합니다 (Ctrl+C)'
+                  : '먼저 판면에서 끌어 구간을 고르세요',
+                disabled: !gridMenu.edit.hasSelection,
+                onSelect: () => gridMenu.edit.copy(),
+              },
+              {
+                label: '잘라내기',
+                title: gridMenu.edit.hasSelection
+                  ? '고른 구간을 잘라냅니다 (Ctrl+X)'
+                  : '먼저 판면에서 끌어 구간을 고르세요',
+                disabled: !gridMenu.edit.hasSelection,
+                onSelect: () => gridMenu.edit.cut(),
+              },
+              {
+                label: '붙여넣기',
+                title: '커서 자리에 붙여넣습니다 (Ctrl+V)',
+                disabled: !gridMenu.edit.canPaste,
+                onSelect: () => gridMenu.edit.paste(),
+              },
               {
                 label: '블록 추가',
                 onSelect: () =>
@@ -2675,6 +3049,41 @@ const Semojum: React.FC = () => {
                     blockId: line.blockId,
                   }),
               },
+              // 조판 — 판면에서 바로 쓰는 기능들. 1차 PoC 액션 아이템이
+              // "우클릭 메뉴 또는 Ctrl+Enter 방식"이라 두 길을 모두 둔다.
+              {
+                label: '여기서 면 바꾸기',
+                title: '이 줄부터 새 면에서 시작합니다 (Ctrl+Enter)',
+                onSelect: () => handlePageBreak(line.pageNo, line.blockId),
+              },
+              {
+                label: '여기부터 꼬리말',
+                title: '단원이 바뀌는 자리에서 꼬리말을 바꿉니다',
+                onSelect: () => {
+                  if (blockUnfinished('sectionFooter')) return;
+                  setFooterMark({
+                    page: line.pageNo,
+                    blockId: line.blockId,
+                    current: footerMarkBefore(blocks, line.blockId),
+                  });
+                },
+              },
+              {
+                label: '원본 쪽 번호',
+                title: `이 줄이 속한 원본 ${line.pageNo}쪽의 번호만 고칩니다`,
+                onSelect: () => {
+                  if (blockUnfinished('origPageNumber')) return;
+                  setOrigPageEdit(line.pageNo);
+                },
+              },
+              {
+                label: '조판 설정',
+                title: '규격·페이지행·표지 제외 — 이 파일에만 적용됩니다',
+                onSelect: () => {
+                  if (blockUnfinished('typeset')) return;
+                  setIsTypesetOpen(true);
+                },
+              },
               {
                 label: '블록 삭제',
                 danger: true,
@@ -2689,6 +3098,56 @@ const Semojum: React.FC = () => {
           })()}
         />
       )}
+
+      {origPageEdit !== null && (
+        <OrigPageModal
+          pageNo={origPageEdit}
+          shown={
+            typeset.origPageOverrides[String(origPageEdit)] ??
+            origPageEdit + origPageShift(blocksByPage, typeset)
+          }
+          overridden={String(origPageEdit) in typeset.origPageOverrides}
+          onSubmit={(shown) => applyOrigPageOverride(origPageEdit, shown)}
+          onClose={() => setOrigPageEdit(null)}
+        />
+      )}
+
+      {/* 아직 완성되지 않은 기능 안내 — 다른 모달 위에도 떠야 해서 한 겹 위다. */}
+      <UnfinishedModal id={unfinished} onClose={() => setUnfinished(null)} />
+
+      <RuleSearchModal
+        isOpen={isRuleSearchOpen}
+        onClose={() => setIsRuleSearchOpen(false)}
+      />
+
+      {/* 구간 꼬리말 — 우클릭으로 고른 자리에 "여기서부터"를 적는다 */}
+      {footerMark && (
+        <SectionFooterModal
+          // 자리를 바꿔 다시 열면 새로 마운트한다 — 앞서 친 문구가 남지 않게.
+          key={`${footerMark.page}:${footerMark.blockId}`}
+          current={footerMark.current}
+          base={typeset.footerText}
+          defaultScope={typeset.footerScope}
+          onSubmit={(footer, scope) =>
+            handleSectionFooter(
+              footerMark.page,
+              footerMark.blockId,
+              footer,
+              scope,
+            )
+          }
+          onClose={() => setFooterMark(null)}
+        />
+      )}
+
+      {/* 이 파일의 조판 설정 — 바꾸면 판면이 바로 다시 짜인다 */}
+      <TypesetModal
+        isOpen={isTypesetOpen}
+        value={typeset}
+        fileName={originalFileName}
+        onChange={changeTypeset}
+        onClose={() => setIsTypesetOpen(false)}
+      />
 
       {/* 대체 초안 피커 — 방식(라벨)을 탭으로 두고 한 안을 크게 본다 */}
       {draftBlock && (
@@ -2726,6 +3185,13 @@ const Semojum: React.FC = () => {
         mode={activeTab}
         onClose={() => setIsDownloadOpen(false)}
         onDownload={handleDownloadFile}
+        pendingMarks={activeTab === TABS.OCR ? undefined : pendingMarks}
+        // 점자 판면이 있는 탭에서만, 그것도 개발 빌드에서만 연다.
+        onDownloadLocal={
+          isDevBuild && activeTab !== TABS.OCR && layout.length > 0
+            ? handleDownloadLocalBrf
+            : undefined
+        }
       />
 
       {/* 파일을 고른 직후의 변환 설정 — 여기서 [변환 시작]을 눌러야 업로드된다. */}
@@ -2733,15 +3199,25 @@ const Semojum: React.FC = () => {
         isOpen={!!pendingFile}
         fileName={pendingFile?.name ?? null}
         onCancel={() => setPendingFile(null)}
-        onStart={(withPageNumber, footer) => {
-          const file = pendingFile;
+        onStart={(withPageNumber, footer, nextTypeset) => {
+          const picked = pendingFile;
           setPendingFile(null);
-          if (!file) return;
-          // 업로드 effect가 이 두 값을 함께 읽는다 — 같은 배치에서 갱신되므로
+          if (!picked) return;
+          // 업로드 effect가 이 값들을 함께 읽는다 — 같은 배치에서 갱신되므로
           // effect가 도는 시점에는 새 값이 반영돼 있다.
           setInsertPageNumber(withPageNumber);
           setFooterText(footer);
-          void handleFileDrop([file], activeTab);
+          setTypeset(nextTypeset);
+          // 업로드가 Job을 만들어 주면 이 값이 그 작업의 조판 설정이 된다.
+          pendingTypesetRef.current = nextTypeset;
+          void (async () => {
+            try {
+              void handleFileDrop([await prepareUploadFile(picked)], activeTab);
+            } catch (err) {
+              pendingTypesetRef.current = null;
+              setToast(toUserMessage(err, '파일을 읽지 못했습니다.'));
+            }
+          })();
         }}
       />
 
@@ -2841,7 +3317,7 @@ const Semojum: React.FC = () => {
         </div>
       )}
 
-      {!isPopup && <AppVersionBadge />}
+      {!isPopup && <DevModeLayer />}
 
       {/* 문의하기 — 화면에 매이지 않는 FAB. 마이페이지·기관 관리 위에도 뜬다. */}
       {!isPopup && auth.token && (

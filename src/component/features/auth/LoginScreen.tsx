@@ -5,7 +5,7 @@ import { ApiError } from '../../../api/apiClient';
 import type { SessionEndedReason } from '../../../hooks/UseAuth';
 import { readLastLoginId } from '../../../utils/lastLoginId';
 import NoticePanel from './NoticePanel';
-import AppVersionBadge from '../../shared/AppVersionBadge';
+import DevModeLayer from '../dev/DevModeLayer';
 
 // Figma V3-01 로그인 / V3-01 로그인 — 오류(AUTH4001) / V3-01 중복 로그인 안내.
 // V3에서 회원가입·소셜 로그인이 제거되어 화면은 아이디·비밀번호·로그인 버튼뿐이다.
@@ -139,7 +139,7 @@ const LoginScreen: React.FC<Props> = ({
         <NoticePanel />
       </div>
 
-      <AppVersionBadge />
+      <DevModeLayer />
 
       {/* 중복 로그인으로 밀려난 세션 안내 — 확인을 누르면 이 로그인 화면으로 돌아온다. */}
       {sessionEndedReason && (
