@@ -18,6 +18,9 @@ import {
   toCells,
 } from '../../../utils/brailleGrid';
 import {
+  anchorAt,
+  resolveAnchor,
+  type CaretAnchor,
   CELLS_PER_ROW,
   flattenRows,
   LayoutPage,
@@ -799,6 +802,24 @@ const BrailleGrid: React.FC<Props> = React.memo(
     // 드래그 시작 칸. 마우스를 누른 채 움직이는 동안만 값이 있다.
     const dragFromRef = useRef<{ rowIndex: number; cell: number } | null>(null);
 
+    // 편집한 직후 커서가 가야 할 자리 — **줄 번호가 아니라 블록 좌표**로 적어 둔다.
+    // 한 글자만 고쳐도 그 논리 줄이 다시 접히고 뒤가 밀려서, 줄 번호로 옮기면
+    // 엉뚱한 자리에 앉는다(utils/brailleLayout의 CaretAnchor 주석).
+    const pendingAnchorRef = useRef<CaretAnchor | null>(null);
+    const caretAfterEdit = (cell: number) => {
+      const src = caretRow?.source;
+      if (src) pendingAnchorRef.current = anchorAt(src, cell);
+    };
+
+    // 새 판면이 나오면 적어 둔 자리를 찾아 커서를 앉힌다. 편집 직후에만 값이 있다.
+    useLayoutEffect(() => {
+      const anchor = pendingAnchorRef.current;
+      if (!anchor) return;
+      pendingAnchorRef.current = null;
+      const hit = resolveAnchor(rows, anchor);
+      if (hit) onCaretChange(hit);
+    }, [rows, onCaretChange]);
+
     // 커서가 다른 행으로 가면 선택은 의미가 없다 — 한 행 안에서만 잡기 때문이다.
     useEffect(() => {
       if (!selection) return;
@@ -1028,7 +1049,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
       const at = selection ? selection.from : caret.cell;
       applyText(insertAt(base, at, text));
       setSelection(null);
-      moveCaret(caret.rowIndex, at + [...text].length);
+      caretAfterEdit(at + [...text].length);
     };
 
     // 우클릭 메뉴에서 부를 때만 클립보드를 읽는다. 웹뷰가 읽기를 막으면 단축키를 안내한다.
@@ -1056,7 +1077,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
           void writeClipboard(text);
           onEditRow(sel.rowIndex, replaceRange(row.text, sel.from, sel.to));
           setSelection(null);
-          moveCaret(sel.rowIndex, sel.from);
+          if (row.source) pendingAnchorRef.current = anchorAt(row.source, sel.from);
         },
         paste: () => void pasteFromClipboard(),
       };
@@ -1177,7 +1198,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
         const at = selection.from;
         applyText(replaceRange(caretRow.text, selection.from, selection.to));
         setSelection(null);
-        moveCaret(caret.rowIndex, at);
+        caretAfterEdit(at);
         return;
       }
 
@@ -1218,11 +1239,13 @@ const BrailleGrid: React.FC<Props> = React.memo(
           e.preventDefault();
           // 앞 글자를 지우고 뒤쪽을 왼쪽으로 당긴다.
           applyText(deleteBefore(caretRow.text, caret.cell));
-          moveCaret(caret.rowIndex, caret.cell - 1);
+          caretAfterEdit(Math.max(0, caret.cell - 1));
           return;
         case 'Delete':
           e.preventDefault();
           applyText(deleteAt(caretRow.text, caret.cell));
+          // 지운 자리에 그대로 머문다 — 뒤 글자가 당겨져 오므로 칸 번호는 같다.
+          caretAfterEdit(caret.cell);
           return;
         default:
           break;
@@ -1249,7 +1272,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
         const at = selection ? selection.from : caret.cell;
         applyText(insertAt(base, at, e.key));
         setSelection(null);
-        moveCaret(caret.rowIndex, at + 1);
+        caretAfterEdit(at + 1);
       }
     };
 
@@ -1268,7 +1291,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
       const at = selection ? selection.from : caret.cell;
       applyText(insertAt(base, at, cell));
       setSelection(null);
-      moveCaret(caret.rowIndex, at + 1);
+      caretAfterEdit(at + 1);
     };
 
     // 비제어 input이라 조합이 끝나지 않은 사이에도 값이 남는다. 조합 중이 아닌 입력
@@ -1283,7 +1306,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
       if (!value || !caret || !caretRow) return;
       if (isBraille) return; // 점자 모드는 6점 키 조합만 받는다
       applyText(insertAt(caretRow.text, caret.cell, value));
-      moveCaret(caret.rowIndex, caret.cell + [...value].length);
+      caretAfterEdit(caret.cell + [...value].length);
     };
 
     const handleCompositionEnd = (
@@ -1304,7 +1327,7 @@ const BrailleGrid: React.FC<Props> = React.memo(
       const { text, end } = withComposing(e.data ?? '');
       composingRef.current = null;
       applyText(text);
-      moveCaret(caret.rowIndex, end);
+      caretAfterEdit(end);
     };
 
     return (

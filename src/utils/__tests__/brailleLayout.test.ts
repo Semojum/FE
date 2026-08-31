@@ -5,6 +5,8 @@ import {
   buildLayout,
   CELLS_PER_ROW,
   firstRowIndexOfPage,
+  anchorAt,
+  resolveAnchor,
   flattenRows,
   footerMarkBefore,
   insertPageBreakBefore,
@@ -458,5 +460,53 @@ describe('시작 번호 지정', () => {
     // 판면 행의 출처는 서버가 준 원본 쪽(7) 그대로여야 편집이 어긋나지 않는다.
     const body = flattenRows(shifted).find((r) => r.kind === 'body');
     expect(body?.source?.pageNo).toBe(7);
+  });
+});
+
+// 편집 뒤 커서 자리 — 밀려도 변하지 않는 좌표(블록·논리 줄·칸)로 적어 두고
+// 새 판면에서 되찾는다.
+describe('커서 앵커', () => {
+  const rowsOf = (text: string) =>
+    flattenRows(buildLayout({ 1: [block('b1', text)] }, false, '', DEFAULT_TYPESET));
+  const cols = DEFAULT_TYPESET.cols;
+
+  it('행의 시작 칸을 더해 논리 줄 전체 기준으로 적는다', () => {
+    const rows = rowsOf('⠁'.repeat(cols + 5));
+    const second = rows.filter((r) => r.kind === 'body')[1];
+    expect(second.source?.offset).toBe(cols);
+    expect(anchorAt(second.source!, 3).offset).toBe(cols + 3);
+  });
+
+  it('밀린 판면에서도 같은 글자 자리를 찾는다', () => {
+    const before = rowsOf('⠁⠃⠉');
+    const anchor = anchorAt(before[0].source!, 2); // "⠉" 앞
+    // 앞에 논리 줄이 하나 늘어 뒤가 통째로 밀린 판면
+    const after = flattenRows(
+      buildLayout({ 1: [block('b1', '새 줄\n⠁⠃⠉')] }, false, '', DEFAULT_TYPESET),
+    );
+    const hit = resolveAnchor(after, { ...anchor, lineIndex: 1 });
+    expect(hit).not.toBeNull();
+    expect(after[hit!.rowIndex].text).toBe('⠁⠃⠉');
+    expect(hit!.cell).toBe(2);
+  });
+
+  it('행 끝자리는 이어지는 행의 첫 칸으로 본다', () => {
+    const rows = rowsOf('⠁'.repeat(cols + 5));
+    const hit = resolveAnchor(rows, {
+      blockId: 'b1',
+      lineIndex: 0,
+      offset: cols, // 첫 행의 끝 = 둘째 행의 시작
+    });
+    expect(hit).toEqual({ rowIndex: rows.indexOf(rows.filter((r) => r.kind === 'body')[1]), cell: 0 });
+  });
+
+  it('이어지는 행이 없으면 그 행의 끝 칸에 둔다', () => {
+    const rows = rowsOf('⠁'.repeat(cols));
+    const hit = resolveAnchor(rows, { blockId: 'b1', lineIndex: 0, offset: cols });
+    expect(hit).toEqual({ rowIndex: 0, cell: cols });
+  });
+
+  it('블록이 사라졌으면 null — 호출부가 커서를 그대로 둔다', () => {
+    expect(resolveAnchor(rowsOf('⠁'), { blockId: '없음', lineIndex: 0, offset: 0 })).toBeNull();
   });
 });

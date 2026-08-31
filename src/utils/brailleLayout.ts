@@ -194,6 +194,62 @@ export const insertFooterTagAfter = (
   return { status: 'inserted', blocks: next };
 };
 
+// ── 편집 뒤 커서 자리 ────────────────────────────────────────
+//
+// 커서는 화면에서 `{줄 번호, 칸}`으로 다닌다. 그런데 한 글자를 고치면 그 논리 줄이
+// 다시 접히고 **뒤가 통째로 밀린다** — 같은 줄 번호가 다른 내용을 가리키게 된다.
+// 그래서 편집한 직후에는 줄 번호로 커서를 옮기면 안 된다. 예전에는 옮겨서, 문서
+// 끝 줄이 꽉 찬 채로 이어 치면 커서가 방금 친 글자 **위**에 앉아 다음 글자가 그
+// 앞에 끼워졌다("12"를 치면 "21", 2026-08-31 확인).
+//
+// 대신 밀려도 변하지 않는 좌표로 적어 둔다 — 어느 블록의 몇 번째 논리 줄, 그 줄의
+// 몇 번째 칸인지. 새 판면이 나온 뒤 그 자리를 찾아 줄 번호로 되돌린다.
+
+export interface CaretAnchor {
+  blockId: string;
+  lineIndex: number;
+  /** 논리 줄 **전체** 기준 칸 오프셋(접힌 행의 시작 칸 + 행 안에서의 칸) */
+  offset: number;
+}
+
+/** 지금 행의 좌표와 칸 번호로 앵커를 만든다. */
+export const anchorAt = (source: RowSource, cell: number): CaretAnchor => ({
+  blockId: source.blockId,
+  lineIndex: source.lineIndex,
+  offset: source.offset + cell,
+});
+
+/**
+ * 새 판면에서 앵커가 가리키는 자리를 찾는다. 없으면 null(블록이 사라진 경우).
+ *
+ * 줄 끝 자리(offset === 그 행의 끝)는 **다음 행 첫 칸**으로 본다 — 접힌 줄에서
+ * 32칸째를 친 뒤 커서가 가야 할 곳이 다음 행이기 때문이다. 이어지는 행이 없으면
+ * 그 행의 끝 칸(칸 수와 같은 값)에 둔다. 거기서 다음 글자를 치면 줄이 다시 접히며
+ * 커서도 따라 내려간다.
+ */
+export const resolveAnchor = (
+  rows: LayoutRow[],
+  anchor: CaretAnchor,
+): { rowIndex: number; cell: number } | null => {
+  let last: { rowIndex: number; cell: number } | null = null;
+  for (let i = 0; i < rows.length; i += 1) {
+    const src = rows[i].source;
+    if (
+      !src ||
+      src.blockId !== anchor.blockId ||
+      src.lineIndex !== anchor.lineIndex
+    ) {
+      continue;
+    }
+    const len = [...rows[i].text].length;
+    const cell = anchor.offset - src.offset;
+    if (cell >= 0 && cell < len) return { rowIndex: i, cell };
+    // 이 행의 끝자리 — 뒤에 이어지는 행이 있으면 그쪽 첫 칸이 제자리다.
+    if (cell === len) last = { rowIndex: i, cell };
+  }
+  return last;
+};
+
 /** 이 블록이 처음 나타나는 면의 번호(0부터). 없으면 -1. */
 export const pageIndexOfBlock = (
   pages: LayoutPage[],
