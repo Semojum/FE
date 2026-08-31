@@ -38,7 +38,8 @@ BrailleMate 데스크톱 앱(Tauri 2)을 CI로 빌드하고 정식 배포하는 
 
   > 태그(`v0.1.0`)와 `tauri.conf.json`의 `version`(`0.1.0`)을 반드시 일치시키세요. 불일치 시 릴리스는 만들어져도 자동 업데이트 버전 비교가 어긋납니다.
 - **테스트 빌드**: GitHub Actions → "Build Desktop App" → Run workflow(`workflow_dispatch`) → Windows 산출물이 artifact로 업로드됩니다.
-- **개발 빌드**(3.3.0 이후): `bun run tauri:build:dev` / 실행은 `bun run tauri:dev:app`.
+- **개발 빌드**: `bun run tauri:build:dev` / 실행은 `bun run tauri:dev:app`.
+  CI에서는 "Build Desktop App" 수동 실행 시 channel=development 로 고른다.
   `src-tauri/tauri.dev.conf.json`이 productName·identifier를 따로 줘서 **프로덕션과
   나란히 설치**됩니다(설치 경로·설정·웹뷰 데이터 분리, 업데이터 꺼짐).
 
