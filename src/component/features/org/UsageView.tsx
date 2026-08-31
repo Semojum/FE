@@ -12,6 +12,9 @@ import {
 } from '../../../utils/brailleDefaults';
 import { FOOTER_TEXT_MAX_LENGTH } from '../../../utils/fileValidation';
 import TypesetSettings from '../conversion/TypesetSettings';
+import UnfinishedModal from '../../shared/UnfinishedModal';
+import { useIsDevBuild } from '../../../hooks/UseIsDevBuild';
+import type { UnfinishedId } from '../../../utils/unfinished';
 import {
   DASH,
   EmptyRow,
@@ -47,6 +50,29 @@ interface Props {
   onToast: (message: string) => void;
 }
 
+// 아직 완성되지 않은 설정을 감싼다. 감추지 않고 흐리게만 두는 것은, 없어진 줄
+// 알고 묻는 것보다 "곧 열린다"를 보여 주는 편이 낫기 때문이다.
+const Locked: React.FC<{
+  locked: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}> = ({ locked, onClick, children }) =>
+  locked ? (
+    <div className="relative">
+      <div className="pointer-events-none select-none opacity-50" aria-hidden>
+        {children}
+      </div>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label="아직 준비 중인 설정 — 눌러서 안내 보기"
+        className="absolute inset-0 rounded-lg"
+      />
+    </div>
+  ) : (
+    <>{children}</>
+  );
+
 const UsageView: React.FC<Props> = ({
   token,
   loginId,
@@ -54,6 +80,9 @@ const UsageView: React.FC<Props> = ({
   onOpenJob,
   onToast,
 }) => {
+  // 조판 설정·점역 옵션은 아직 결과물에 반영되지 않는다 — 개발 빌드에서만 연다.
+  const isDevBuild = useIsDevBuild();
+  const [notice, setNotice] = useState<UnfinishedId | null>(null);
   // 기본은 이번 달. 드롭다운으로 지난 달들을 골라 본다(요약·작업 목록이 함께 움직인다).
   const [month, setMonth] = useState(() => monthKey());
   const months = useMemo(() => monthOptions(), []);
@@ -317,72 +346,83 @@ const UsageView: React.FC<Props> = ({
               규칙 자체는 여전히 braille-assist가 소유하고, 여기서는 그 라이브러리가
               이미 받는 옵션(규격·페이지행 범위·표지 제외·쪽번호 종류)만 넘긴다. */}
           <div className="flex flex-1 flex-col gap-[7px]">
-            <TypesetSettings
-              value={defaults.typeset}
-              onChange={(typeset) => setDefaults((d) => ({ ...d, typeset }))}
-            />
+            <Locked locked={!isDevBuild} onClick={() => setNotice('typeset')}>
+              <TypesetSettings
+                value={defaults.typeset}
+                onChange={(typeset) => setDefaults((d) => ({ ...d, typeset }))}
+              />
+            </Locked>
 
             {/* 점역 옵션 — 1차 PoC 부가 기능. 서버가 받을 준비가 되기 전이라
                 고르고 저장만 되고 변환에는 아직 반영되지 않는다. */}
-            <div className="mt-1 flex flex-col gap-1.5 border-t border-gray-100 pt-3">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[12px] font-medium text-gray-600">
-                  점역 옵션
-                </span>
-                <span className="rounded bg-[#fbf1de] px-1.5 py-0.5 text-[10px] font-medium text-[#8a5a00]">
-                  준비 중
-                </span>
+            <Locked
+              locked={!isDevBuild}
+              onClick={() => setNotice('translation')}
+            >
+              <div className="mt-1 flex flex-col gap-1.5 border-t border-gray-100 pt-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[12px] font-medium text-gray-600">
+                    점역 옵션
+                  </span>
+                  <span className="rounded bg-[#fbf1de] px-1.5 py-0.5 text-[10px] font-medium text-[#8a5a00]">
+                    준비 중
+                  </span>
+                </div>
+                <SettingRow label="점자 등급">
+                  <select
+                    value={defaults.translation.grade}
+                    onChange={(e) =>
+                      setDefaults((d) => ({
+                        ...d,
+                        translation: {
+                          ...d.translation,
+                          grade: Number(e.target.value) === 2 ? 2 : 1,
+                        },
+                      }))
+                    }
+                    aria-label="점자 등급"
+                    className={fieldCls}
+                  >
+                    <option value={1}>1급 (정자)</option>
+                    <option value={2}>2급 (약자)</option>
+                  </select>
+                </SettingRow>
+                <SettingRow label="한영 혼용 규정">
+                  <select
+                    value={defaults.translation.mixedScriptRule}
+                    onChange={(e) =>
+                      setDefaults((d) => ({
+                        ...d,
+                        translation: {
+                          ...d.translation,
+                          mixedScriptRule:
+                            e.target.value === 'en' ? 'en' : 'ko',
+                        },
+                      }))
+                    }
+                    aria-label="한영 혼용 규정"
+                    className={fieldCls}
+                  >
+                    <option value="ko">한국어 점자 규정</option>
+                    <option value="en">영어 점자 규정</option>
+                  </select>
+                </SettingRow>
+                <p className="pl-[106px] text-[10.5px] leading-snug text-gray-400">
+                  앞뒤 단어가 각각 한국어·영어인 자리처럼 규정에 없는 경우에
+                  어느 쪽을 따를지 정합니다.
+                </p>
+                <p className="text-[10.5px] leading-snug text-[#8a5a00]">
+                  점역 옵션은 저장만 됩니다 — 변환에 반영하려면 서버가 이 값을
+                  받아야 합니다.
+                </p>
               </div>
-              <SettingRow label="점자 등급">
-                <select
-                  value={defaults.translation.grade}
-                  onChange={(e) =>
-                    setDefaults((d) => ({
-                      ...d,
-                      translation: {
-                        ...d.translation,
-                        grade: Number(e.target.value) === 2 ? 2 : 1,
-                      },
-                    }))
-                  }
-                  aria-label="점자 등급"
-                  className={fieldCls}
-                >
-                  <option value={1}>1급 (정자)</option>
-                  <option value={2}>2급 (약자)</option>
-                </select>
-              </SettingRow>
-              <SettingRow label="한영 혼용 규정">
-                <select
-                  value={defaults.translation.mixedScriptRule}
-                  onChange={(e) =>
-                    setDefaults((d) => ({
-                      ...d,
-                      translation: {
-                        ...d.translation,
-                        mixedScriptRule: e.target.value === 'en' ? 'en' : 'ko',
-                      },
-                    }))
-                  }
-                  aria-label="한영 혼용 규정"
-                  className={fieldCls}
-                >
-                  <option value="ko">한국어 점자 규정</option>
-                  <option value="en">영어 점자 규정</option>
-                </select>
-              </SettingRow>
-              <p className="pl-[106px] text-[10.5px] leading-snug text-gray-400">
-                앞뒤 단어가 각각 한국어·영어인 자리처럼 규정에 없는 경우에 어느 쪽을
-                따를지 정합니다.
-              </p>
-              <p className="text-[10.5px] leading-snug text-[#8a5a00]">
-                점역 옵션은 저장만 됩니다 — 변환에 반영하려면 서버가 이 값을 받아야
-                합니다.
-              </p>
-            </div>
+            </Locked>
+
+            <UnfinishedModal id={notice} onClose={() => setNotice(null)} />
 
             <p className="text-[10.5px] leading-snug text-gray-400">
-              표·글상자 테두리, 그림 생략 표시, 점역자 주 시작 칸은 서버·AI가 정합니다.
+              표·글상자 테두리, 그림 생략 표시, 점역자 주 시작 칸은 서버·AI가
+              정합니다.
             </p>
             <div className="mt-auto flex justify-end pt-2">
               <SmallButton variant="accent" onClick={saveDefaults}>

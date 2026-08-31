@@ -130,7 +130,9 @@ import {
 } from './utils/gridZoom';
 import { logDiag } from './utils/diagLog';
 import { brfFromLayout, countPendingMarks } from './utils/localBrf';
-import { getBuildChannel } from './utils/devMode';
+import { useIsDevBuild } from './hooks/UseIsDevBuild';
+import UnfinishedModal from './component/shared/UnfinishedModal';
+import type { UnfinishedId } from './utils/unfinished';
 import {
   blockTextWithRowEdit,
   footerMarkBefore,
@@ -794,8 +796,26 @@ const Semojum: React.FC = () => {
   // 판면에서 "여기서부터 새 면"을 만드는 조작이다(1차 PoC 2026-08-26 · 필요성 최상).
   // 표식은 본문에 남는 `<!…>` 문법을 그대로 쓰므로 저장·되돌리기가 다른 편집과 같고,
   // 조판은 buildLayout이 이 표식에서 토막을 나눠 라이브러리에 각각 맡긴다.
+  // 개발 빌드에서만 여는 임시 경로들(화면 그대로 내려받기). 프로덕션에는 안 보인다.
+  const isDevBuild = useIsDevBuild();
+
+  // 아직 완성되지 않은 기능 — 프로덕션에서는 막고 이유를 알린다.
+  // 화면에서만 되고 내려받는 파일에는 반영되지 않는 것들이라, 되는 척하면 점역사가
+  // 마지막에야 알게 된다(utils/unfinished.ts 머리말).
+  const [unfinished, setUnfinished] = useState<UnfinishedId | null>(null);
+  /** 막았으면 true — 호출부는 그대로 돌아간다. */
+  const blockUnfinished = useCallback(
+    (id: UnfinishedId): boolean => {
+      if (isDevBuild) return false;
+      setUnfinished(id);
+      return true;
+    },
+    [isDevBuild],
+  );
+
   const handlePageBreak = useCallback(
     (page: number, blockId: string) => {
+      if (blockUnfinished('pageBreak')) return;
       // 넣을 배열은 insertPageBreakBefore가 통째로 만들어 준다 — 여기서 넣고 다시
       // 읽는 방식은 ref가 아직 갱신되기 전이라 엉뚱한 배열을 조립한다.
       const result = insertPageBreakBefore(readBlocks(page), blockId);
@@ -809,7 +829,7 @@ const Semojum: React.FC = () => {
       editor.markDirty(page);
       setToast('이 자리에서 면을 바꿉니다. (Ctrl+Z로 되돌리기)');
     },
-    [readBlocks, setBlocksForPage, editor],
+    [readBlocks, setBlocksForPage, editor, blockUnfinished],
   );
 
 
@@ -957,17 +977,6 @@ const Semojum: React.FC = () => {
   const [isRuleSearchOpen, setIsRuleSearchOpen] = useState(false);
 
 
-  // 개발 빌드에서만 여는 임시 경로들(화면 그대로 내려받기). 프로덕션에는 안 보인다.
-  const [isDevBuild, setIsDevBuild] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    void getBuildChannel().then((c) => {
-      if (alive) setIsDevBuild(c === 'development');
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   // 서버가 아직 읽지 못하는 표식 수 — 다운로드 모달이 미리 알린다(L-2·L-3).
   const pendingMarks = useMemo(
@@ -2296,7 +2305,10 @@ const Semojum: React.FC = () => {
               {/* 점자 규정 찾아보기 — 조판하다 규정을 확인할 일이 잦다
                   (1차 PoC 부가 기능 · 필요성 중). */}
               <button
-                onClick={() => setIsRuleSearchOpen(true)}
+                onClick={() => {
+                  if (blockUnfinished('ruleSearch')) return;
+                  setIsRuleSearchOpen(true);
+                }}
                 title="점자 규정 찾아보기"
                 aria-label="점자 규정 찾아보기"
                 className="rounded p-1.5 text-gray-400 transition-colors hover:text-[#407FAC]"
@@ -3047,22 +3059,30 @@ const Semojum: React.FC = () => {
               {
                 label: '여기부터 꼬리말',
                 title: '단원이 바뀌는 자리에서 꼬리말을 바꿉니다',
-                onSelect: () =>
+                onSelect: () => {
+                  if (blockUnfinished('sectionFooter')) return;
                   setFooterMark({
                     page: line.pageNo,
                     blockId: line.blockId,
                     current: footerMarkBefore(blocks, line.blockId),
-                  }),
+                  });
+                },
               },
               {
                 label: '원본 쪽 번호',
                 title: `이 줄이 속한 원본 ${line.pageNo}쪽의 번호만 고칩니다`,
-                onSelect: () => setOrigPageEdit(line.pageNo),
+                onSelect: () => {
+                  if (blockUnfinished('origPageNumber')) return;
+                  setOrigPageEdit(line.pageNo);
+                },
               },
               {
                 label: '조판 설정',
                 title: '규격·페이지행·표지 제외 — 이 파일에만 적용됩니다',
-                onSelect: () => setIsTypesetOpen(true),
+                onSelect: () => {
+                  if (blockUnfinished('typeset')) return;
+                  setIsTypesetOpen(true);
+                },
               },
               {
                 label: '블록 삭제',
@@ -3091,6 +3111,9 @@ const Semojum: React.FC = () => {
           onClose={() => setOrigPageEdit(null)}
         />
       )}
+
+      {/* 아직 완성되지 않은 기능 안내 — 다른 모달 위에도 떠야 해서 한 겹 위다. */}
+      <UnfinishedModal id={unfinished} onClose={() => setUnfinished(null)} />
 
       <RuleSearchModal
         isOpen={isRuleSearchOpen}

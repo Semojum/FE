@@ -14,6 +14,9 @@ interface ModalProps {
   footer?: React.ReactNode;
   // 요청 중이면 ESC·바깥 클릭 닫기를 막는다.
   busy?: boolean;
+  // 다른 모달 **위에** 띄워야 할 때만 올린다(변환 설정 모달 위의 안내 등).
+  // 기본값은 토스트(z-70)보다 아래인 60 — 지금까지의 모든 모달이 쓰던 값이다.
+  zIndex?: number;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -23,6 +26,7 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   footer,
   busy = false,
+  zIndex = 60,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -51,7 +55,8 @@ export const Modal: React.FC<ModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 px-4"
+      style={{ zIndex }}
+      className="fixed inset-0 flex items-center justify-center bg-black/30 px-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose();
       }}
