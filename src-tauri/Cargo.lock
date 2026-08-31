@@ -3733,7 +3733,7 @@ dependencies = [
 
 [[package]]
 name = "semojum"
-version = "3.3.0"
+version = "3.2.2"
 dependencies = [
  "serde",
  "serde_json",
