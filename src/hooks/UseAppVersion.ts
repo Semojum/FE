@@ -72,6 +72,8 @@ export const useAppVersion = (
   }, [enabled, info]);
 
   const dismissToast = useCallback(() => setDismissedToast(true), []);
+  // 닫아도 사라지지 않는다 — 접힌 자리를 눌러 다시 편다(아래 updateAvailable 주석).
+  const restoreToast = useCallback(() => setDismissedToast(false), []);
 
   // 지금 설치. 저장을 먼저 밀어낸 뒤 내려받아 설치한다.
   // Windows에서는 이 호출이 돌아오지 않는다 — 설치 프로그램이 뜨고 앱이 종료됐다가
@@ -106,11 +108,18 @@ export const useAppVersion = (
     latestVersion: info?.latestVersion ?? null,
     releaseNotes: freshReleaseNotes,
     currentVersion: currentVersion(),
-    // 내려받아 설치할 수 있는 새 버전이 있는 상태
-    updateAvailable: !!availableVersion && !dismissedToast,
+    // 내려받아 설치할 수 있는 새 버전이 있는 상태.
+    //
+    // 닫기(dismiss)는 **알림을 접을 뿐 없애지 않는다.** 예전에는 닫으면 그 세션에서
+    // 다시 뜰 길이 없어, 작업 중에 무심코 닫은 사람은 앱을 껐다 켜기 전까지 업데이트가
+    // 있다는 사실 자체를 알 수 없었다(2026-09-01 요청). 접힌 뒤에는 작은 칩만 남고,
+    // 그것을 누르면 다시 펴진다 — 그래서 여기서는 닫힘과 무관하게 true를 돌린다.
+    updateAvailable: !!availableVersion,
+    toastDismissed: dismissedToast,
     availableVersion,
     isInstalling,
     dismissToast,
+    restoreToast,
     installNow,
   };
 };

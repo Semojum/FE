@@ -44,12 +44,35 @@ export const ForceUpdateGate: React.FC<{
 
 // 새 버전이 있으면 좌하단에 조용히 알린다 (D-2). 작업을 막지 않는다.
 // 설치는 "지금 설치"를 눌렀을 때만 — 설치가 곧 앱 종료라서 마음대로 하면 안 된다.
+/**
+ * 새 버전 알림.
+ *
+ * 닫아도 사라지지 않고 **작은 칩으로 접힌다.** 예전에는 닫으면 그 세션에서 다시 뜰
+ * 길이 없어, 작업 중에 무심코 닫으면 업데이트가 있다는 사실 자체를 알 수 없었다
+ * (2026-09-01 요청). 접힌 칩은 로그인 화면·편집 화면 어디서나 같은 자리에 남는다.
+ */
 export const UpdateReadyToast: React.FC<{
   version: string | null;
   busy?: boolean;
+  collapsed?: boolean;
   onInstall: () => void;
   onDismiss: () => void;
-}> = ({ version, busy, onInstall, onDismiss }) => (
+  onExpand?: () => void;
+}> = ({ version, busy, collapsed, onInstall, onDismiss, onExpand }) =>
+  collapsed ? (
+    <motion.button
+      type="button"
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      onClick={onExpand}
+      title={`새 버전${version ? ` v${version}` : ''}이 준비되었습니다 — 눌러서 설치하기`}
+      aria-label={`새 버전${version ? ` v${version}` : ''}이 준비되었습니다`}
+      className="fixed bottom-6 left-6 z-[70] flex items-center gap-1.5 rounded-full border border-[#c8dbf6] bg-white px-3 py-1.5 text-[12px] font-semibold text-[#407FAC] shadow-lg transition-colors hover:bg-[#eef3fc]"
+    >
+      <ArrowUpCircle size={14} className="shrink-0" />
+      업데이트
+    </motion.button>
+  ) : (
   <motion.div
     initial={{ opacity: 0, y: 12 }}
     animate={{ opacity: 1, y: 0 }}
@@ -83,4 +106,4 @@ export const UpdateReadyToast: React.FC<{
       <X size={14} />
     </button>
   </motion.div>
-);
+  );

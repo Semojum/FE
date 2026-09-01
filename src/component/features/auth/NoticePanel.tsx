@@ -12,8 +12,10 @@ import { PublicNotice } from '../../../types/org';
 // 공지 본문은 목록 응답에 함께 오므로 제목을 누르면 그 자리에서 펼친다 —
 // 로그인 전 화면에서 새 창이나 추가 조회로 흐름을 끊지 않는다.
 //
-// 못 불러오거나 노출 중인 공지가 없으면 아무것도 그리지 않는다. 로그인 화면이
-// 빈 상자나 오류 문구로 어수선해지면 정작 중요한 아이디·비밀번호 칸이 묻힌다.
+// 공지가 없어도 패널은 그대로 둔다(2026-09-01 요청). 있을 때만 나타나면 화면 폭이
+// 그때그때 달라져 로그인 칸이 옆으로 밀리고, "공지가 없는 것"과 "공지 자리가 아예
+// 없는 것"을 사용자가 가릴 수 없다 — 운영자가 공지를 올렸는데 안 보이는지, 원래
+// 안 뜨는 화면인지 묻게 된다. 대신 빈 상태를 한 줄로 적어 둔다.
 
 const dateLabel = (n: PublicNotice): string => {
   const raw = n.createdAt ?? n.startsOn;
@@ -28,12 +30,16 @@ const dateLabel = (n: PublicNotice): string => {
 const NoticePanel: React.FC = () => {
   const [notices, setNotices] = useState<PublicNotice[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  // 불러오는 중과 "불러왔는데 없음"을 가른다 — 둘 다 빈 목록이라 문구가 달라야 한다.
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const controller = new AbortController();
     let alive = true;
     void listPublicNotices(controller.signal).then((list) => {
-      if (alive) setNotices(list);
+      if (!alive) return;
+      setNotices(list);
+      setLoading(false);
     });
     return () => {
       alive = false;
@@ -41,8 +47,14 @@ const NoticePanel: React.FC = () => {
     };
   }, []);
 
-  // 못 불러왔거나(미배포) 노출 중인 공지가 없으면 패널 자체를 띄우지 않는다.
-  if (!notices || notices.length === 0) return null;
+  const items = notices ?? [];
+  // 빈 자리에 적을 한 줄. 못 불러온 것과 없는 것을 가려서 적는다 —
+  // "불러오지 못했습니다"는 다시 열어 보면 될 수도 있다는 뜻이다.
+  const emptyLabel = loading
+    ? '공지를 불러오는 중입니다.'
+    : notices === null
+      ? '공지를 불러오지 못했습니다.'
+      : '등록된 공지가 없습니다.';
 
   return (
     <aside
@@ -58,8 +70,14 @@ const NoticePanel: React.FC = () => {
         공지
       </h2>
 
+      {items.length === 0 && (
+        <p className="px-5 pt-4 text-[12.5px] leading-relaxed text-[#5c7aa8]">
+          {emptyLabel}
+        </p>
+      )}
+
       <ul className="custom-scrollbar flex flex-1 flex-col gap-1.5 divide-y-0 overflow-y-auto px-4 pb-14 pt-2">
-        {notices.map((n) => {
+        {items.map((n) => {
           const isOpen = openId === n.id;
           return (
             <li key={n.id}>

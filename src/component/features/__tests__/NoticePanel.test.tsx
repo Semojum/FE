@@ -68,17 +68,22 @@ describe('로그인 화면 공지 패널', () => {
     ).toBeNull();
   });
 
-  it('공개 공지 API가 아직 없거나 공지가 없으면 패널을 아예 그리지 않는다', async () => {
-    vi.mocked(listPublicNotices).mockResolvedValue(null);
-    const { container, unmount } = render(<NoticePanel />);
-    await waitFor(() => expect(listPublicNotices).toHaveBeenCalled());
-    expect(container.querySelector('aside')).toBeNull();
-    unmount();
-
+  // 공지가 없어도 패널은 남는다(2026-09-01 요청). 있을 때만 나타나면 화면 폭이
+  // 그때그때 달라지고, "공지가 없는 것"과 "공지 자리가 없는 것"을 가릴 수 없다.
+  it('공지가 없어도 패널은 그대로 있고, 빈 이유를 적는다', async () => {
     vi.mocked(listPublicNotices).mockResolvedValue([]);
-    const empty = render(<NoticePanel />);
-    await waitFor(() => expect(listPublicNotices).toHaveBeenCalledTimes(2));
-    expect(empty.container.querySelector('aside')).toBeNull();
+    const { container } = render(<NoticePanel />);
+    await waitFor(() => expect(listPublicNotices).toHaveBeenCalled());
+    expect(container.querySelector('aside')).not.toBeNull();
+    expect(await screen.findByText('등록된 공지가 없습니다.')).toBeTruthy();
+  });
+
+  it('못 불러왔을 때는 그렇게 적는다 — 없는 것과 가려야 한다', async () => {
+    vi.mocked(listPublicNotices).mockResolvedValue(null);
+    const { container } = render(<NoticePanel />);
+    await waitFor(() => expect(listPublicNotices).toHaveBeenCalled());
+    expect(container.querySelector('aside')).not.toBeNull();
+    expect(await screen.findByText('공지를 불러오지 못했습니다.')).toBeTruthy();
   });
 
   it('로그인 화면에 함께 뜨고, 공지가 없어도 로그인 칸은 그대로다', async () => {
@@ -93,7 +98,8 @@ describe('로그인 화면 공지 패널', () => {
     vi.mocked(listPublicNotices).mockResolvedValue(null);
     render(<LoginScreen onLogin={vi.fn()} />);
     await waitFor(() => expect(listPublicNotices).toHaveBeenCalledTimes(2));
-    expect(screen.queryByText('공지')).toBeNull();
+    // 공지를 못 불러와도 패널 자리는 그대로다 — 로그인 칸이 옆으로 밀리지 않는다.
+    expect(screen.getByText('공지')).toBeTruthy();
     expect(screen.getByPlaceholderText('아이디')).toBeTruthy();
   });
 });

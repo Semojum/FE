@@ -2219,6 +2219,20 @@ const Semojum: React.FC = () => {
     return saved?.fileState.file?.name ?? saved?.originalFileName ?? null;
   };
 
+  // 새 버전 알림 — **로그인 전에도** 떠야 한다. 예전에는 편집 화면에만 있어서
+  // 로그인 화면에 머무는 동안에는 업데이트가 있다는 것을 알 수 없었다(2026-09-01).
+  const updateToast =
+    !isPopup && appVersion.updateAvailable ? (
+      <UpdateReadyToast
+        version={appVersion.availableVersion}
+        busy={appVersion.isInstalling}
+        collapsed={appVersion.toastDismissed}
+        onInstall={() => void appVersion.installNow()}
+        onDismiss={appVersion.dismissToast}
+        onExpand={appVersion.restoreToast}
+      />
+    ) : null;
+
   // 호환성이 깨지는 패치는 업데이트 외의 모든 조작을 막는다 (자동 업데이트 D-1).
   if (!isPopup && appVersion.forceUpdate) {
     return (
@@ -2234,11 +2248,14 @@ const Semojum: React.FC = () => {
   // V3는 자동 로그인이 없으므로 부트스트랩 대기 없이 바로 로그인 화면을 띄운다.
   if (!isPopup && !auth.isAuthenticated) {
     return (
-      <LoginScreen
-        onLogin={auth.login}
-        sessionEndedReason={auth.sessionEndedReason}
-        onAcknowledgeSessionEnded={auth.acknowledgeSessionEnded}
-      />
+      <>
+        <LoginScreen
+          onLogin={auth.login}
+          sessionEndedReason={auth.sessionEndedReason}
+          onAcknowledgeSessionEnded={auth.acknowledgeSessionEnded}
+        />
+        {updateToast}
+      </>
     );
   }
 
@@ -3208,14 +3225,7 @@ const Semojum: React.FC = () => {
         </div>
       )}
 
-      {!isPopup && appVersion.updateAvailable && (
-        <UpdateReadyToast
-          version={appVersion.availableVersion}
-          busy={appVersion.isInstalling}
-          onInstall={() => void appVersion.installNow()}
-          onDismiss={appVersion.dismissToast}
-        />
-      )}
+      {updateToast}
 
       {/* 문서에서 찾기 — Ctrl+F. 결과 전용 창에서도 같은 줄이 뜬다.
           상태는 메인 창이 들고, 팝업의 조작은 액션으로 건너가 스냅샷으로 돌아온다.
