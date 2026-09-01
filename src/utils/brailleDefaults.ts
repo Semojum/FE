@@ -29,6 +29,11 @@ export interface BrailleDefaults {
   // 새 작업을 시작할 탭 (a: 초안 생성 / b: 텍스트 점자 번역 / c: 이미지 점자 번역)
   defaultMode: ConversionTab;
   // 쪽번호 삽입 — 판면 마지막 줄을 쪽번호로 쓸지
+  /**
+   * 구 필드 — 서버가 아직 받는다(V30에서 "옵션을 보내면 옵션이 이긴다"). 화면에서
+   * 따로 고르지 않고 조판 설정의 페이지행 스위치(typeset.pageRowOn)에서 파생한다.
+   * 같은 것을 두 이름으로 두면 어느 쪽이 이겼는지 물어보게 된다.
+   */
   insertPageNumber: boolean;
   // 꼬리말(묵자) 기본 문구
   footerText: string;
@@ -59,7 +64,8 @@ export const loadBrailleDefaults = (): BrailleDefaults => {
       defaultMode: isTab(parsed.defaultMode)
         ? parsed.defaultMode
         : DEFAULT_BRAILLE_DEFAULTS.defaultMode,
-      insertPageNumber: parsed.insertPageNumber === true,
+      // 저장된 값이 아니라 조판 설정에서 파생한다 — 둘이 어긋날 자리를 없앤다.
+      insertPageNumber: normalizeTypeset(parsed.typeset).pageRowOn !== 'none',
       footerText:
         typeof parsed.footerText === 'string' ? parsed.footerText : '',
       typeset: normalizeTypeset(parsed.typeset),

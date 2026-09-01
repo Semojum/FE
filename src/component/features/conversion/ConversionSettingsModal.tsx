@@ -8,6 +8,7 @@ import {
   type TypesetOptions,
 } from '../../../utils/typesetOptions';
 import TypesetSettings from './TypesetSettings';
+import UnfinishedModal from '../../shared/UnfinishedModal';
 
 // Figma V3-02 변환 설정 — 파일 선택 직후 (페이지 번호 · 꼬리말 · 조판 규격)
 //
@@ -39,6 +40,8 @@ const ConversionSettingsModal: React.FC<Props> = ({
   const [insertPageNumber, setInsertPageNumber] = useState(false);
   const [typeset, setTypeset] = useState<TypesetOptions>(DEFAULT_TYPESET);
   const [expanded, setExpanded] = useState(false);
+  // 변경선 끄기처럼 아직 안 되는 항목을 눌렀을 때.
+  const [notice, setNotice] = useState(false);
 
   // 열릴 때마다 초기값으로 — 직전 파일의 설정이 흘러들면 안 된다.
   // 초기값은 점역 기본 설정(V3-06 사용량 화면)에서 정한 값이다.
@@ -123,7 +126,16 @@ const ConversionSettingsModal: React.FC<Props> = ({
           </button>
           {expanded ? (
             <div className="mt-3">
-              <TypesetSettings value={typeset} onChange={setTypeset} compact />
+              <TypesetSettings
+                value={typeset}
+                onChange={setTypeset}
+                compact
+                onUnavailable={() => setNotice(true)}
+              />
+              <UnfinishedModal
+                id={notice ? 'changeLine' : null}
+                onClose={() => setNotice(false)}
+              />
             </div>
           ) : (
             <p className="mt-1 text-[11px] leading-snug text-gray-400">

@@ -15,7 +15,11 @@
 // 남은 것은 표식 두 개(쪽바꿈·구간 꼬리말 — braille-assist가 알아봐야 한다)와
 // 점역 옵션(등급·영어·혼용 — 서버가 값을 받아야 한다)뿐이다.
 
-export type UnfinishedId = 'pageBreak' | 'sectionFooter' | 'translation';
+export type UnfinishedId =
+  | 'pageBreak'
+  | 'sectionFooter'
+  | 'changeLine'
+  | 'translation';
 
 export interface UnfinishedNotice {
   title: string;
@@ -37,6 +41,13 @@ export const UNFINISHED: Record<UnfinishedId, UnfinishedNotice> = {
       '단원마다 다른 꼬리말을 넣는 기능입니다.\n' +
       '지금은 화면에서만 갈리고, 내려받는 파일에는 표식이 글자로 찍힙니다.\n\n' +
       '작업 전체에 하나를 넣는 꼬리말은 변환 설정에서 지금도 쓸 수 있습니다.',
+  },
+  changeLine: {
+    title: '변경선 끄기는 아직 준비 중입니다',
+    body:
+      '원본 페이지가 바뀌는 자리에 넣는 구분선입니다.\n' +
+      '지금은 조판 라이브러리가 원본 페이지가 바뀔 때마다 **항상** 넣어서, 끄는 길이 없습니다.\n\n' +
+      '조판 라이브러리와 서버가 이 항목을 받기 시작하면 열립니다.',
   },
   translation: {
     title: '점역 옵션은 아직 준비 중입니다',

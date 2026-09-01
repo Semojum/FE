@@ -146,13 +146,11 @@ describe('사용량 (V3-06 T3)', () => {
       await screen.findByLabelText('기본 변환 모드'),
       'b',
     );
-    await userEvent.selectOptions(screen.getByLabelText('페이지행'), 'on');
     await userEvent.type(screen.getByLabelText('꼬리말 기본 문구'), '수학 1권');
     await userEvent.click(screen.getByText('설정 저장'));
 
     expect(loadBrailleDefaults()).toMatchObject({
       defaultMode: 'b',
-      insertPageNumber: true,
       footerText: '수학 1권',
     });
   });
@@ -161,8 +159,8 @@ describe('사용량 (V3-06 T3)', () => {
   it('조판 설정도 함께 저장한다', async () => {
     renderView();
 
-    await userEvent.click(await screen.findByRole('button', { name: '모든 면' }));
-    const cols = screen.getByLabelText('한 줄 칸 수');
+    await userEvent.click(await screen.findByRole('button', { name: '모든 페이지' }));
+    const cols = screen.getByLabelText('칸 수');
     await userEvent.clear(cols);
     await userEvent.type(cols, '40');
     await userEvent.click(screen.getByText('설정 저장'));
@@ -172,5 +170,7 @@ describe('사용량 (V3-06 T3)', () => {
       cols: 40,
       rows: 26,
     });
+    // 구 필드는 조판 설정에서 파생한다 — 둘이 어긋날 자리를 없앴다.
+    expect(loadBrailleDefaults().insertPageNumber).toBe(true);
   });
 });

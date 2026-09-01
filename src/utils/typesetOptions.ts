@@ -16,8 +16,6 @@ import { DEFAULT_OPTIONS } from '@semojum/braille-assist';
 export type PageRowOn = 'every' | 'odd' | 'none';
 export type FooterAlign = 'center' | 'right';
 export type FooterScope = 'rest' | 'page';
-/** 원본 쪽 번호 표기. 로마자는 아직 라이브러리에 없다(설정만 저장한다). */
-export type OrigPageFormat = 'number' | 'roman';
 
 export interface TypesetOptions {
   /** 한 줄 칸 수 (기본 32) */
@@ -43,16 +41,20 @@ export interface TypesetOptions {
    */
   origPageStart: number;
   /**
-   * 원본 쪽 번호 표기 방식(1차 PoC 1-4 기능2).
-   * ⚠ 로마자는 braille-assist의 `num()`에 없다 — 고르면 저장만 되고 숫자로 나온다.
-   *   점자 로마자 표기는 규정 확인이 필요해 FE가 지어내지 않는다(L-4).
-   */
-  origPageFormat: OrigPageFormat;
-  /**
    * 고급 점역 사용 여부 — 복잡한 문서에 더 좋은 모델을 쓴다.
    * (1차 PoC "복잡한 문서 처리를 위한 고급 AI 모델 사용 버튼" · 명세 advancedAi)
    */
   advancedAi: boolean;
+  /**
+   * 원본 페이지가 바뀌는 자리에 변경선을 넣을지.
+   *
+   * ⚠ 아직 켜고 끌 수 없다 — braille-assist의 `buildPages`가 원본 쪽이 바뀔 때마다
+   * 무조건 넣고(Options에 이 항목이 없다), 서버 조판 옵션(V30)에도 없다. FE가 결과에서
+   * 그 줄만 걷어내면 줄 수가 달라져 면 나눔이 통째로 어긋나므로 흉내 내지 않는다.
+   * 화면에서는 "준비 중"으로 막아 둔다(docs/SERVER-REQUIREMENTS-3.3.0.md L-5).
+   */
+  showChangeLine: boolean;
+
   /** 페이지행에 점자 면 번호를 넣을지 */
   showBraillePage: boolean;
   /**
@@ -80,7 +82,7 @@ export const DEFAULT_TYPESET: TypesetOptions = {
   startBraillePage: 1,
   showOrigPage: true,
   origPageStart: 1,
-  origPageFormat: 'number',
+  showChangeLine: true,
   advancedAi: false,
   showBraillePage: true,
   footerAlign: 'center',
@@ -130,7 +132,8 @@ export const normalizeTypeset = (
       START_PAGE_MAX,
       DEFAULT_TYPESET.origPageStart,
     ),
-    origPageFormat: v.origPageFormat === 'roman' ? 'roman' : 'number',
+    // 원본 페이지 번호를 끄면 변경선에 적을 번호가 없다 — 함께 꺼진다.
+    showChangeLine: v.showOrigPage !== false && v.showChangeLine !== false,
     advancedAi: v.advancedAi === true,
     showBraillePage: v.showBraillePage !== false,
     footerAlign: v.footerAlign === 'right' ? 'right' : 'center',
@@ -193,7 +196,7 @@ export const describeTypeset = (o: TypesetOptions): string => {
   );
   if (o.coverPages > 0) parts.push(`표지 ${o.coverPages}면 제외`);
   if (o.startBraillePage !== 1) parts.push(`${o.startBraillePage}면부터`);
-  if (o.origPageStart !== 1) parts.push(`원본 ${o.origPageStart}쪽부터`);
+  if (o.origPageStart !== 1) parts.push(`원본 ${o.origPageStart}페이지부터`);
   if (o.advancedAi) parts.push('고급 점역');
   if (o.footerText) parts.push(`꼬리말 "${o.footerText}"`);
   return parts.join(' · ');

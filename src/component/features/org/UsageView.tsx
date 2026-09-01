@@ -293,22 +293,6 @@ const UsageView: React.FC<Props> = ({
       >
         <div className="flex flex-col gap-4 lg:flex-row">
           <div className="flex flex-1 flex-col gap-[7px]">
-            <SettingRow label="페이지행">
-              <select
-                value={defaults.insertPageNumber ? 'on' : 'off'}
-                onChange={(e) =>
-                  setDefaults((d) => ({
-                    ...d,
-                    insertPageNumber: e.target.value === 'on',
-                  }))
-                }
-                aria-label="페이지행"
-                className={fieldCls}
-              >
-                <option value="off">넣지 않음</option>
-                <option value="on">마지막 줄에 쪽번호</option>
-              </select>
-            </SettingRow>
             <SettingRow label="기본 변환 모드">
               <select
                 value={defaults.defaultMode}
@@ -349,6 +333,7 @@ const UsageView: React.FC<Props> = ({
             <TypesetSettings
               value={defaults.typeset}
               onChange={(typeset) => setDefaults((d) => ({ ...d, typeset }))}
+              onUnavailable={() => setNotice('changeLine')}
             />
 
             {/* 점역 옵션 — 1차 PoC 부가 기능. 서버가 받을 준비가 되기 전이라

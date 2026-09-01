@@ -51,7 +51,7 @@ describe('ConversionSettingsModal', () => {
   it('조판 설정은 접혀 있고 요약만 보인다', () => {
     setup();
     expect(screen.getByText(/26줄 × 32칸/)).toBeTruthy();
-    expect(screen.queryByPlaceholderText('예: 수학 익힘책 1')).toBeNull();
+    expect(screen.queryByPlaceholderText('예: 수학1-2. 다항함수')).toBeNull();
   });
 
   it('정한 값을 그대로 넘긴다', async () => {
@@ -60,7 +60,7 @@ describe('ConversionSettingsModal', () => {
     await user.click(screen.getByRole('checkbox'));
     await user.click(screen.getByRole('button', { name: '조판 설정 바꾸기' }));
     await user.type(
-      screen.getByPlaceholderText('예: 수학 익힘책 1'),
+      screen.getByPlaceholderText('예: 수학1-2. 다항함수'),
       '  수학 익힘책 1  ',
     );
     await user.click(screen.getByRole('button', { name: '변환 시작' }));
@@ -76,7 +76,7 @@ describe('ConversionSettingsModal', () => {
     const user = userEvent.setup();
     const { onStart } = setup();
     await user.click(screen.getByRole('button', { name: '조판 설정 바꾸기' }));
-    await user.click(screen.getByRole('button', { name: '모든 면' }));
+    await user.click(screen.getByRole('button', { name: '모든 페이지' }));
     await user.click(screen.getByRole('button', { name: '변환 시작' }));
     expect(onStart).toHaveBeenCalledWith(
       false,
@@ -98,7 +98,7 @@ describe('ConversionSettingsModal', () => {
     setup();
     await user.click(screen.getByRole('button', { name: '조판 설정 바꾸기' }));
     const input = screen.getByPlaceholderText(
-      '예: 수학 익힘책 1',
+      '예: 수학1-2. 다항함수',
     ) as HTMLInputElement;
     expect(input.maxLength).toBe(200);
   });
