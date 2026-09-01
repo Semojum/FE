@@ -1672,8 +1672,32 @@ const Semojum: React.FC = () => {
 
   // 창이 나뉘어 있으면 원본과 결과가 서로 다른 창에 있다. 이쪽에서 얹은 블록을
   // 반대편에도 알려 같은 자리에 상자가 뜨게 한다.
+  // 수식 칸을 위에 놓을지 아래에 놓을지. 마우스가 화면 아래쪽에 있으면 그 칸이
+  // 손 밑에 깔려 보이지 않으므로 위로 올린다(2026-09-01 요청).
+  //
+  // 판단은 **블록이 바뀌는 순간에 한 번만** 한다. 마우스를 따라 계속 다시 재면
+  // 경계에서 칸이 위아래로 깜빡이고, 그 사이 판면 높이도 함께 흔들린다.
+  const [mathOnTop, setMathOnTop] = useState(false);
+  const mouseYRef = useRef(0);
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      mouseYRef.current = e.clientY;
+    };
+    window.addEventListener('mousemove', onMove, { passive: true });
+    return () => window.removeEventListener('mousemove', onMove);
+  }, []);
+
+  // 지금 얹혀 있는 블록 — 자리를 다시 정할지 가리는 데만 쓴다. 상태로 비교하면
+  // 이 콜백이 렌더마다 새로 만들어져 판면 메모가 통째로 풀린다.
+  const hoverBlockIdRef = useRef<string | null>(null);
   const handleHoverBlock = useCallback(
     (id: string | null) => {
+      // 다른 블록으로 옮겨 갈 때만 자리를 다시 정한다 — 같은 블록 안에서
+      // 마우스를 움직이는 동안에는 칸이 그대로 있어야 읽을 수 있다.
+      if (id && id !== hoverBlockIdRef.current) {
+        setMathOnTop(mouseYRef.current > window.innerHeight * 0.55);
+      }
+      hoverBlockIdRef.current = id;
       setHoverBlockId(id);
       broadcastHover(id);
     },
@@ -2794,7 +2818,9 @@ const Semojum: React.FC = () => {
                 {hoveredMathBlock && (
                   <section
                     aria-label="라텍스 변환기"
-                    className="order-last mt-2 shrink-0 rounded-[10px] border border-[#e2e8f0] bg-white px-3 py-2"
+                    className={`shrink-0 rounded-[10px] border border-[#e2e8f0] bg-white px-3 py-2 ${
+                      mathOnTop ? 'order-first mb-2' : 'order-last mt-2'
+                    }`}
                   >
                     <p className="mb-1 text-[10.5px] font-bold text-gray-400">
                       라텍스 변환기
