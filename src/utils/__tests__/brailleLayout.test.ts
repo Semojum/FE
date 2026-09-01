@@ -436,20 +436,6 @@ describe('시작 번호 지정', () => {
     expect(pages[0].braillePage).toBe(1);
   });
 
-  it('원본 쪽 번호를 그 쪽만 고쳐도 편집 좌표는 그대로다', () => {
-    const pages = buildLayout(
-      { 7: [block('b1', '⠁')] },
-      true,
-      '',
-      opts({ origPageOverrides: { '7': 42 } }),
-    );
-    const body = flattenRows(pages).find((r) => r.kind === 'body');
-    expect(body?.source?.pageNo).toBe(7);
-    // 판면에 적히는 번호는 42다 — 페이지행(fixed 행)에 42의 점자 숫자가 들어간다.
-    const fixed = flattenRows(pages).filter((r) => r.kind === 'fixed');
-    expect(fixed.length).toBeGreaterThan(0);
-  });
-
   it('원본 쪽 번호 시작을 옮겨도 편집 좌표는 그대로다', () => {
     const shifted = buildLayout(
       { 7: [block('b1', '⠁')] },

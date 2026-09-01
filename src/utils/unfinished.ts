@@ -10,14 +10,12 @@
 //
 // 서버·라이브러리가 받을 준비가 되면 그 항목만 여기서 빼면 된다.
 // 각 항목의 근거는 docs/SERVER-REQUIREMENTS-3.3.0.md에 있다.
+//
+// 2026-09-01 명세 개정으로 조판 설정(S-1)·규정 검색(S-6)·원본 쪽 번호 시작이 열렸다.
+// 남은 것은 표식 두 개(쪽바꿈·구간 꼬리말 — braille-assist가 알아봐야 한다)와
+// 점역 옵션(등급·영어·혼용 — 서버가 값을 받아야 한다)뿐이다.
 
-export type UnfinishedId =
-  | 'typeset'
-  | 'pageBreak'
-  | 'sectionFooter'
-  | 'origPageNumber'
-  | 'ruleSearch'
-  | 'translation';
+export type UnfinishedId = 'pageBreak' | 'sectionFooter' | 'translation';
 
 export interface UnfinishedNotice {
   title: string;
@@ -26,13 +24,6 @@ export interface UnfinishedNotice {
 }
 
 export const UNFINISHED: Record<UnfinishedId, UnfinishedNotice> = {
-  typeset: {
-    title: '조판 설정은 아직 준비 중입니다',
-    body:
-      '규격(32칸 26줄) · 페이지 번호 표시줄 · 표지 제외 · 시작 번호를 바꾸는 기능입니다.\n' +
-      '지금은 화면에만 적용되고 내려받는 .brf 파일에는 반영되지 않아, 작업한 판면과 파일이 서로 달라집니다.\n\n' +
-      '서버가 조판 설정을 저장하기 시작하면 열립니다.',
-  },
   pageBreak: {
     title: '쪽 바꿈은 아직 준비 중입니다',
     body:
@@ -46,20 +37,6 @@ export const UNFINISHED: Record<UnfinishedId, UnfinishedNotice> = {
       '단원마다 다른 꼬리말을 넣는 기능입니다.\n' +
       '지금은 화면에서만 갈리고, 내려받는 파일에는 표식이 글자로 찍힙니다.\n\n' +
       '작업 전체에 하나를 넣는 꼬리말은 변환 설정에서 지금도 쓸 수 있습니다.',
-  },
-  origPageNumber: {
-    title: '원본 쪽 번호 고치기는 아직 준비 중입니다',
-    body:
-      '그 쪽에 적히는 원본 쪽 번호만 손으로 바꾸는 기능입니다.\n' +
-      '조판 설정과 마찬가지로 화면에만 적용되고 내려받는 파일에는 반영되지 않습니다.\n\n' +
-      '서버가 조판 설정을 저장하기 시작하면 함께 열립니다.',
-  },
-  ruleSearch: {
-    title: '점자 규정 찾아보기는 아직 준비 중입니다',
-    body:
-      '앱 안에서 점자 규정과 제작 지침을 검색하는 기능입니다.\n' +
-      '지금 담긴 자료가 조판 규칙 몇 건뿐이라, 찾는 규정이 없는데도 "없다"고 읽힐 수 있습니다.\n\n' +
-      '규정 원문 자료가 준비되면 열립니다.',
   },
   translation: {
     title: '점역 옵션은 아직 준비 중입니다',

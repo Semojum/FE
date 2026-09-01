@@ -49,11 +49,10 @@ export interface TypesetOptions {
    */
   origPageFormat: OrigPageFormat;
   /**
-   * 원본 쪽 하나만 다른 번호로 적을 때(1차 PoC 1-4 기능4 "표시줄 편집").
-   * 키는 서버가 준 원본 쪽 번호, 값은 판면에 적을 번호다. 스캔이 한 장 빠졌거나
-   * 앞뒤 번호가 튀는 문서에서 그 쪽만 손으로 맞춘다 — 편집 좌표는 건드리지 않는다.
+   * 고급 점역 사용 여부 — 복잡한 문서에 더 좋은 모델을 쓴다.
+   * (1차 PoC "복잡한 문서 처리를 위한 고급 AI 모델 사용 버튼" · 명세 advancedAi)
    */
-  origPageOverrides: Record<string, number>;
+  advancedAi: boolean;
   /** 페이지행에 점자 면 번호를 넣을지 */
   showBraillePage: boolean;
   /**
@@ -82,7 +81,7 @@ export const DEFAULT_TYPESET: TypesetOptions = {
   showOrigPage: true,
   origPageStart: 1,
   origPageFormat: 'number',
-  origPageOverrides: {},
+  advancedAi: false,
   showBraillePage: true,
   footerAlign: 'center',
   footerText: '',
@@ -91,10 +90,12 @@ export const DEFAULT_TYPESET: TypesetOptions = {
 
 // 규격은 지침·장비 한계 안에서만 받는다. 8칸 미만은 라이브러리가 거부하고,
 // 지나치게 큰 값은 판면이 화면을 벗어나 편집이 불가능해진다.
+// 서버가 받는 범위와 같게 둔다 — 넘기면 업로드에서 COMMON4000으로 막힌다
+// (V3 API 명세 "조판 옵션 V30": cellsPerLine 8~100 · linesPerPage 4~100).
 export const COLS_MIN = 8;
-export const COLS_MAX = 48;
+export const COLS_MAX = 100;
 export const ROWS_MIN = 4;
-export const ROWS_MAX = 40;
+export const ROWS_MAX = 100;
 // 점자 면 번호 시작값. 권을 나눠 내도 네 자리를 넘길 일은 없다.
 export const START_PAGE_MIN = 1;
 export const START_PAGE_MAX = 999;
@@ -103,22 +104,6 @@ const clampInt = (v: unknown, lo: number, hi: number, fallback: number): number 
   const n = typeof v === 'number' ? Math.round(v) : Number.NaN;
   if (!Number.isFinite(n)) return fallback;
   return Math.min(hi, Math.max(lo, n));
-};
-
-// 저장된 값이 손상돼도 판면이 깨지지 않게 — 숫자 키에 양수 값만 남긴다.
-const normalizeOverrides = (
-  raw: unknown,
-): Record<string, number> => {
-  if (!raw || typeof raw !== 'object') return {};
-  const out: Record<string, number> = {};
-  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-    const page = Number(k);
-    const shown = typeof v === 'number' ? Math.round(v) : Number.NaN;
-    if (!Number.isFinite(page) || page < 0) continue;
-    if (!Number.isFinite(shown) || shown < 0 || shown > 9999) continue;
-    out[String(page)] = shown;
-  }
-  return out;
 };
 
 export const normalizeTypeset = (
@@ -146,7 +131,7 @@ export const normalizeTypeset = (
       DEFAULT_TYPESET.origPageStart,
     ),
     origPageFormat: v.origPageFormat === 'roman' ? 'roman' : 'number',
-    origPageOverrides: normalizeOverrides(v.origPageOverrides),
+    advancedAi: v.advancedAi === true,
     showBraillePage: v.showBraillePage !== false,
     footerAlign: v.footerAlign === 'right' ? 'right' : 'center',
     footerText: typeof v.footerText === 'string' ? v.footerText : '',
@@ -208,8 +193,75 @@ export const describeTypeset = (o: TypesetOptions): string => {
   );
   if (o.coverPages > 0) parts.push(`표지 ${o.coverPages}면 제외`);
   if (o.startBraillePage !== 1) parts.push(`${o.startBraillePage}면부터`);
-  const overrides = Object.keys(o.origPageOverrides).length;
-  if (overrides > 0) parts.push(`원본 쪽 번호 ${overrides}곳 수정`);
+  if (o.origPageStart !== 1) parts.push(`원본 ${o.origPageStart}쪽부터`);
+  if (o.advancedAi) parts.push('고급 점역');
   if (o.footerText) parts.push(`꼬리말 "${o.footerText}"`);
   return parts.join(' · ');
+};
+
+// ── 서버 계약(V3 API "조판 옵션 V30" · 2026-09-01) ──────────────
+//
+// 업로드 폼과 조회 응답이 쓰는 이름은 화면 쪽 이름과 다르다. 두 이름을 한 곳에서만
+// 잇고, 나머지 코드는 화면 이름만 쓴다 — 서버가 필드를 바꿔도 여기만 고치면 된다.
+//
+// 저장은 jobs.layout_options(jsonb) 한 칸이라 **모르는 필드는 서버가 무시한다.**
+// 그래서 화면에만 있는 값(footerScope → editScope처럼 서버가 되돌려주기만 하는 것)도
+// 함께 보내 둘 수 있다.
+
+export interface LayoutOptions {
+  cellsPerLine: number;
+  linesPerPage: number;
+  pageNumberLine: PageRowOn;
+  coverPages: number;
+  sourcePageStart: number;
+  braillePageStart: number;
+  showSourcePageNumber: boolean;
+  showBraillePageNumber: boolean;
+  footerAlign: FooterAlign;
+  /** 판면 수정 기본 적용 범위 — 서버는 저장·반환만 하고 쓰는 것은 FE다. */
+  editScope: 'all' | 'page';
+  advancedAi: boolean;
+}
+
+/** 화면 설정 → 업로드 폼·저장 값. */
+export const toLayoutOptions = (o: TypesetOptions): LayoutOptions => ({
+  cellsPerLine: o.cols,
+  linesPerPage: o.rows,
+  pageNumberLine: o.pageRowOn,
+  coverPages: o.coverPages,
+  sourcePageStart: o.origPageStart,
+  braillePageStart: o.startBraillePage,
+  showSourcePageNumber: o.showOrigPage,
+  showBraillePageNumber: o.showBraillePage,
+  footerAlign: o.footerAlign,
+  editScope: o.footerScope === 'page' ? 'page' : 'all',
+  advancedAi: o.advancedAi,
+});
+
+/**
+ * 서버가 준 조판 옵션 → 화면 설정.
+ *
+ * 명세상 응답은 늘 완전한 형태지만(안 보낸 항목도 기본값이 채워져 온다), 배포본이
+ * 명세와 어긋난 전례가 있어 normalizeTypeset으로 한 번 더 거른다. 꼬리말은 옵션
+ * 바깥(footerText)에 따로 오므로 인자로 받는다.
+ */
+export const fromLayoutOptions = (
+  raw: Partial<LayoutOptions> | null | undefined,
+  footerText?: string | null,
+): TypesetOptions => {
+  const v = raw ?? {};
+  return normalizeTypeset({
+    cols: v.cellsPerLine,
+    rows: v.linesPerPage,
+    pageRowOn: v.pageNumberLine,
+    coverPages: v.coverPages,
+    origPageStart: v.sourcePageStart,
+    startBraillePage: v.braillePageStart,
+    showOrigPage: v.showSourcePageNumber,
+    showBraillePage: v.showBraillePageNumber,
+    footerAlign: v.footerAlign,
+    footerScope: v.editScope === 'page' ? 'page' : 'rest',
+    advancedAi: v.advancedAi,
+    footerText: footerText ?? '',
+  });
 };

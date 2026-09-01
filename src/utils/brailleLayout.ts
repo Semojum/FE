@@ -393,12 +393,10 @@ const toSources = (
   // 화면에 적을 원본 쪽 번호에 더할 값. 편집 좌표(line.pageNo)는 그대로 두고
   // 페이지행·변경선에 찍히는 숫자만 옮긴다(조판 설정 origPageStart).
   pageShift = 0,
-  // 그 쪽만 다른 번호로 적기(조판 설정 origPageOverrides).
-  overrides: Record<string, number> = {},
 ): Source[] => {
   const pages: Source[] = [];
   lines.forEach((line, idx) => {
-    const shown = overrides[String(line.pageNo)] ?? line.pageNo + pageShift;
+    const shown = line.pageNo + pageShift;
     let page = pages[pages.length - 1];
     if (!page || page.orig_page !== shown) {
       page = { orig_page: shown, blocks: [] };
@@ -496,12 +494,7 @@ export const buildLayout = (
   let lineBase = 0;
   // 토막이 하나면 메모할 것이 없다(위 SegMemo 주석).
   const memoing = segments.length > 1;
-  const optsKey = JSON.stringify([
-    opts,
-    footerBraille,
-    pageShift,
-    typeset.origPageOverrides,
-  ]);
+  const optsKey = JSON.stringify([opts, footerBraille, pageShift]);
   const prev = lastRun;
   const next = new Map<string, SegMemo>();
   for (const seg of segments) {
@@ -514,12 +507,7 @@ export const buildLayout = (
     const r =
       reuse?.real ??
       buildPages(
-        toSources(
-          seg.lines,
-          (l) => l.text,
-          pageShift,
-          typeset.origPageOverrides,
-        ),
+        toSources(seg.lines, (l) => l.text, pageShift),
         footerBraille,
         startPage,
         opts,
@@ -532,7 +520,6 @@ export const buildLayout = (
           seg.lines,
           (l, idx) => markerFor(lineBase + idx).repeat([...l.text].length),
           pageShift,
-          typeset.origPageOverrides,
         ),
         footerBraille,
         startPage,

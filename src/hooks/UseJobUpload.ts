@@ -3,6 +3,7 @@ import { useState, useCallback } from 'react';
 import { JobMode, CreateJobResponse } from '../types/apiTypes';
 import { ConversionTab, TABS } from '../types';
 import { createJob } from '../api/JobService';
+import type { LayoutOptions } from '../utils/typesetOptions';
 import { toUserMessage } from '../api/errorMessages';
 import { logDiag } from '../utils/diagLog';
 import { fileSizeMessage, footerTextMessage } from '../utils/fileValidation';
@@ -11,6 +12,9 @@ interface UploadOptions {
   // 응답이 돌아온 시점에도 이 업로드를 계속 붙일지. 업로드 중에 사용자가 취소하면
   // false를 돌려 Job을 붙이지 않는다 — 붙이면 취소했는데도 스트림이 이어진다.
   shouldAttach?: () => boolean;
+  // 조판 옵션(V30 · 2026-09-01). 업로드 시점에 확정되고 서버가 저장한다.
+  // 안 주면 서버가 기본값으로 채운다 — 종전과 같은 동작이다.
+  layout?: LayoutOptions | null;
 }
 
 interface UseJobUploadReturn {
@@ -83,6 +87,7 @@ export const useJobUpload = (): UseJobUploadReturn => {
           token,
           insertPageNumber,
           footerText,
+          options?.layout,
         );
         // 업로드 중에 취소했다면 붙이지 않는다. 만들어진 Job은 호출부가 취소한다
         // (jobId를 그때 처음 알게 되므로 취소 API도 그때 부를 수 있다).

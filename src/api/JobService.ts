@@ -10,12 +10,21 @@ import {
   API_BASE_URL,
   BinaryResponse,
 } from './apiClient';
+import type { LayoutOptions } from '../utils/typesetOptions';
 
 // 다른 모듈(UseJobStream, 테스트 등)이 기존 경로로 import하던 것을 유지하기 위해 재노출.
 export { API_BASE_URL };
 
 // 명세 elementType: a(text_list)=TEXT, b/c(braille_text_list)=BRAILLE
 export type ElementType = 'TEXT' | 'BRAILLE';
+
+// GET /api/jobs/{jobId}/options 응답 (V30 · 2026-09-01 신설).
+export interface JobOptionsResponse {
+  jobId: string;
+  insertPageNumber: boolean;
+  footerText: string | null;
+  layoutOptions: LayoutOptions;
+}
 
 // POST /api/jobs (multipart) — Authorization 필요.
 // insertPageNumber: 점자 판면 마지막 줄에 쪽번호를 넣을지. 업로드 시점에 확정된다(2026-08-04).
@@ -26,6 +35,8 @@ export const createJob = async (
   token?: string | null,
   insertPageNumber = false,
   footerText?: string | null,
+  // 조판 옵션(V30 · 2026-09-01). 안 주면 서버가 기본값으로 채운다 — 종전과 같은 동작.
+  layout?: LayoutOptions | null,
 ): Promise<CreateJobResponse> => {
   const formData = new FormData();
   formData.append('file', file);
@@ -34,12 +45,43 @@ export const createJob = async (
   // 선택 항목이라 빈 값은 보내지 않는다 — 미전송 시 서버가 footer_text를 null로 기록한다.
   const footer = footerText?.trim();
   if (footer) formData.append('footerText', footer);
+  // 조판 옵션은 폼 필드로 하나씩 보낸다(multipart). 값 범위를 벗어나면
+  // 업로드가 COMMON4000으로 막힌다 — 조판이 조용히 깨지는 것보다 낫다는 계약이다.
+  if (layout) {
+    for (const [key, value] of Object.entries(layout)) {
+      formData.append(key, String(value));
+    }
+  }
 
   return apiRequest<CreateJobResponse>('/api/jobs', {
     method: 'POST',
     body: formData,
     token,
   });
+};
+
+/**
+ * GET /api/jobs/{jobId}/options — 업로드할 때 고른 조판 옵션 + 꼬리말.
+ *
+ * 작업을 열 때 설정을 되살리는 용도다. 페이지 조회 응답에도 layoutOptions가 실리지만
+ * 그쪽은 **변환 결과가 없는 작업(변환 중·실패·BLOCKED)에서 JOB4001**이라 설정을 볼
+ * 수 없다. 설정은 업로드 시점에 확정되므로 결과와 무관하게 이 API로 읽는다(명세).
+ *
+ * 못 읽어도 작업 자체는 열려야 하므로 실패는 null로 돌린다 — 호출부는 기본 설정을 쓴다.
+ */
+export const getJobOptions = async (
+  jobId: string,
+  token?: string | null,
+  signal?: AbortSignal,
+): Promise<JobOptionsResponse | null> => {
+  try {
+    return await apiRequest<JobOptionsResponse>(`/api/jobs/${jobId}/options`, {
+      token,
+      signal,
+    });
+  } catch {
+    return null;
+  }
 };
 
 // POST /api/jobs/{jobId}/cancel — 변환 중단.

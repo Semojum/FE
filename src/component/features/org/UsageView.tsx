@@ -346,12 +346,10 @@ const UsageView: React.FC<Props> = ({
               규칙 자체는 여전히 braille-assist가 소유하고, 여기서는 그 라이브러리가
               이미 받는 옵션(규격·페이지행 범위·표지 제외·쪽번호 종류)만 넘긴다. */}
           <div className="flex flex-1 flex-col gap-[7px]">
-            <Locked locked={!isDevBuild} onClick={() => setNotice('typeset')}>
-              <TypesetSettings
-                value={defaults.typeset}
-                onChange={(typeset) => setDefaults((d) => ({ ...d, typeset }))}
-              />
-            </Locked>
+            <TypesetSettings
+              value={defaults.typeset}
+              onChange={(typeset) => setDefaults((d) => ({ ...d, typeset }))}
+            />
 
             {/* 점역 옵션 — 1차 PoC 부가 기능. 서버가 받을 준비가 되기 전이라
                 고르고 저장만 되고 변환에는 아직 반영되지 않는다. */}

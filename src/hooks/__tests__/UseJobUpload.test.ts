@@ -77,6 +77,7 @@ describe('useJobUpload', () => {
       'tok',
       false,
       '',
+      undefined, // 조판 옵션 — 안 주면 서버가 기본값으로 채운다(V30)
     );
   });
 
@@ -96,6 +97,7 @@ describe('useJobUpload', () => {
       'tok',
       false,
       '',
+      undefined,
     );
   });
 
@@ -117,6 +119,7 @@ describe('useJobUpload', () => {
       'tok',
       true,
       '수학 익힘책 1',
+      undefined,
     );
   });
 
@@ -134,6 +137,37 @@ describe('useJobUpload', () => {
     });
     expect(createJobMock).not.toHaveBeenCalled();
     expect(result.current.error).toContain('200자');
+  });
+
+  it('조판 옵션을 주면 그대로 createJob에 넘긴다 (V30)', async () => {
+    createJobMock.mockResolvedValue({ jobId: 'job_1', totalPages: 1 });
+    const { result } = renderHook(() => useJobUpload());
+    const layout = {
+      cellsPerLine: 40,
+      linesPerPage: 20,
+      pageNumberLine: 'every' as const,
+      coverPages: 2,
+      sourcePageStart: 100,
+      braillePageStart: 5,
+      showSourcePageNumber: true,
+      showBraillePageNumber: false,
+      footerAlign: 'right' as const,
+      editScope: 'page' as const,
+      advancedAi: true,
+    };
+    await act(async () => {
+      await result.current.uploadFile(fakeFile(), TABS.OCR, 'tok', false, '', {
+        layout,
+      });
+    });
+    expect(createJobMock).toHaveBeenCalledWith(
+      expect.any(File),
+      'a',
+      'tok',
+      false,
+      '',
+      layout,
+    );
   });
 
   it('uploadFile error: stores error message and returns null', async () => {

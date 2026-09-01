@@ -148,6 +148,28 @@ const TypesetSettings: React.FC<Props> = ({ value, onChange, compact }) => {
         }
       />
 
+      {/* 고급 점역 — 복잡한 문서에 더 좋은 모델을 쓴다(명세 advancedAi).
+          업로드 시점에만 정해지므로 변환 설정에서 고르는 것이 제자리다. */}
+      <label className="flex items-start gap-2 rounded-lg bg-[#f5f8fc] px-2.5 py-2">
+        <input
+          type="checkbox"
+          checked={value.advancedAi}
+          onChange={(e) => set('advancedAi', e.target.checked)}
+          className="mt-0.5 h-3.5 w-3.5 accent-[#5b8ce6]"
+        />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-[12px] font-medium text-gray-700">
+            고급 점역 사용
+          </span>
+          {!compact && (
+            <span className={hintCls}>
+              다단·표·시각자료가 많은 복잡한 문서에서 더 좋은 모델을 씁니다.
+              변환이 더 오래 걸릴 수 있습니다.
+            </span>
+          )}
+        </span>
+      </label>
+
       {/* 원본 쪽 번호 시작값 — 표지를 빼고 스캔했거나 책 중간부터 올릴 때 맞춘다. */}
       <NumberField
         label="원본 쪽 번호 시작"

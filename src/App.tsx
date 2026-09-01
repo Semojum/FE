@@ -26,10 +26,9 @@ import {
   Lock,
   Minus,
   Plus,
-  ArrowUp,
-  ArrowDown,
-  Trash2,
-  Layers,
+  Hash,
+  Settings2,
+  Type,
 } from 'lucide-react';
 
 // Hooks
@@ -113,11 +112,12 @@ import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
 import { isTextOriginal, renderableOriginals } from './utils/pageOriginals';
 import { onAppClose } from './utils/appLifecycle';
 import { loadBrailleDefaults } from './utils/brailleDefaults';
-import type { FooterScope, TypesetOptions } from './utils/typesetOptions';
 import {
-  loadJobTypeset,
-  saveJobTypeset,
-} from './utils/jobTypeset';
+  fromLayoutOptions,
+  toLayoutOptions,
+  type FooterScope,
+  type TypesetOptions,
+} from './utils/typesetOptions';
 import {
   clampZoom,
   describeZoom,
@@ -128,6 +128,7 @@ import {
   ZOOM_STEP,
   type GridZoom,
 } from './utils/gridZoom';
+import { getJobOptions } from './api/JobService';
 import { logDiag } from './utils/diagLog';
 import { brfFromLayout, countPendingMarks } from './utils/localBrf';
 import { useIsDevBuild } from './hooks/UseIsDevBuild';
@@ -139,7 +140,6 @@ import {
   insertFooterTagAfter,
   insertPageBreakBefore,
   lastBlockOfPage,
-  origPageShift,
   pageIndexOfBlock,
   setSectionFooterBefore,
   buildLayout,
@@ -1182,12 +1182,6 @@ const Semojum: React.FC = () => {
   }, [hoverBlockId, blocksByPage]);
 
   const caretSource = caret ? (gridRows[caret.rowIndex]?.source ?? null) : null;
-  const caretBlocks = caretSource
-    ? (blocksByPage[caretSource.pageNo] ?? [])
-    : [];
-  const caretBlockIndex = caretSource
-    ? caretBlocks.findIndex((b) => b.id === caretSource.blockId)
-    : -1;
 
   // 커서가 놓인 줄의 블록을 원본 대조 선택으로도 반영한다(좌측 원본이 같이 강조됨).
   const handleCaretChange = useCallback(
@@ -1383,7 +1377,13 @@ const Semojum: React.FC = () => {
       auth.token,
       insertPageNumber,
       footerText,
-      { shouldAttach: stillMine },
+      {
+        shouldAttach: stillMine,
+        // 조판 설정은 업로드 시점에 확정된다 — 서버가 저장하고 다운로드 조판에 쓴다.
+        // 변환 설정 모달에서 고른 값이 pendingTypesetRef에 있고, 없으면(점역으로
+        // 보내기처럼 모달을 거치지 않는 경로) 지금 화면 설정을 그대로 보낸다.
+        layout: toLayoutOptions(pendingTypesetRef.current ?? typeset),
+      },
     ).then((data) => {
       // 올리는 동안 취소했으면 이제서야 알게 된 jobId로 서버 작업을 중단시킨다.
       if (!data || stillMine()) return;
@@ -1403,6 +1403,7 @@ const Semojum: React.FC = () => {
     auth.token,
     insertPageNumber,
     footerText,
+    typeset,
   ]);
 
   // 격자 우클릭 위치. 인라인 화살표로 넘기면 렌더마다 새 함수가 되어 격자 메모가
@@ -1433,48 +1434,59 @@ const Semojum: React.FC = () => {
   //
   // 들어오는 문은 넷이다(업로드·마이페이지 열기·세션 복구·진행 중 작업 이어받기).
   // 넷 다 workingJobId를 세우므로 여기 한 곳에서 받는다. 방금 업로드한 작업만
-  // 화면의 값이 정답이고(변환 설정 모달에서 고른 값), 나머지는 저장된 값이 정답이다.
+  // 화면의 값이 정답이고(변환 설정 모달에서 고른 값), 나머지는 **서버에 저장된 값**이
+  // 정답이다 — 업로드 때 보낸 조판 옵션을 서버가 들고 있다(V30 · GET .../options).
+  //
+  // 결과가 없는 작업(변환 중·실패·BLOCKED)도 설정은 조회되므로 페이지 조회와 달리
+  // 이 API는 어느 상태에서든 부를 수 있다.
   useEffect(() => {
     if (!workingJobId) return;
     const pending = pendingTypesetRef.current;
     if (pending) {
+      // 방금 업로드한 작업 — 이미 서버로 보낸 값이라 다시 받아올 것이 없다.
       pendingTypesetRef.current = null;
-      saveJobTypeset(workingJobId, pending);
       return;
     }
-    // 저장된 것이 없는 작업(이 기능 이전에 만든 것·다른 기기에서 만든 것)은
-    // 기본 설정으로 연다. 직전에 보던 파일의 규격을 물려받으면 안 된다.
-    setTypeset(loadJobTypeset(workingJobId) ?? loadBrailleDefaults().typeset);
-  }, [workingJobId]);
+    const controller = new AbortController();
+    let alive = true;
+    void getJobOptions(workingJobId, auth.token, controller.signal).then(
+      (res) => {
+        if (!alive) return;
+        // 못 읽으면 기본 설정으로 연다. 직전에 보던 파일의 규격을 물려받으면 안 된다.
+        setTypeset(
+          res
+            ? fromLayoutOptions(res.layoutOptions, res.footerText)
+            : loadBrailleDefaults().typeset,
+        );
+        if (res) setInsertPageNumber(res.insertPageNumber === true);
+      },
+    );
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [workingJobId, auth.token]);
 
-  // 조판 설정을 바꾸면 지금 열려 있는 작업에 곧바로 붙여 둔다 — 다음에 이 파일을
-  // 열 때도 같은 판면이어야 한다.
-  const changeTypeset = useCallback(
-    (next: TypesetOptions) => {
-      setTypeset(next);
-      if (workingJobId) saveJobTypeset(workingJobId, next);
-    },
-    [workingJobId],
-  );
+  // 조판 설정을 바꾸면 화면에 곧바로 반영한다.
+  //
+  // ⚠ 서버에 다시 보내지는 않는다 — 조판 옵션은 **업로드 시점에 확정**되고 이를
+  // 고치는 API가 없다(V3 명세). 그래서 편집 중에 바꾼 값은 이 화면에서만 살아 있고,
+  // 작업을 다시 열면 업로드 때 고른 값으로 돌아온다. 내려받는 .brf도 업로드 때
+  // 값으로 조판된다 — 그 사실을 조판 설정 모달이 화면에서 알린다.
+  const changeTypeset = useCallback((next: TypesetOptions) => {
+    setTypeset(next);
+  }, []);
 
-  // 원본 쪽 번호를 그 쪽만 고치기(1차 PoC 1-4 기능4). 값은 서버가 준 원본 쪽 번호다.
-  const [origPageEdit, setOrigPageEdit] = useState<number | null>(null);
-
-  const applyOrigPageOverride = useCallback(
-    (pageNo: number, shown: number | null) => {
-      setOrigPageEdit(null);
-      const next = { ...typeset.origPageOverrides };
-      if (shown === null) delete next[String(pageNo)];
-      else next[String(pageNo)] = shown;
-      changeTypeset({ ...typeset, origPageOverrides: next });
-      setToast(
-        shown === null
-          ? `원본 ${pageNo}쪽의 번호를 원래대로 되돌렸습니다.`
-          : `원본 ${pageNo}쪽을 ${shown}쪽으로 적습니다.`,
-      );
-    },
-    [typeset, changeTypeset],
-  );
+  // 원본 쪽 번호 시작 — "이 문서의 첫 쪽이 실제로 몇 쪽인가". 뒤는 따라 매겨진다.
+  // 서버가 sourcePageStart로 저장하므로 내려받는 .brf에도 같은 번호가 나간다(V30).
+  const [origPageOpen, setOrigPageOpen] = useState(false);
+  // 이 작업의 첫 원본 쪽(서버 기준) — 안내 문구에만 쓴다.
+  const firstOrigPage = useMemo(() => {
+    const pages = Object.entries(blocksByPage)
+      .filter(([, blocks]) => (blocks?.length ?? 0) > 0)
+      .map(([page]) => Number(page));
+    return pages.length ? Math.min(...pages) : 1;
+  }, [blocksByPage]);
 
   const handlePageMapped = usePageStreamHandler({
     // 결과 해석은 이 Job이 만들어진 모드 기준이다 (탭을 옮겨도 흔들리지 않게).
@@ -2305,10 +2317,7 @@ const Semojum: React.FC = () => {
               {/* 점자 규정 찾아보기 — 조판하다 규정을 확인할 일이 잦다
                   (1차 PoC 부가 기능 · 필요성 중). */}
               <button
-                onClick={() => {
-                  if (blockUnfinished('ruleSearch')) return;
-                  setIsRuleSearchOpen(true);
-                }}
+                onClick={() => setIsRuleSearchOpen(true)}
                 title="점자 규정 찾아보기"
                 aria-label="점자 규정 찾아보기"
                 className="rounded p-1.5 text-gray-400 transition-colors hover:text-[#407FAC]"
@@ -2716,109 +2725,49 @@ const Semojum: React.FC = () => {
                   </div>
                 )}
 
-                {/* 블록 도구 — 우클릭 메뉴와 같은 동작을 버튼으로도 제공한다.
-                    대상은 커서가 놓인 줄의 블록이다 (QA "블록 관련 버튼 생성" ·
-                    "대체 텍스트 버튼 생성"). */}
+                {/* 판면 도구 — 커서가 놓인 줄을 기준으로 조판을 손본다.
+                    블록 추가·이동·삭제·대체 텍스트는 우클릭 메뉴에 그대로 있고,
+                    이 줄에는 조판에 관한 것만 둔다(2026-09-01 요청). */}
                 {gridRows.length > 0 && (
                   <div className="mb-2 flex items-center gap-1 border-b border-gray-100 pb-2">
                     <button
                       type="button"
-                      disabled={caretBlockIndex === -1}
+                      title="이 문서의 첫 쪽을 몇 쪽으로 셀지 정합니다"
+                      onClick={() => setOrigPageOpen(true)}
+                      className={blockToolCls}
+                    >
+                      <Hash size={13} /> 원본 쪽번호
+                    </button>
+                    <button
+                      type="button"
+                      title="규격·페이지 번호 표시줄·표지 제외 — 이 작업의 조판 설정"
+                      onClick={() => setIsTypesetOpen(true)}
+                      className={blockToolCls}
+                    >
+                      <Settings2 size={13} /> 조판 설정
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!caretSource}
                       title={
                         caretSource
-                          ? '커서가 있는 블록 앞에 빈 블록을 넣습니다'
+                          ? '이 줄부터 꼬리말을 바꿉니다'
                           : '판면에서 줄을 먼저 선택해 주세요'
                       }
                       onClick={() =>
                         caretSource &&
-                        dispatchAction({
-                          type: 'addBlock',
+                        setFooterMark({
                           page: caretSource.pageNo,
-                          index: caretBlockIndex,
-                        })
-                      }
-                      className={blockToolCls}
-                    >
-                      <Plus size={13} /> 블록 추가
-                    </button>
-                    <button
-                      type="button"
-                      disabled={caretBlockIndex <= 0}
-                      title="블록을 위로 옮깁니다"
-                      onClick={() =>
-                        caretSource &&
-                        dispatchAction({
-                          type: 'moveBlock',
-                          page: caretSource.pageNo,
-                          id: caretSource.blockId,
-                          delta: -1,
-                        })
-                      }
-                      className={blockToolCls}
-                    >
-                      <ArrowUp size={13} /> 위로
-                    </button>
-                    <button
-                      type="button"
-                      disabled={
-                        caretBlockIndex === -1 ||
-                        caretBlockIndex >= caretBlocks.length - 1
-                      }
-                      title="블록을 아래로 옮깁니다"
-                      onClick={() =>
-                        caretSource &&
-                        dispatchAction({
-                          type: 'moveBlock',
-                          page: caretSource.pageNo,
-                          id: caretSource.blockId,
-                          delta: 1,
-                        })
-                      }
-                      className={blockToolCls}
-                    >
-                      <ArrowDown size={13} /> 아래로
-                    </button>
-                    <button
-                      type="button"
-                      disabled={caretBlockIndex === -1}
-                      title="이 블록을 지웁니다 (Ctrl+Z로 되돌릴 수 있습니다)"
-                      onClick={() =>
-                        caretSource &&
-                        dispatchAction({
-                          type: 'removeBlock',
-                          page: caretSource.pageNo,
-                          id: caretSource.blockId,
-                        })
-                      }
-                      className={`${blockToolCls} text-[#ff3b30] hover:bg-red-50 hover:text-[#ff3b30]`}
-                    >
-                      <Trash2 size={13} /> 블록 삭제
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={!caretSource?.hasDrafts}
-                      title={
-                        !caretSource
-                          ? '판면에서 줄을 먼저 선택해 주세요'
-                          : caretSource.hasDrafts
-                            ? 'AI가 만든 다른 표현(대체 텍스트)을 골라 넣습니다'
-                            : '이 블록에는 대체 텍스트가 없습니다'
-                      }
-                      onClick={() =>
-                        caretSource &&
-                        setDraftTarget({
-                          pageNo: caretSource.pageNo,
                           blockId: caretSource.blockId,
+                          current: footerMarkBefore(
+                            blocksByPage[caretSource.pageNo] ?? [],
+                            caretSource.blockId,
+                          ),
                         })
                       }
-                      className={`ml-auto flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                        caretSource?.hasDrafts
-                          ? 'border-[#f47726]/40 bg-[#fdf0e6] text-[#c25a12] hover:bg-[#fbe4d3]'
-                          : 'border-gray-200 text-gray-400'
-                      }`}
+                      className={blockToolCls}
                     >
-                      <Layers size={13} /> 대체 텍스트
+                      <Type size={13} /> 여기부터 꼬리말
                     </button>
                   </div>
                 )}
@@ -3071,18 +3020,12 @@ const Semojum: React.FC = () => {
               {
                 label: '원본 쪽 번호',
                 title: `이 줄이 속한 원본 ${line.pageNo}쪽의 번호만 고칩니다`,
-                onSelect: () => {
-                  if (blockUnfinished('origPageNumber')) return;
-                  setOrigPageEdit(line.pageNo);
-                },
+                onSelect: () => setOrigPageOpen(true),
               },
               {
                 label: '조판 설정',
                 title: '규격·페이지행·표지 제외 — 이 파일에만 적용됩니다',
-                onSelect: () => {
-                  if (blockUnfinished('typeset')) return;
-                  setIsTypesetOpen(true);
-                },
+                onSelect: () => setIsTypesetOpen(true),
               },
               {
                 label: '블록 삭제',
@@ -3099,16 +3042,16 @@ const Semojum: React.FC = () => {
         />
       )}
 
-      {origPageEdit !== null && (
+      {origPageOpen && (
         <OrigPageModal
-          pageNo={origPageEdit}
-          shown={
-            typeset.origPageOverrides[String(origPageEdit)] ??
-            origPageEdit + origPageShift(blocksByPage, typeset)
-          }
-          overridden={String(origPageEdit) in typeset.origPageOverrides}
-          onSubmit={(shown) => applyOrigPageOverride(origPageEdit, shown)}
-          onClose={() => setOrigPageEdit(null)}
+          value={typeset.origPageStart}
+          firstPage={firstOrigPage}
+          onSubmit={(origPageStart) => {
+            setOrigPageOpen(false);
+            changeTypeset({ ...typeset, origPageStart });
+            setToast(`원본 쪽 번호를 ${origPageStart}쪽부터 적습니다.`);
+          }}
+          onClose={() => setOrigPageOpen(false)}
         />
       )}
 
@@ -3117,6 +3060,7 @@ const Semojum: React.FC = () => {
 
       <RuleSearchModal
         isOpen={isRuleSearchOpen}
+        token={auth.token}
         onClose={() => setIsRuleSearchOpen(false)}
       />
 

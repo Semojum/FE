@@ -8,8 +8,6 @@ import {
   type TypesetOptions,
 } from '../../../utils/typesetOptions';
 import TypesetSettings from './TypesetSettings';
-import UnfinishedModal from '../../shared/UnfinishedModal';
-import { useIsDevBuild } from '../../../hooks/UseIsDevBuild';
 
 // Figma V3-02 변환 설정 — 파일 선택 직후 (페이지 번호 · 꼬리말 · 조판 규격)
 //
@@ -41,9 +39,6 @@ const ConversionSettingsModal: React.FC<Props> = ({
   const [insertPageNumber, setInsertPageNumber] = useState(false);
   const [typeset, setTypeset] = useState<TypesetOptions>(DEFAULT_TYPESET);
   const [expanded, setExpanded] = useState(false);
-  // 조판 설정은 아직 화면에만 적용된다 — 개발 빌드에서만 연다.
-  const isDevBuild = useIsDevBuild();
-  const [noticeOpen, setNoticeOpen] = useState(false);
 
   // 열릴 때마다 초기값으로 — 직전 파일의 설정이 흘러들면 안 된다.
   // 초기값은 점역 기본 설정(V3-06 사용량 화면)에서 정한 값이다.
@@ -109,24 +104,11 @@ const ConversionSettingsModal: React.FC<Props> = ({
           </p>
         </div>
 
-        <UnfinishedModal
-          id={noticeOpen ? 'typeset' : null}
-          onClose={() => setNoticeOpen(false)}
-        />
-
         {/* 조판 설정 — 평소에는 한 줄 요약, 필요할 때만 펼친다 */}
         <div className="mt-2 rounded-[10px] bg-[#f5f8fc] px-3 py-2.5">
           <button
             type="button"
-            onClick={() => {
-              // 아직 화면에만 적용되고 내려받는 파일에는 반영되지 않는다 —
-              // 프로덕션에서는 펼치지 않고 이유를 알린다(utils/unfinished.ts).
-              if (!isDevBuild) {
-                setNoticeOpen(true);
-                return;
-              }
-              setExpanded((v) => !v);
-            }}
+            onClick={() => setExpanded((v) => !v)}
             aria-expanded={expanded}
             aria-label={expanded ? '조판 설정 접기' : '조판 설정 바꾸기'}
             className="flex w-full items-center justify-between gap-3 text-left"
@@ -135,15 +117,11 @@ const ConversionSettingsModal: React.FC<Props> = ({
               <Settings2 size={13} className="text-[#5b8ce6]" />
               조판 설정
             </span>
-            <span
-              className={`text-[11px] font-medium ${
-                isDevBuild ? 'text-[#407FAC]' : 'text-gray-400'
-              }`}
-            >
-              {isDevBuild ? (expanded ? '접기' : '바꾸기') : '준비 중'}
+            <span className="text-[11px] font-medium text-[#407FAC]">
+              {expanded ? '접기' : '바꾸기'}
             </span>
           </button>
-          {expanded && isDevBuild ? (
+          {expanded ? (
             <div className="mt-3">
               <TypesetSettings value={typeset} onChange={setTypeset} compact />
             </div>
