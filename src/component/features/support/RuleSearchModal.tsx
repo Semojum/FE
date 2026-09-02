@@ -122,6 +122,8 @@ const RuleSearchModal: React.FC<Props> = ({ isOpen, token, onClose }) => {
     <Modal
       isOpen={isOpen}
       title="점자 규정 찾아보기"
+      // 조문 본문이 두세 줄로 접혀 훑기 어려웠다 — 목록 창은 넓게 둔다.
+      maxWidth={720}
       onClose={onClose}
       footer={
         <ModalButton variant="primary" onClick={onClose}>

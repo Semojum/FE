@@ -149,8 +149,27 @@ const TypesetSettings: React.FC<Props> = ({ value, onChange, compact }) => {
 
   return (
     <div className="flex flex-col divide-y divide-gray-100">
+      {/* ── 원본 페이지 변경선 ─────────────────────────────
+          페이지행보다 먼저 온다 — 본문 안에 끼는 줄이라 판면에서 먼저 만난다.
+          양식도 페이지행과 같게 둔다(2026-09-02 요청). */}
+      <section className="flex flex-col gap-2 pb-4">
+        <GroupSwitch
+          checked={value.showChangeLine && value.showOrigPage}
+          label="원본 페이지 변경선"
+          hint="원본 페이지 번호 표시줄"
+          // 원본 페이지 번호가 꺼져 있으면 변경선에 적을 번호가 없다 — 라이브러리도
+          // 같은 규칙으로 함께 끈다(결정 D). 여기서는 켜는 길만 막는다.
+          onChange={(on) => value.showOrigPage && set('showChangeLine', on)}
+        />
+        {!value.showOrigPage && (
+          <p className={hintCls}>
+            페이지행의 원본 페이지 번호를 끄면 변경선에 적을 번호가 없어 함께 꺼집니다.
+          </p>
+        )}
+      </section>
+
       {/* ── 페이지행 ───────────────────────────────────────── */}
-      <section className="flex flex-col gap-3 pb-4">
+      <section className="flex flex-col gap-3 py-4">
         <GroupSwitch
           checked={pageRowOn}
           label="페이지행"
@@ -271,24 +290,6 @@ const TypesetSettings: React.FC<Props> = ({ value, onChange, compact }) => {
             </p>
           )}
         </div>
-      </section>
-
-      {/* ── 원본 페이지 변경선 ─────────────────────────────── */}
-      <section className="flex flex-col gap-2 py-4">
-        <p className={groupTitleCls}>원본 페이지 변경선</p>
-        <GroupSwitch
-          checked={value.showChangeLine && value.showOrigPage}
-          label="변경선 넣기"
-          hint="원본 페이지가 바뀌는 자리의 구분선"
-          // 원본 페이지 번호가 꺼져 있으면 변경선에 적을 번호가 없다 — 라이브러리도
-          // 같은 규칙으로 함께 끈다(결정 D). 여기서는 켜는 길만 막는다.
-          onChange={(on) => value.showOrigPage && set('showChangeLine', on)}
-        />
-        {!value.showOrigPage && (
-          <p className={hintCls}>
-            원본 페이지 번호를 끄면 변경선에 적을 번호가 없어 함께 꺼집니다.
-          </p>
-        )}
       </section>
 
       {/* ── 페이지 번호 ────────────────────────────────────── */}

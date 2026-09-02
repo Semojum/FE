@@ -26,6 +26,7 @@ import {
   Lock,
   Minus,
   Plus,
+  CornerDownLeft,
   Hash,
   Settings2,
   Type,
@@ -1167,20 +1168,24 @@ const Semojum: React.FC = () => {
     replaceAllRef.current = replaceAll;
   }, [stepFind, replaceCurrent, replaceAll]);
 
-  // 마우스를 얹은 블록의 수식을 판면 아래에서 통째로 조판해 보여 준다.
+  // 고른 블록의 수식을 판면 아래에서 통째로 조판해 보여 준다.
   // 판면은 32칸 격자라 LaTeX가 한 글자씩 흩뿌려져 읽을 수 없다 — 밑줄로 어디가
   // 수식인지 표시하고, 실제 모양은 이 자리에서 블록 단위로 확인한다.
-  const hoveredMathBlock = useMemo(() => {
-    if (!hoverBlockId) return null;
+  //
+  // 마우스를 얹기만 해도 뜨게 했더니 지나가는 블록마다 칸이 나타났다 사라져
+  // 화면이 계속 깜빡였다. 자리를 위아래로 옮겨 손을 피하는 것으로도 해결되지
+  // 않아, **누른 블록에만** 뜨게 하고 자리도 아래로 고정한다(2026-09-02 요청).
+  const selectedMathBlock = useMemo(() => {
+    if (!selectedBlockId) return null;
     for (const blocks of Object.values(blocksByPage)) {
-      const found = blocks.find((b) => b.id === hoverBlockId);
+      const found = blocks.find((b) => b.id === selectedBlockId);
       // 독립 수식 요소는 구분자 없이 순수 LaTeX로 오기도 해서, 표기($·```)만으로는
       // 놓친다 — 서버가 준 요소 유형(formula)을 함께 본다(2026-08-24 실측).
       if (found)
         return found.isFormula || hasMath(found.currentText) ? found : null;
     }
     return null;
-  }, [hoverBlockId, blocksByPage]);
+  }, [selectedBlockId, blocksByPage]);
 
   const caretSource = caret ? (gridRows[caret.rowIndex]?.source ?? null) : null;
 
@@ -1674,31 +1679,9 @@ const Semojum: React.FC = () => {
   // 창이 나뉘어 있으면 원본과 결과가 서로 다른 창에 있다. 이쪽에서 얹은 블록을
   // 반대편에도 알려 같은 자리에 상자가 뜨게 한다.
   // 수식 칸을 위에 놓을지 아래에 놓을지. 마우스가 화면 아래쪽에 있으면 그 칸이
-  // 손 밑에 깔려 보이지 않으므로 위로 올린다(2026-09-01 요청).
-  //
-  // 판단은 **블록이 바뀌는 순간에 한 번만** 한다. 마우스를 따라 계속 다시 재면
-  // 경계에서 칸이 위아래로 깜빡이고, 그 사이 판면 높이도 함께 흔들린다.
-  const [mathOnTop, setMathOnTop] = useState(false);
-  const mouseYRef = useRef(0);
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      mouseYRef.current = e.clientY;
-    };
-    window.addEventListener('mousemove', onMove, { passive: true });
-    return () => window.removeEventListener('mousemove', onMove);
-  }, []);
-
-  // 지금 얹혀 있는 블록 — 자리를 다시 정할지 가리는 데만 쓴다. 상태로 비교하면
-  // 이 콜백이 렌더마다 새로 만들어져 판면 메모가 통째로 풀린다.
-  const hoverBlockIdRef = useRef<string | null>(null);
+  // 얹은 블록은 원본 대조 강조에만 쓴다 — 수식 칸은 누른 블록을 따른다.
   const handleHoverBlock = useCallback(
     (id: string | null) => {
-      // 다른 블록으로 옮겨 갈 때만 자리를 다시 정한다 — 같은 블록 안에서
-      // 마우스를 움직이는 동안에는 칸이 그대로 있어야 읽을 수 있다.
-      if (id && id !== hoverBlockIdRef.current) {
-        setMathOnTop(mouseYRef.current > window.innerHeight * 0.55);
-      }
-      hoverBlockIdRef.current = id;
       setHoverBlockId(id);
       broadcastHover(id);
     },
@@ -2765,10 +2748,31 @@ const Semojum: React.FC = () => {
                 )}
 
                 {/* 판면 도구 — 커서가 놓인 줄을 기준으로 조판을 손본다.
-                    블록 추가·이동·삭제·대체 텍스트는 우클릭 메뉴에 그대로 있고,
-                    이 줄에는 조판에 관한 것만 둔다(2026-09-01 요청). */}
+                    블록 추가·이동·삭제·대체 초안은 우클릭 메뉴에 두고, 조판에 관한 것은
+                    **전부 이 줄에** 둔다(2026-09-02 요청). 우클릭 메뉴에도 같은 항목을
+                    두었더니 어느 쪽이 무엇을 하는지 읽히지 않았다. */}
                 {gridRows.length > 0 && (
                   <div className="mb-2 flex items-center gap-1 border-b border-gray-100 pb-2">
+                    {/* 초안 생성(a)은 묵자 .txt를 내므로 점자 면을 가를 일이 없다 —
+                        모드 b·c에서만 둔다(2026-09-02 요청). */}
+                    {activeTab !== TABS.OCR && (
+                      <button
+                        type="button"
+                        disabled={!caretSource}
+                        title={
+                          caretSource
+                            ? '커서가 놓인 줄부터 새 점자 페이지 첫 줄에서 시작합니다 (Ctrl+Enter)'
+                            : '판면에서 줄을 먼저 선택해 주세요'
+                        }
+                        onClick={() =>
+                          caretSource &&
+                          handlePageBreak(caretSource.pageNo, caretSource.blockId)
+                        }
+                        className={blockToolCls}
+                      >
+                        <CornerDownLeft size={13} /> 여기서 면 바꾸기
+                      </button>
+                    )}
                     <button
                       type="button"
                       title="이 문서의 첫 쪽을 몇 쪽으로 셀지 정합니다"
@@ -2811,14 +2815,12 @@ const Semojum: React.FC = () => {
                   </div>
                 )}
 
-                {/* 수식 보기 — 마우스를 얹은 블록에 수식이 있을 때만 뜬다.
+                {/* 수식 보기 — **누른** 블록에 수식이 있을 때만, 늘 판면 아래에 뜬다.
                     읽기 전용이다: 고치는 곳은 위 판면 격자 하나뿐이어야 한다. */}
-                {hoveredMathBlock && (
+                {selectedMathBlock && (
                   <section
                     aria-label="라텍스 변환기"
-                    className={`shrink-0 rounded-[10px] border border-[#e2e8f0] bg-white px-3 py-2 ${
-                      mathOnTop ? 'order-first mb-2' : 'order-last mt-2'
-                    }`}
+                    className="order-last mt-2 shrink-0 rounded-[10px] border border-[#e2e8f0] bg-white px-3 py-2"
                   >
                     <p className="mb-1 text-[10.5px] font-bold text-gray-400">
                       라텍스 변환기
@@ -2828,10 +2830,10 @@ const Semojum: React.FC = () => {
                       <LatexRenderer
                         // 구분자 없이 온 수식 요소는 통째로 한 식으로 그린다.
                         text={
-                          hoveredMathBlock.isFormula &&
-                          !hasMath(hoveredMathBlock.currentText)
-                            ? `$$${hoveredMathBlock.currentText}$$`
-                            : hoveredMathBlock.currentText
+                          selectedMathBlock.isFormula &&
+                          !hasMath(selectedMathBlock.currentText)
+                            ? `$$${selectedMathBlock.currentText}$$`
+                            : selectedMathBlock.currentText
                         }
                         className="whitespace-pre-wrap"
                       />
@@ -2882,8 +2884,13 @@ const Semojum: React.FC = () => {
                         aria-live="polite"
                         className="text-center text-xs text-gray-400"
                       >
+                        {/* position은 "몇 번째"가 아니라 **대기 중인 페이지 수**다
+                            (SSE 명세 queue_position). "대기열 3번째"로 적어 두었더니
+                            자기 차례를 뜻하는 것처럼 읽혔다.
+                            estimated_wait_sec은 서버가 페이지당 30초로 잡은 가정치라
+                            실제와 차이가 크다(명세 명시) — "약"을 붙여 어림값임을 밝힌다. */}
                         {queueInfo && settledPages === 0
-                          ? `대기열 ${queueInfo.position}번째 · 예상 ${formatDuration(queueInfo.estimated_wait_sec)}`
+                          ? `앞선 작업 ${queueInfo.position}쪽 대기 중 · 약 ${formatDuration(queueInfo.estimated_wait_sec)} 예상`
                           : `${formatDuration(elapsedSec)} 경과`}
                       </p>
                       <p className="max-w-xs text-center text-[11px] text-gray-300">
@@ -3001,7 +3008,7 @@ const Semojum: React.FC = () => {
                   }),
               },
               {
-                label: '위로 이동',
+                label: '블록 위로 이동',
                 disabled: index <= 0,
                 title: index <= 0 ? '이 페이지의 첫 블록입니다' : undefined,
                 onSelect: () =>
@@ -3013,7 +3020,7 @@ const Semojum: React.FC = () => {
                   }),
               },
               {
-                label: '아래로 이동',
+                label: '블록 아래로 이동',
                 disabled: index === -1 || index >= blocks.length - 1,
                 title:
                   index >= blocks.length - 1
@@ -3038,35 +3045,6 @@ const Semojum: React.FC = () => {
                     pageNo: line.pageNo,
                     blockId: line.blockId,
                   }),
-              },
-              // 조판 — 판면에서 바로 쓰는 기능들. 1차 PoC 액션 아이템이
-              // "우클릭 메뉴 또는 Ctrl+Enter 방식"이라 두 길을 모두 둔다.
-              {
-                label: '여기서 면 바꾸기',
-                title: '이 줄부터 새 면에서 시작합니다 (Ctrl+Enter)',
-                onSelect: () => handlePageBreak(line.pageNo, line.blockId),
-              },
-              {
-                label: '여기부터 꼬리말',
-                title: '단원이 바뀌는 자리에서 꼬리말을 바꿉니다',
-                onSelect: () => {
-                  if (blockUnfinished('sectionFooter')) return;
-                  setFooterMark({
-                    page: line.pageNo,
-                    blockId: line.blockId,
-                    current: footerMarkBefore(blocks, line.blockId),
-                  });
-                },
-              },
-              {
-                label: '원본 쪽 번호',
-                title: `이 줄이 속한 원본 ${line.pageNo}쪽의 번호만 고칩니다`,
-                onSelect: () => setOrigPageOpen(true),
-              },
-              {
-                label: '조판 설정',
-                title: '규격·페이지행·표지 제외 — 이 파일에만 적용됩니다',
-                onSelect: () => setIsTypesetOpen(true),
               },
               {
                 label: '블록 삭제',

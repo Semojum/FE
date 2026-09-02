@@ -49,9 +49,14 @@ export interface TypesetOptions {
   /**
    * 원본 페이지가 바뀌는 자리에 변경선을 넣을지.
    *
-   * 2026-09-02 braille-assist 갱신으로 `Options.showChangeLine`이 생겨 열렸다.
-   * 끄는 판단은 라이브러리가 한다 — 원본 쪽 번호를 끄면 변경선은 ⠤만 남은 빈 줄이라
-   * 함께 꺼진다(라이브러리 결정 D). 화면에서도 같은 규칙으로 묶어 둔다.
+   * 2026-09-02 braille-assist 갱신으로 `Options.showChangeLine`이 생겨 **화면 조판은**
+   * 열렸다. 끄는 판단은 라이브러리가 한다 — 원본 쪽 번호를 끄면 변경선은 ⠤만 남은
+   * 빈 줄이라 함께 꺼진다(라이브러리 결정 D).
+   *
+   * ⏳ 서버 조판 옵션(V30)에는 아직 이 항목이 없다 — BE에 추가를 요청해 둔 상태다
+   * (docs/서버_요청사항.pdf A-1). 아래 toLayoutOptions가 이미 함께 보내고
+   * fromLayoutOptions가 읽으므로, **서버가 받기 시작하면 FE는 고칠 것이 없다.**
+   * 그때까지는 번호를 켠 채 변경선만 끈 상태가 화면에만 적용된다(파일엔 남는다).
    */
   showChangeLine: boolean;
 
@@ -221,8 +226,10 @@ export interface LayoutOptions {
   showBraillePageNumber: boolean;
   footerAlign: FooterAlign;
   /**
-   * 원본 페이지 변경선을 넣을지. 2026-09-02 braille-assist가 받기 시작한 항목이라
-   * 함께 저장해 둔다 — 서버가 아직 모르는 필드면 무시하고, 되읽을 때는 FE가 쓴다.
+   * 원본 페이지 변경선을 넣을지.
+   *
+   * ⚠ **서버 명세(V30)에 없는 항목이다.** 서버가 받기 시작하면 그대로 붙도록 미리
+   * 보내 두지만, 지금은 무시되고 조회 응답에도 오지 않는다(그래서 다시 열면 기본값).
    */
   showChangeLine: boolean;
   /** 판면 수정 기본 적용 범위 — 서버는 저장·반환만 하고 쓰는 것은 FE다. */

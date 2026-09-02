@@ -17,6 +17,8 @@ interface ModalProps {
   // 다른 모달 **위에** 띄워야 할 때만 올린다(변환 설정 모달 위의 안내 등).
   // 기본값은 토스트(z-70)보다 아래인 60 — 지금까지의 모든 모달이 쓰던 값이다.
   zIndex?: number;
+  /** 카드 최대 너비. 목록을 담는 창처럼 400px로는 좁은 데가 있다. */
+  maxWidth?: number;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -27,6 +29,7 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   busy = false,
   zIndex = 60,
+  maxWidth = 400,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -71,7 +74,8 @@ export const Modal: React.FC<ModalProps> = ({
         // 내용이 길면 카드가 화면 밖으로 자라 제목도 [닫기]도 손이 닿지 않았다
         // (조판 설정처럼 항목이 많은 모달). 카드는 화면 안에 가두고 **본문만**
         // 스크롤한다 — 제목과 버튼 줄은 늘 제자리에 있어야 한다.
-        className="flex max-h-[calc(100vh-48px)] w-full max-w-[400px] flex-col rounded-[14px] bg-white p-6 shadow-xl"
+        style={{ maxWidth }}
+        className="flex max-h-[calc(100vh-48px)] w-full flex-col rounded-[14px] bg-white p-6 shadow-xl"
       >
         <h2 className="shrink-0 text-[15px] font-bold text-gray-800">{title}</h2>
         {/* min-h-0이 있어야 flex 자식이 내용 높이만큼 부풀지 않고 줄어든다. */}

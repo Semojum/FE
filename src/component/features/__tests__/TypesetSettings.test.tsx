@@ -57,7 +57,7 @@ describe('조판 설정 패널', () => {
   it('변경선 스위치를 끄면 showChangeLine이 꺼진다', async () => {
     const onChange = vi.fn();
     render(<TypesetSettings value={DEFAULT_TYPESET} onChange={onChange} />);
-    await userEvent.click(screen.getByRole('switch', { name: '변경선 넣기' }));
+    await userEvent.click(screen.getByRole('switch', { name: '원본 페이지 변경선' }));
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ showChangeLine: false }),
     );
@@ -71,7 +71,7 @@ describe('조판 설정 패널', () => {
         onChange={onChange}
       />,
     );
-    await userEvent.click(screen.getByRole('switch', { name: '변경선 넣기' }));
+    await userEvent.click(screen.getByRole('switch', { name: '원본 페이지 변경선' }));
     expect(onChange).not.toHaveBeenCalled();
   });
 

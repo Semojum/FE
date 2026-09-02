@@ -12,6 +12,20 @@ interface BBoxOverlayProps {
   onBlockHover?: (id: string | null) => void;
 }
 
+/** 이 요소를 담은 가장 가까운 스크롤 상자. 없으면 null — 문서 스크롤은 건드리지 않는다. */
+const closestScrollable = (el: HTMLElement): HTMLElement | null => {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const { overflowY, overflowX } = getComputedStyle(p);
+    const scrolls =
+      /(auto|scroll|overlay)/.test(overflowY) ||
+      /(auto|scroll|overlay)/.test(overflowX);
+    if (scrolls && (p.scrollHeight > p.clientHeight || p.scrollWidth > p.clientWidth)) {
+      return p;
+    }
+  }
+  return null;
+};
+
 const BBoxOverlay: React.FC<BBoxOverlayProps> = ({
   bboxes,
   selectedId,
@@ -22,13 +36,37 @@ const BBoxOverlay: React.FC<BBoxOverlayProps> = ({
 }) => {
   // 결과 격자에서 줄을 짚으면 여기 상자만 바뀌고 원본은 보던 자리에 그대로 있었다.
   // 상자가 화면 밖이면 대조가 안 되므로, 고른 상자가 보이도록 원본을 옮긴다.
+  //
+  // ⚠ scrollIntoView를 쓰면 안 된다. 그것은 **스크롤되는 조상을 전부** 옮기기 때문에,
+  // 상자를 가운데로 맞추려고 바깥 영역까지 딸려 올라간다 — 어떤 줄을 짚으면 화면이
+  // 통째로 위로 튀고 다른 줄을 짚으면 되돌아오던 것이 이것이다(2026-09-02 QA).
+  // 원본 미리보기를 담은 **가장 가까운 스크롤 상자 하나만** 직접 옮긴다.
   const selectedRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!selectedId) return;
-    selectedRef.current?.scrollIntoView({
+    const el = selectedRef.current;
+    if (!selectedId || !el) return;
+
+    const scroller = closestScrollable(el);
+    if (!scroller) return;
+
+    const box = el.getBoundingClientRect();
+    const view = scroller.getBoundingClientRect();
+    // 이미 다 보이면 건드리지 않는다 — 짚을 때마다 화면이 흔들릴 이유가 없다.
+    if (
+      box.top >= view.top &&
+      box.bottom <= view.bottom &&
+      box.left >= view.left &&
+      box.right <= view.right
+    ) {
+      return;
+    }
+
+    scroller.scrollTo({
+      top:
+        scroller.scrollTop + (box.top - view.top) - (view.height - box.height) / 2,
+      left:
+        scroller.scrollLeft + (box.left - view.left) - (view.width - box.width) / 2,
       behavior: 'smooth',
-      block: 'center',
-      inline: 'center',
     });
   }, [selectedId]);
 
