@@ -1,0 +1,119 @@
+/* 세모점 사용 설명서 — 인쇄용 스타일.
+   A4 세로, 헤드리스 크롬의 print-to-pdf로 뽑는다(build.sh). */
+
+@page {
+  size: A4;
+  margin: 17mm 16mm 15mm 16mm;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+body {
+  margin: 0;
+  font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+  font-size: 9pt;
+  line-height: 1.65;
+  color: #333a45;
+  letter-spacing: -0.01em;
+}
+
+p { margin: 0 0 6pt; }
+b, strong { font-weight: 700; color: #1f2733; }
+
+/* ── 표지 ─────────────────────────────────────────── */
+.cover { page-break-after: always; padding-top: 78mm; }
+.cover .brand {
+  font-size: 8.5pt; font-weight: 700; letter-spacing: 0.55em;
+  color: #6f9de0; margin-bottom: 14pt;
+}
+.cover h1 { font-size: 30pt; font-weight: 800; color: #1f2733; margin: 0 0 10pt; letter-spacing: -0.03em; }
+.cover .sub { font-size: 11pt; color: #5b6675; margin-bottom: 18pt; }
+.cover .rule { width: 46mm; height: 2px; background: #4b7fd0; margin-bottom: 16pt; }
+.cover dl { display: grid; grid-template-columns: 34mm 1fr; row-gap: 5pt; margin: 0 0 26pt; font-size: 9pt; }
+.cover dt { color: #7d8794; }
+.cover dd { margin: 0; color: #1f2733; }
+.cover .preface {
+  background: #f4f7fb; padding: 10pt 12pt; font-size: 8.5pt;
+  color: #56616f; line-height: 1.85; max-width: 130mm;
+}
+
+/* ── 목차 ─────────────────────────────────────────── */
+.toc { page-break-after: always; }
+.toc-head { display: flex; align-items: baseline; gap: 8pt; border-bottom: 1.4px solid #2b3340; padding-bottom: 7pt; margin-bottom: 12pt; }
+.toc-head .tag { background: #2b3340; color: #fff; font-size: 8pt; font-weight: 700; padding: 3pt 7pt; }
+.toc-head h2 { font-size: 15pt; margin: 0; color: #1f2733; font-weight: 800; }
+.toc ol { list-style: none; margin: 0; padding: 0; }
+.toc li { display: flex; align-items: baseline; gap: 8pt; padding: 6.5pt 0; border-bottom: 1px dotted #d7dee7; }
+.toc .no { width: 12mm; color: #6f9de0; font-weight: 600; }
+.toc .nm { flex: 1; color: #333a45; }
+.toc .pg { color: #98a2b0; font-size: 8.5pt; }
+
+/* ── 장 ───────────────────────────────────────────── */
+.chapter { page-break-before: always; }
+.ch-head { display: flex; align-items: baseline; gap: 9pt; border-bottom: 1.4px solid #2b3340; padding-bottom: 7pt; margin-bottom: 11pt; }
+.ch-head .tag { background: #2b3340; color: #fff; font-size: 8pt; font-weight: 700; padding: 3pt 7pt; white-space: nowrap; }
+.ch-head h2 { font-size: 14.5pt; margin: 0; color: #1f2733; font-weight: 800; letter-spacing: -0.02em; }
+.ch-head .hint { margin-left: auto; font-size: 8pt; color: #98a2b0; white-space: nowrap; }
+
+h3 { font-size: 10pt; font-weight: 700; color: #1f2733; margin: 14pt 0 6pt; border-left: 3px solid #4b7fd0; padding-left: 6pt; }
+h3:first-of-type { margin-top: 10pt; }
+
+/* ── 그림 ─────────────────────────────────────────── */
+figure { margin: 10pt 0 8pt; page-break-inside: avoid; }
+figcaption { font-size: 8.5pt; font-weight: 700; color: #1f2733; margin-bottom: 5pt; }
+figure img { display: block; width: 100%; background: #f4f7fb; }
+figure .aged { margin-top: 4pt; font-size: 7.5pt; color: #98a2b0; line-height: 1.6; }
+
+/* ── 표 ───────────────────────────────────────────── */
+table { width: 100%; border-collapse: collapse; font-size: 8.5pt; margin: 6pt 0 8pt; page-break-inside: avoid; }
+th, td { border: 1px solid #dde4ec; padding: 5pt 7pt; vertical-align: top; text-align: left; }
+th { background: #f4f7fb; font-weight: 700; color: #1f2733; font-size: 8pt; }
+td.k { font-weight: 700; color: #1f2733; width: 34mm; }
+td.n { width: 12mm; text-align: center; }
+.badge {
+  display: inline-block; min-width: 13pt; height: 13pt; line-height: 13pt;
+  border-radius: 50%; background: #6b3fa0; color: #fff;
+  font-size: 7.5pt; font-weight: 700; text-align: center; padding: 0 3pt;
+}
+table.keys td.k { width: 40mm; font-family: 'SF Mono', Consolas, monospace; font-size: 8pt; }
+
+/* ── 알림 상자 ────────────────────────────────────── */
+.box { padding: 7pt 10pt; margin: 8pt 0; font-size: 8.5pt; line-height: 1.8; page-break-inside: avoid; }
+.box .t { display: block; font-weight: 700; margin-bottom: 2pt; }
+.box.note { background: #f2f6fc; border-left: 3px solid #4b7fd0; }
+.box.note .t { color: #2f5ea8; }
+.box.warn { background: #fdf3ec; border-left: 3px solid #e2823f; }
+.box.warn .t { color: #a85b1c; }
+.box.hold { background: #fbf1de; border-left: 3px solid #d9a33a; }
+.box.hold .t { color: #8a5a00; }
+
+ul.plain { margin: 4pt 0 8pt; padding-left: 14pt; }
+ul.plain li { margin-bottom: 3pt; }
+.kbd { font-family: 'SF Mono', Consolas, monospace; font-size: 8pt; }
+
+/* 목차 쪽 번호를 뽑을 때만 쓰는 표식 — 눈에는 보이지 않고 텍스트로만 남는다.
+   build.sh가 이 표식이 몇 쪽에 앉았는지 읽어 목차를 채운다. */
+.pgmark { font-size: 1pt; color: transparent; line-height: 0; }
+
+/* 제목만 쪽 끝에 남지 않게 — 다음 표·문단과 붙여 둔다. */
+h3 { page-break-after: avoid; break-after: avoid; }
+figcaption { page-break-after: avoid; break-after: avoid; }
+
+/* ── 화면 사진 위의 번호 표식 ─────────────────────────
+   사진에는 번호를 굽지 않는다. 여기서 얹으면 화면을 다시 찍어도 좌표만 고치면 되고,
+   번호와 아래 표가 어긋났을 때 고칠 자리도 한 곳뿐이다.
+   left/top은 사진 크기에 대한 %다. */
+.shot { position: relative; line-height: 0; }
+.shot img { display: block; width: 100%; background: #f4f7fb; }
+.cal {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  min-width: 12pt; height: 12pt; line-height: 12pt;
+  padding: 0 2pt;
+  border-radius: 999px;
+  background: #6b3fa0; color: #fff;
+  font-size: 7pt; font-weight: 700; text-align: center;
+  box-shadow: 0 0 0 1.2px #fff;
+}

@@ -1,0 +1,889 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>세모점 사용 설명서</title>
+<link rel="stylesheet" href="manual.css">
+</head>
+<body>
+
+<!-- ══ 표지 ══════════════════════════════════════════ -->
+<section class="cover">
+  <div class="brand">SEMOJUM</div>
+  <h1>세모점 사용 설명서</h1>
+  <div class="sub">점자 점역·번역 데스크톱 프로그램</div>
+  <div class="rule"></div>
+  <dl>
+    <dt>제품명</dt><dd>세모점(Semojum)</dd>
+    <dt>소프트웨어 버전</dt><dd>3.2.6</dd>
+    <dt>사용 환경</dt><dd>Windows 10 이상 (64비트)</dd>
+    <dt>발행일</dt><dd>2026년 9월</dd>
+  </dl>
+  <div class="preface">
+    본 설명서를 사용하시기 전에 반드시 읽어 보시고, 필요할 때 바로 찾아볼 수 있도록 잘 보관하십시오.
+    제품의 성능 개선을 위하여 설명서의 내용과 실제 화면은 사전 통보 없이 변경될 수 있습니다.
+    화면 사진은 이해를 돕기 위한 것으로 실제와 다를 수 있으며, 일부 사진은 이전 버전에서 촬영한 것입니다.
+  </div>
+</section>
+
+<!-- ══ 목차 ══════════════════════════════════════════ -->
+<section class="toc">
+  <div class="toc-head"><span class="tag">목차</span><h2>차례</h2></div>
+  <ol id="toc-list">
+    <li><span class="no">1</span><span class="nm">안전 및 사용상의 주의</span><span class="pg" data-pg="ch1"></span></li>
+    <li><span class="no">2</span><span class="nm">시작하기</span><span class="pg" data-pg="ch2"></span></li>
+    <li><span class="no">3</span><span class="nm">각 부분의 이름과 기능</span><span class="pg" data-pg="ch3"></span></li>
+    <li><span class="no">4</span><span class="nm">문서 변환하기</span><span class="pg" data-pg="ch4"></span></li>
+    <li><span class="no">5</span><span class="nm">조판 설정</span><span class="pg" data-pg="ch5"></span></li>
+    <li><span class="no">6</span><span class="nm">결과 확인 및 수정하기</span><span class="pg" data-pg="ch6"></span></li>
+    <li><span class="no">7</span><span class="nm">찾기 및 바꾸기</span><span class="pg" data-pg="ch7"></span></li>
+    <li><span class="no">8</span><span class="nm">점자 규정 찾아보기</span><span class="pg" data-pg="ch8"></span></li>
+    <li><span class="no">9</span><span class="nm">결과 저장 및 화면 나누기</span><span class="pg" data-pg="ch9"></span></li>
+    <li><span class="no">10</span><span class="nm">마이페이지</span><span class="pg" data-pg="ch10"></span></li>
+    <li><span class="no">11</span><span class="nm">사용량 및 점역 기본 설정</span><span class="pg" data-pg="ch11"></span></li>
+    <li><span class="no">12</span><span class="nm">문의하기</span><span class="pg" data-pg="ch12"></span></li>
+    <li><span class="no">13</span><span class="nm">기관 관리 (기관 관리자 전용)</span><span class="pg" data-pg="ch13"></span></li>
+    <li><span class="no">14</span><span class="nm">문제 해결</span><span class="pg" data-pg="ch14"></span></li>
+    <li><span class="no">15</span><span class="nm">제품 사양</span><span class="pg" data-pg="ch15"></span></li>
+  </ol>
+</section>
+
+<!-- ══ 1장 ═══════════════════════════════════════════ -->
+<section class="chapter" id="ch1">
+  <div class="ch-head"><span class="pgmark">CHAPMARK1END</span><span class="tag">제 1 장</span><h2>안전 및 사용상의 주의</h2><span class="hint">사용 전에 반드시 읽어 주십시오</span></div>
+
+  <p>본 제품을 안전하고 올바르게 사용하기 위하여 다음 사항을 반드시 지켜 주십시오.</p>
+
+  <div class="box warn"><span class="t">주의 — 계정 관리</span>
+    하나의 계정으로 두 곳에서 동시에 사용할 수 없습니다. 다른 컴퓨터에서 같은 계정으로 로그인하면 먼저 사용 중이던 화면은
+    자동으로 로그아웃되며, 저장하지 않은 수정 내용은 사라집니다. 계정 정보를 다른 사람과 공유하지 마십시오.
+  </div>
+
+  <div class="box warn"><span class="t">주의 — 작업 중 종료</span>
+    변환이 진행되는 동안에는 프로그램을 종료하거나 네트워크 연결을 끊지 마십시오. 작업이 중단되며, 이미 차감된 크레딧은
+    복구되지 않을 수 있습니다.
+  </div>
+
+  <div class="box note"><span class="t">참고 — 결과물의 확인</span>
+    본 제품이 만들어 내는 점역 결과는 초안입니다. 최종 산출물로 사용하기 전에 반드시 점역 담당자가 내용을 확인하고
+    수정하십시오. 특히 수식·표·그림 설명은 원본과 대조하여 확인하시기 바랍니다.
+  </div>
+
+  <div class="box note"><span class="t">참고 — 인터넷 연결</span>
+    변환 처리는 서버에서 이루어집니다. 인터넷에 연결되어 있지 않으면 로그인 및 변환을 할 수 없습니다.
+  </div>
+
+  <div class="box hold"><span class="t">참고 — 준비 중인 기능</span>
+    쪽 바꿈, 구간 꼬리말, 점역 옵션(점자 등급·한영 혼용)은 화면에서만 동작하고 내려받는 파일에는
+    아직 반영되지 않습니다. 되는 것처럼 보이면 작업이 헛일이 되므로, 해당 기능을 누르면 “아직 준비 중입니다” 안내가
+    나타나며 실행되지 않습니다. 서버와 조판 라이브러리가 준비되면 순차적으로 열립니다.
+  </div>
+
+  <h3>동봉품 및 사용 준비</h3>
+  <table>
+    <tr><td class="k">프로그램 설치 파일</td><td>기관 담당자에게서 받은 설치 파일을 실행하여 설치합니다.</td></tr>
+    <tr><td class="k">계정(아이디·비밀번호)</td><td>기관 담당자가 발급합니다. 계정이 없으면 담당자에게 요청하십시오.</td></tr>
+    <tr><td class="k">크레딧</td><td>변환에 사용되는 사용량 단위입니다. 기관에 할당된 크레딧을 나누어 사용합니다.</td></tr>
+  </table>
+
+  <h3>소프트웨어 업데이트</h3>
+  <p>본 제품은 실행할 때마다 새 버전이 있는지 스스로 확인합니다. 별도로 설치 파일을 내려받을 필요는 없습니다.</p>
+  <table>
+    <tr><td class="k">새 버전 알림</td><td>새 버전이 준비되면 화면 왼쪽 아래에 “새 버전이 준비되었습니다” 알림이 나타납니다.
+      로그인 화면과 작업 화면 어디에서나 나타나며, 누르면 설치가 시작되고 앱이 잠시 종료됐다가 다시 시작됩니다.
+      지금 하기 어려우면 알림을 닫고 나중에 하셔도 됩니다.</td></tr>
+    <tr><td class="k">필수 업데이트</td><td>더 이상 지원하지 않는 버전에서는 “최신 버전으로 업데이트가 필요합니다” 안내가
+      화면 전체에 나타나며, 업데이트하기 전에는 다른 기능을 사용할 수 없습니다. <b>지금 업데이트</b>를 눌러 주십시오.</td></tr>
+    <tr><td class="k">작업 내용 보관</td><td>업데이트를 시작하기 전에 편집 중이던 내용은 자동으로 저장됩니다.
+      작업은 마이페이지에 남아 있으므로 다시 실행한 뒤 이어서 하실 수 있습니다.</td></tr>
+  </table>
+
+  <div class="box warn"><span class="t">주의 — 항상 최신 버전으로 사용하십시오</span>
+    점역 규정과 변환 품질은 계속 개선됩니다. 오래된 버전을 계속 사용하면 변환이 실패하거나 결과가 최신 규정과 맞지 않을 수
+    있습니다. 업데이트 안내가 나타나면 가급적 미루지 마십시오. 다만 <b>변환이 진행 중일 때는 설치하지 마시고</b>, 변환이 끝난
+    뒤에 설치하십시오.
+  </div>
+</section>
+
+<!-- ══ 2장 ═══════════════════════════════════════════ -->
+<section class="chapter" id="ch2">
+  <div class="ch-head"><span class="pgmark">CHAPMARK2END</span><span class="tag">제 2 장</span><h2>시작하기</h2><span class="hint">로그인</span></div>
+
+  <p>바탕 화면의 <b>세모점</b> 아이콘을 두 번 눌러 프로그램을 실행하십시오. 프로그램이 실행되면 아래와 같은 로그인 화면이
+     나타납니다.</p>
+
+  <figure>
+    <figcaption>〈그림 2-1〉 로그인 화면</figcaption>
+    <div class="shot">
+      <img src="figures/login.jpg" alt="로그인 화면">
+      <span class="cal" style="left:49%;top:54%">1</span>
+      <span class="cal" style="left:43%;top:62%">2</span>
+      <span class="cal" style="left:49%;top:62%">3</span>
+      <span class="cal" style="left:38%;top:70%">4</span>
+      <span class="cal" style="left:4%;top:97%">5</span>
+    </div>
+  </figure>
+
+  <table>
+    <tr><th>번호</th><th>명칭</th><th>기능</th></tr>
+    <tr><td class="n"><span class="badge">1</span></td><td class="k">아이디</td><td>기관에서 발급받은 아이디를 입력합니다. 마지막으로 로그인한 아이디가 자동으로 채워집니다.</td></tr>
+    <tr><td class="n"><span class="badge">2</span></td><td class="k">비밀번호</td><td>비밀번호를 입력합니다. 보안을 위하여 비밀번호는 저장되지 않습니다.</td></tr>
+    <tr><td class="n"><span class="badge">3</span></td><td class="k">비밀번호 보기</td><td>누르고 있는 동안 입력한 비밀번호를 글자로 확인할 수 있습니다.</td></tr>
+    <tr><td class="n"><span class="badge">4</span></td><td class="k">로그인</td><td>입력한 정보로 로그인합니다. 키보드의 <span class="kbd">&lt;Enter&gt;</span> 키를 눌러도 됩니다.</td></tr>
+    <tr><td class="n"><span class="badge">5</span></td><td class="k">버전 표시</td><td>현재 설치된 프로그램의 버전입니다. 문의 시 이 번호를 알려 주십시오.</td></tr>
+  </table>
+
+  <div class="box note"><span class="t">참고 — 공지 사항</span>
+    로그인 화면 오른쪽에는 책갈피 모양의 <b>공지</b> 판이 항상 함께 표시됩니다. 공지 제목을 누르면 그 자리에서 전체 내용을
+    볼 수 있습니다. 등록된 공지가 없으면 “등록된 공지가 없습니다”라고 표시됩니다 — 공지 자리는 늘 같은 곳에 있으므로
+    로그인 칸의 위치가 공지 유무에 따라 달라지지 않습니다.
+  </div>
+
+  <div class="box note"><span class="t">참고 — 자동 로그인</span>
+    보안을 위하여 자동 로그인은 제공하지 않습니다. 프로그램을 다시 실행하면 항상 로그인 화면부터 시작합니다.
+    로그인 상태는 일정 시간이 지나면 자동으로 해제됩니다.
+  </div>
+
+  <div class="box warn"><span class="t">주의</span>
+    기관 관리자 계정으로 로그인하면 작업 화면이 아니라 <b>기관 관리</b> 화면이 바로 나타납니다. 자세한 내용은 제 13 장을
+    참조하십시오.
+  </div>
+</section>
+
+<!-- ══ 3장 ═══════════════════════════════════════════ -->
+<section class="chapter" id="ch3">
+  <div class="ch-head"><span class="pgmark">CHAPMARK3END</span><span class="tag">제 3 장</span><h2>각 부분의 이름과 기능</h2><span class="hint">기본 화면</span></div>
+
+  <p>로그인하면 아래와 같은 기본 화면이 나타납니다. 왼쪽은 원본 파일, 오른쪽은 변환 결과를 보여 주는 구조입니다.</p>
+
+  <figure>
+    <figcaption>〈그림 3-1〉 기본 화면</figcaption>
+    <div class="shot">
+      <img src="figures/main.jpg" alt="기본 화면">
+      <span class="cal" style="left:3%;top:4%">1</span>
+      <span class="cal" style="left:68.5%;top:6%">2</span>
+      <span class="cal" style="left:72.2%;top:6%">3</span>
+      <span class="cal" style="left:78%;top:6%">4</span>
+      <span class="cal" style="left:86%;top:6%">5</span>
+      <span class="cal" style="left:94%;top:6%">6</span>
+      <span class="cal" style="left:98%;top:6%">7</span>
+      <span class="cal" style="left:25%;top:50%">8</span>
+      <span class="cal" style="left:75%;top:54%">9</span>
+      <span class="cal" style="left:96%;top:93%">10</span>
+      <span class="cal" style="left:2.5%;top:95%">11</span>
+    </div>
+  </figure>
+
+  <table>
+    <tr><th>번호</th><th>명칭</th><th>기능</th></tr>
+    <tr><td class="n"><span class="badge">1</span></td><td class="k">변환 모드 탭</td><td>변환 방식을 고릅니다. 탭마다 작업 내용이 따로 보관되므로 탭을 옮겨도 앞서 하던 작업은 그대로 남습니다.</td></tr>
+    <tr><td class="n"><span class="badge">2</span></td><td class="k">되돌리기 · 다시 실행</td><td>결과 수정을 되돌리거나 다시 실행합니다. 키보드의
+      <span class="kbd">&lt;Ctrl&gt;+&lt;Z&gt;</span>, <span class="kbd">&lt;Ctrl&gt;+&lt;Shift&gt;+&lt;Z&gt;</span>
+      (또는 <span class="kbd">&lt;Ctrl&gt;+&lt;Y&gt;</span>) 키를 사용해도 됩니다.</td></tr>
+    <tr><td class="n"><span class="badge">3</span></td><td class="k">점자 규정 찾아보기</td><td>책 모양 단추입니다. 조판 중에 점자 규정과 제작 지침을 앱 안에서 바로 찾아봅니다. 제 8 장을 참조하십시오.</td></tr>
+    <tr><td class="n"><span class="badge">4</span></td><td class="k">마이페이지</td><td>지금까지 작업한 파일 목록, 휴지통, 사용량, 기본 설정 화면으로 이동합니다.</td></tr>
+    <tr><td class="n"><span class="badge">5</span></td><td class="k">반으로 나누기</td><td>결과 영역을 별도의 창으로 분리합니다. 모니터가 두 대일 때 유용합니다.</td></tr>
+    <tr><td class="n"><span class="badge">6</span></td><td class="k">계정 표시</td><td>현재 로그인한 계정의 아이디를 표시합니다.</td></tr>
+    <tr><td class="n"><span class="badge">7</span></td><td class="k">로그아웃</td><td>로그인을 해제하고 로그인 화면으로 돌아갑니다.</td></tr>
+    <tr><td class="n"><span class="badge">8</span></td><td class="k">원본 파일 영역</td><td>변환할 파일을 끌어다 놓거나 눌러서 선택합니다. 파일을 넣으면 이 자리에 원본 미리보기가 표시됩니다.</td></tr>
+    <tr><td class="n"><span class="badge">9</span></td><td class="k">점역/번역 결과 영역</td><td>변환 결과가 판면 격자 형태로 표시됩니다. 기본 규격은 26줄 × 32칸이며 조판 설정에서 바꿀 수 있습니다(제 5 장).</td></tr>
+    <tr><td class="n"><span class="badge">10</span></td><td class="k">문의하기</td><td>크레딧 추가·계정 발급 등을 운영자에게 요청합니다. 제 12 장을 참조하십시오.</td></tr>
+    <tr><td class="n"><span class="badge">11</span></td><td class="k">버전 표시</td><td>현재 프로그램 버전입니다. 문의 시 이 번호를 알려 주십시오.</td></tr>
+  </table>
+
+  <div class="box note"><span class="t">참고 — 작업은 저절로 이어집니다</span>
+    변환하던 작업이 남아 있는 상태에서 프로그램을 다시 실행하면, 마지막으로 편집하던 작업과 페이지를 자동으로 불러옵니다.
+    별도로 “이어서 하기”를 누르지 않아도 됩니다.
+  </div>
+</section>
+
+<!-- ══ 4장 ═══════════════════════════════════════════ -->
+<section class="chapter" id="ch4">
+  <div class="ch-head"><span class="pgmark">CHAPMARK4END</span><span class="tag">제 4 장</span><h2>문서 변환하기</h2><span class="hint">모드 선택 · 변환 설정 · 진행</span></div>
+
+  <h3>4-1. 변환 모드 고르기</h3>
+  <p>변환할 문서의 종류와 원하는 결과에 따라 세 가지 모드 중 하나를 고르십시오. 모드마다 넣을 수 있는 파일 형식이 다릅니다.</p>
+
+  <table>
+    <tr><th>모드</th><th>지원 형식</th><th>기능</th></tr>
+    <tr><td class="k">초안 생성</td><td>PDF, HWP</td><td>문서를 읽어 묵자 초안과 대체 텍스트 후보를 만듭니다. 그림·수식이 많은 교재에 적합합니다.</td></tr>
+    <tr><td class="k">텍스트 점자 번역</td><td>TXT, HWP, HWPX</td><td>글자로 된 문서를 점자로 번역합니다.</td></tr>
+    <tr><td class="k">이미지 점자 번역</td><td>PDF</td><td>PDF 문서를 읽어 곧바로 점자로 번역합니다.</td></tr>
+  </table>
+
+  <div class="box note"><span class="t">참고 — HWP·HWPX</span>
+    <b>텍스트 점자 번역</b>에서는 한글 문서(.hwp)와 한글 표준 문서(.hwpx)를 그대로 넣을 수 있습니다 — 프로그램이 문서에서
+    글자를 뽑아 올립니다. <b>초안 생성</b>에서는 .hwp를 넣으면 서버가 PDF로 바꾸어 처리합니다. 문서에 글자가 없는 스캔
+    이미지라면 텍스트 점자 번역이 아니라 초안 생성이나 이미지 점자 번역을 사용하십시오.
+  </div>
+
+  <figure>
+    <figcaption>〈그림 4-1〉 변환 모드 탭과 원본 파일 영역</figcaption>
+    <div class="shot">
+      <img src="figures/dropzone.jpg" alt="변환 모드 탭과 파일 업로드 영역">
+      <span class="cal" style="left:3%;top:4%">1</span>
+      <span class="cal" style="left:12.5%;top:4%">2</span>
+      <span class="cal" style="left:24%;top:4%">3</span>
+      <span class="cal" style="left:25%;top:63%">4</span>
+    </div>
+  </figure>
+
+  <table>
+    <tr><th>번호</th><th>명칭</th><th>기능</th></tr>
+    <tr><td class="n"><span class="badge">1</span></td><td class="k">초안 생성</td><td>PDF·HWP 문서를 읽어 묵자 초안과 대체 텍스트 후보를 만듭니다.</td></tr>
+    <tr><td class="n"><span class="badge">2</span></td><td class="k">텍스트 점자 번역</td><td>TXT·HWP·HWPX 문서를 점자로 번역합니다.</td></tr>
+    <tr><td class="n"><span class="badge">3</span></td><td class="k">이미지 점자 번역</td><td>PDF 문서를 읽어 곧바로 점자로 번역합니다.</td></tr>
+    <tr><td class="n"><span class="badge">4</span></td><td class="k">지원 형식 안내</td><td>선택한 모드에서 넣을 수 있는 파일 형식과 최대 용량(95MB)을 표시합니다.</td></tr>
+  </table>
+
+  <h3>4-2. 파일 넣기와 변환 설정</h3>
+  <ul class="plain">
+    <li>변환할 모드 탭을 고릅니다.</li>
+    <li>왼쪽 원본 파일 영역에 파일을 끌어다 놓습니다. 또는 영역을 눌러 파일을 고릅니다.</li>
+    <li>파일을 고르면 <b>변환 설정</b> 창이 나타납니다. 값을 확인하고 <b>변환 시작</b>을 눌러야 업로드가 시작됩니다.</li>
+  </ul>
+
+  <figure>
+    <figcaption>〈그림 4-2〉 변환 설정 창 — 초안 생성(왼쪽)과 텍스트 점자 번역(오른쪽)</figcaption>
+    <div style="display:flex;gap:6pt;align-items:flex-start">
+      <img src="figures/convset-draft.jpg" alt="초안 생성의 변환 설정 창" style="width:50%">
+      <img src="figures/convset.jpg" alt="텍스트 점자 번역의 변환 설정 창" style="width:50%">
+    </div>
+  </figure>
+
+  <p>창에 나오는 항목은 모드에 따라 다릅니다. <b>초안 생성</b>은 묵자 초안을 만들 뿐이라 판면 옵션이 쓰이지 않으므로
+     <b>고급 점역</b> 하나만 묻고, 점자 판면을 만드는 두 모드는 아래 항목을 모두 묻습니다.</p>
+
+  <table>
+    <tr><th>항목</th><th>기능</th></tr>
+    <tr><td class="k">고급 점역<br>(모든 모드)</td><td>표와 그림이 많은 지면을 더 큰 모델로 읽습니다. 변환이 느려집니다.
+      초안 생성에서는 이 항목만 나옵니다.</td></tr>
+    <tr><td class="k">페이지행 넣기</td><td>점자 페이지 맨 아랫줄에 원본 페이지 번호·꼬리말·점자 페이지 번호를 넣을지 정합니다.
+      어느 페이지에 넣을지는 아래 조판 설정에서 정합니다.</td></tr>
+    <tr><td class="k">조판 설정</td><td>평소에는 한 줄 요약만 보여 주고, <b>바꾸기</b>를 누르면 규격·페이지 번호·꼬리말 등
+      전체 항목이 펼쳐집니다. 자세한 내용은 제 5 장을 참조하십시오.</td></tr>
+    <tr><td class="k">변환 시작</td><td>정한 설정으로 파일을 올리고 변환을 시작합니다.</td></tr>
+    <tr><td class="k">취소</td><td>파일을 올리지 않고 창을 닫습니다.</td></tr>
+  </table>
+
+  <div class="box warn"><span class="t">주의 — 설정은 업로드할 때 정해집니다</span>
+    변환 설정 창에서 정한 값은 <b>변환이 끝난 뒤에는 바꿀 수 없습니다.</b> 규격(칸 수·줄 수)이나 페이지 번호처럼 결과
+    파일에 영향을 주는 값은 파일을 올릴 때 정확히 정해 주십시오. 편집 중에 여는 <b>이 파일의 조판 설정</b> 창에서 바꾼 값은
+    화면에만 적용되며, 내려받는 파일에는 업로드할 때 고른 설정이 쓰입니다.
+  </div>
+
+  <p>변환 설정 창의 초기값은 마이페이지의 <b>점역 기본 설정</b>에서 정한 값입니다(제 11 장). 늘 같은 값으로 작업한다면
+     기본 설정에서 한 번 정해 두는 편이 편리합니다.</p>
+
+  <h3>4-3. 변환 진행 상황 확인 및 취소</h3>
+  <figure>
+    <figcaption>〈그림 4-3〉 변환 진행 화면</figcaption>
+    <img src="figures/progress.jpg" alt="변환 진행 화면">
+  </figure>
+
+  <table>
+    <tr><th>번호</th><th>명칭</th><th>기능</th></tr>
+    <tr><td class="n"><span class="badge">1</span></td><td class="k">닫기(취소)</td><td>변환을 중단하고 원본 파일을 내립니다. 변환 중에 누르면 취소 여부를 다시 묻는 창이 나타납니다.</td></tr>
+    <tr><td class="n"><span class="badge">2</span></td><td class="k">변환 진행</td><td>전체 쪽수 가운데 몇 쪽이 끝났는지 표시합니다.</td></tr>
+    <tr><td class="n"><span class="badge">3</span></td><td class="k">원본 미리보기</td><td>넣은 파일의 원본을 표시합니다. 쪽을 넘기면 그 쪽의 축소본이 먼저 나타난 뒤 원본 화질로 채워집니다.</td></tr>
+    <tr><td class="n"><span class="badge">4</span></td><td class="k">진행 상태 표시</td><td>현재 처리 단계와 진행률(%)을 표시합니다. 결과는 쪽 단위로 완성되는 대로 차례로 나타납니다.</td></tr>
+  </table>
+
+  <div class="box note"><span class="t">참고 — 변환 취소</span>
+    취소 여부를 묻는 창에서 <b>변환 취소</b>를 누르면 작업이 중단됩니다. 취소한 작업은 다른 탭에 다녀와도 다시 이어지지
+    않습니다.
+  </div>
+
+  <div class="box warn"><span class="t">주의 — 파일 크기</span>
+    한 번에 올릴 수 있는 파일은 <b>95MB</b>까지입니다. 이보다 큰 파일은 올라가지 않으며, 넣은 파일의 크기와 함께 안내가
+    표시됩니다. 문서를 나누어 올려 주십시오.
+  </div>
+</section>
+
+<!-- ══ 5장 ═══════════════════════════════════════════ -->
+<section class="chapter" id="ch5">
+  <div class="ch-head"><span class="pgmark">CHAPMARK5END</span><span class="tag">제 5 장</span><h2>조판 설정</h2><span class="hint">페이지행 · 번호 · 규격</span></div>
+
+  <p>점자 판면을 어떻게 짤지 정하는 설정입니다. 용어는 <b>페이지</b>로 통일되어 있으며, 각 항목은 값이 실제로 찍히는 자리를
+     기준으로 이름 붙었습니다.</p>
+
+  <table>
+    <tr><th>자리</th><th>무엇이 찍히는가</th></tr>
+    <tr><td class="k">페이지행</td><td>점자 페이지의 맨 아랫줄. 왼쪽에 원본 페이지 번호, 가운데에 꼬리말, 오른쪽에 점자 페이지 번호가 들어갑니다.</td></tr>
+    <tr><td class="k">원본 페이지 변경선</td><td>원본 한 페이지가 끝나는 바로 다음 줄. 오른쪽 끝에 새 원본 페이지 번호만 적힙니다.</td></tr>
+  </table>
+
+  <figure>
+    <figcaption>〈그림 5-1〉 이 파일의 조판 설정</figcaption>
+    <img src="figures/typeset.jpg" alt="이 파일의 조판 설정 창">
+  </figure>
+
+  <h3>5-1. 조판 설정을 여는 세 곳</h3>
+  <table>
+    <tr><th>여는 곳</th><th>적용 범위</th></tr>
+    <tr><td class="k">변환 설정 창<br>(파일을 고른 직후)</td><td><b>이 작업의 결과 파일에 실제로 적용됩니다.</b> 규격을 바꿔 작업하려면 반드시 여기서 정하십시오.</td></tr>
+    <tr><td class="k">이 파일의 조판 설정<br>(판면 도구 줄 · 우클릭 메뉴)</td><td>지금 열려 있는 작업의 <b>화면에만</b> 적용됩니다. 바꾸는 즉시 판면이 다시 짜여 결과를 미리 볼 수 있습니다.</td></tr>
+    <tr><td class="k">점역 기본 설정<br>(마이페이지 → 사용량)</td><td>앞으로 만드는 <b>새 작업의 초기값</b>이 됩니다. 이미 만든 작업에는 영향을 주지 않습니다.</td></tr>
+  </table>
+
+  <h3>5-2. 페이지행</h3>
+  <table>
+    <tr><th>항목</th><th>기능</th></tr>
+    <tr><td class="k">페이지행</td><td>점자 페이지 하단의 표시줄을 넣을지 정합니다. 끄면 아래 항목이 모두 숨겨집니다.</td></tr>
+    <tr><td class="k">넣을 페이지</td><td><b>홀수 페이지만</b> 또는 <b>모든 페이지</b>. 지침과 실물 관행은 홀수 페이지입니다.</td></tr>
+    <tr><td class="k">원본 페이지 번호 (왼쪽)</td><td>페이지행 왼쪽에 원본 문서의 쪽 번호를 넣습니다. 끄면 변경선도 함께 꺼집니다.</td></tr>
+    <tr><td class="k">점자 페이지 번호 (오른쪽)</td><td>페이지행 오른쪽에 점자 페이지 번호를 넣습니다.</td></tr>
+  </table>
+
+  <h3>5-3. 꼬리말</h3>
+  <table>
+    <tr><th>항목</th><th>기능</th></tr>
+    <tr><td class="k">내용</td><td>페이지행 가운데에 들어갈 문구입니다(최대 200자). 예: “수학1-2. 다항함수”.
+      쓸 수 있는 자리는 규격과 번호 표시 여부에 따라 계산되어 안내되며(한글은 한 글자에 2~3칸), 넘칠 것 같으면 경고가 표시됩니다.</td></tr>
+    <tr><td class="k">정렬</td><td><b>가운데</b> 또는 <b>오른쪽</b>. 오른쪽으로 두면 점자 페이지 번호에서 두 칸 띄운 자리가 꼬리말의 오른쪽 끝이 됩니다.</td></tr>
+    <tr><td class="k">수정할 때 적용 범위</td><td>판면에서 꼬리말을 고칠 때 <b>이 페이지부터 끝까지</b> 바꿀지 <b>이 페이지만</b> 바꿀지 미리 골라 두는 값입니다.</td></tr>
+  </table>
+
+  <h3>5-4. 원본 페이지 변경선</h3>
+  <table>
+    <tr><td class="k">변경선 넣기</td><td>원본 한 페이지가 끝나는 자리에 구분선을 넣습니다. 끄면 그 줄이 판면에서 사라집니다.</td></tr>
+  </table>
+  <p>페이지행의 <b>원본 페이지 번호</b>를 끄면 변경선에 적을 번호가 없어 함께 꺼지며, 다시 켤 수도 없습니다.</p>
+
+  <h3>5-5. 페이지 번호</h3>
+  <table>
+    <tr><th>항목</th><th>기능</th></tr>
+    <tr><td class="k">표지 페이지 수</td><td>앞에서 이만큼을 표지로 봅니다(0~99). 표지에는 페이지행을 넣지 않고, 본문 번호가 그다음부터 시작합니다.</td></tr>
+    <tr><td class="k">원본 페이지 번호 시작</td><td>원본의 첫 쪽을 몇 쪽으로 셀지 정합니다(1~999). 책의 5쪽부터 점역한다면 5로 둡니다.</td></tr>
+    <tr><td class="k">점자 페이지 번호 시작</td><td>점자 페이지 번호의 시작값입니다(1~999). 앞 권에서 이어 만든다면 그 뒤 번호로 둡니다.</td></tr>
+  </table>
+
+  <h3>5-6. 용지 규격</h3>
+  <table>
+    <tr><th>항목</th><th>기능</th></tr>
+    <tr><td class="k">칸 수</td><td>한 페이지의 가로 칸 수입니다(8~100). 한국 점자 도서는 32칸입니다.</td></tr>
+    <tr><td class="k">줄 수</td><td>한 페이지의 세로 줄 수입니다(4~100). 한국 점자 도서는 26줄이며, 페이지행이 들어가는 페이지의 본문은 25줄이 됩니다.</td></tr>
+  </table>
+  <p>32칸 26줄이 아닌 값을 넣으면 “한국 점자 도서 규격이 아닙니다”라는 경고가 표시됩니다. 상장처럼 규격이 다른 문서에만
+     사용하십시오.</p>
+
+  <h3>5-7. 점역 방식</h3>
+  <table>
+    <tr><td class="k">고급 점역</td><td>표와 그림이 많은 지면을 더 큰 모델로 읽습니다. 결과의 정확도가 올라가는 대신 변환이 느려집니다.</td></tr>
+  </table>
+
+  <div class="box warn"><span class="t">주의 — 화면과 파일이 다를 수 있습니다</span>
+    편집 중에 연 <b>이 파일의 조판 설정</b> 창에서 바꾼 값은 화면을 다시 그릴 뿐, 내려받는 파일과 다음에 이 작업을 열 때에는
+    <b>업로드할 때 고른 설정</b>이 쓰입니다. 결과 파일의 규격을 바꾸려면 파일을 다시 올려 주십시오.
+  </div>
+</section>
+
+<!-- ══ 6장 ═══════════════════════════════════════════ -->
+<section class="chapter" id="ch6">
+  <div class="ch-head"><span class="pgmark">CHAPMARK6END</span><span class="tag">제 6 장</span><h2>결과 확인 및 수정하기</h2><span class="hint">판면 격자 · 블록 편집</span></div>
+
+  <p>변환이 끝나면 오른쪽에 결과가 판면 격자 형태로 표시됩니다. 격자의 한 칸이 점자 한 글자에 해당하며, 한 페이지의 크기는
+     조판 설정에서 정한 값(기본 26줄 × 32칸)입니다.</p>
+
+  <figure>
+    <figcaption>〈그림 6-1〉 변환 결과 화면</figcaption>
+    <div class="shot">
+      <img src="figures/result.jpg" alt="변환 결과 화면">
+      <span class="cal" style="left:95%;top:16.4%">1</span>
+      <span class="cal" style="left:54.4%;top:24%">2</span>
+      <span class="cal" style="left:63%;top:24%">3</span>
+      <span class="cal" style="left:73.7%;top:24%">4</span>
+      <span class="cal" style="left:86%;top:24%">5</span>
+      <span class="cal" style="left:96.8%;top:24%">6</span>
+      <span class="cal" style="left:60.5%;top:28.7%">7</span>
+      <span class="cal" style="left:25%;top:50%">8</span>
+      <span class="cal" style="left:75%;top:60%">9</span>
+      <span class="cal" style="left:50%;top:94.3%">10</span>
+    </div>
+  </figure>
+
+  <table>
+    <tr><th>번호</th><th>명칭</th><th>기능</th></tr>
+    <tr><td class="n"><span class="badge">1</span></td><td class="k">다운로드</td><td>결과를 파일로 저장합니다. 제 9 장을 참조하십시오.</td></tr>
+    <tr><td class="n"><span class="badge">2</span></td><td class="k">면 규격</td><td>한 페이지의 줄 수와 칸 수를 표시합니다. 조판 설정에서 바꿀 수 있습니다(제 5 장).</td></tr>
+    <tr><td class="n"><span class="badge">3</span></td><td class="k">페이지행 표시</td><td>이 작업이 페이지행을 넣도록 만들어졌는지 보여 줍니다. 업로드할 때 정해지므로 여기서는 바꿀 수 없습니다.</td></tr>
+    <tr><td class="n"><span class="badge">4</span></td><td class="k">폭 맞춤</td><td>판면 격자를 크게·작게 봅니다. 화면 폭에 맞춘 배율이 기본입니다.</td></tr>
+    <tr><td class="n"><span class="badge">5</span></td><td class="k">변환 상태</td><td>완료된 쪽수와 전체 쪽수를 표시합니다.</td></tr>
+    <tr><td class="n"><span class="badge">6</span></td><td class="k">면 이동</td><td>현재 보고 있는 점자 페이지의 번호와 전체 페이지 수입니다.</td></tr>
+    <tr><td class="n"><span class="badge">7</span></td><td class="k">판면 도구</td><td>원본 쪽번호 · 조판 설정 · 여기부터 꼬리말. 6-1 항을 참조하십시오.</td></tr>
+    <tr><td class="n"><span class="badge">8</span></td><td class="k">원본 파일</td><td>넣은 문서의 원본입니다. 결과의 한 부분을 고르면 원본의 해당 위치가 함께 표시됩니다.</td></tr>
+    <tr><td class="n"><span class="badge">9</span></td><td class="k">판면 격자</td><td>변환 결과입니다. 칸을 눌러 커서를 옮기고 글자를 직접 고칠 수 있습니다.</td></tr>
+    <tr><td class="n"><span class="badge">10</span></td><td class="k">원본 쪽 넘김</td><td>원본 문서의 쪽을 넘깁니다. 결과 판면은 스크롤로 이어 봅니다.</td></tr>
+  </table>
+
+  <div class="box note"><span class="t">참고 — 초안 생성 화면의 <b>점역으로 보내기</b></span>
+    초안 생성 모드에서는 다운로드 왼쪽에 <b>점역으로 보내기</b> 단추가 함께 놓입니다. 지금 결과를 그대로 점자 번역
+    작업으로 넘깁니다(제 9 장).
+  </div>
+
+  <h3>6-1. 판면 도구</h3>
+  <p>판면 위쪽의 도구 줄에서는 조판에 관한 것을 다룹니다. 현재 보고 있는 페이지의 꼬리말도 이 줄에 함께 표시됩니다.</p>
+  <table>
+    <tr><td class="k">원본 쪽번호</td><td>이 문서의 첫 쪽을 몇 쪽으로 셀지 정합니다.</td></tr>
+    <tr><td class="k">조판 설정</td><td>이 작업의 조판 설정을 엽니다(제 5 장).</td></tr>
+    <tr><td class="k">꼬리말</td><td>커서가 놓인 줄부터 꼬리말을 바꿉니다. 판면에서 줄을 먼저 선택해야 사용할 수 있습니다.</td></tr>
+  </table>
+
+  <h3>6-2. 블록 고르기와 편집</h3>
+  <p>결과의 한 부분을 누르면 그 블록이 선택되고, 원본에서 대응하는 자리에 테두리가 표시됩니다. 원본과 대조하며 확인하십시오.</p>
+
+  <figure>
+    <figcaption>〈그림 6-2〉 블록 선택 및 원본 대조</figcaption>
+    <div class="shot">
+      <img src="figures/block-select.jpg" alt="블록 선택 및 원본 대조">
+      <span class="cal" style="left:25%;top:28.6%">1</span>
+      <span class="cal" style="left:74.4%;top:69.4%">2</span>
+    </div>
+  </figure>
+
+  <table>
+    <tr><th>번호</th><th>명칭</th><th>기능</th></tr>
+    <tr><td class="n"><span class="badge">1</span></td><td class="k">원본 대조 표시</td><td>고른 블록이 원본의 어디에서 왔는지 테두리로 알려 줍니다.</td></tr>
+    <tr><td class="n"><span class="badge">2</span></td><td class="k">선택된 줄</td><td>고른 줄이 색으로 강조되고 커서가 놓입니다. 이 상태에서 글자를 고치거나 우클릭 메뉴를 씁니다.</td></tr>
+  </table>
+
+  <p>블록을 더하거나 지우고 순서를 옮기는 일은 <b>우클릭 메뉴</b>에서 합니다(6-3 항). 마우스로 한 줄 안의 구간을
+     끌어 고르면 복사·잘라내기를 쓸 수 있습니다.</p>
+
+  <h3>6-3. 우클릭 메뉴</h3>
+  <p>판면의 아무 줄에서나 마우스 오른쪽 단추를 누르면 그 줄을 기준으로 아래 기능을 사용할 수 있습니다.</p>
+
+  <figure>
+    <figcaption>〈그림 6-3〉 판면 우클릭 메뉴</figcaption>
+    <img src="figures/context-menu.jpg" alt="판면 우클릭 메뉴">
+    <p class="aged">※ 흐리게 보이는 항목은 지금 쓸 수 없는 것입니다 — 구간을 고르지 않았거나, 그 블록에 대체 초안이 없거나,
+       이 페이지의 첫·마지막 블록이어서입니다.</p>
+  </figure>
+  <table>
+    <tr><th>항목</th><th>기능</th></tr>
+    <tr><td class="k">복사 · 잘라내기</td><td>판면에서 끌어 고른 구간을 복사하거나 잘라냅니다. 먼저 구간을 골라야 사용할 수 있습니다.</td></tr>
+    <tr><td class="k">붙여넣기</td><td>커서 자리에 붙여넣습니다.</td></tr>
+    <tr><td class="k">블록 추가 · 위로 이동 · 아래로 이동 · 블록 삭제</td><td>블록 편집 도구와 같은 기능입니다.</td></tr>
+    <tr><td class="k">대체 초안</td><td>그 블록의 대체 텍스트 후보 목록을 엽니다. 후보가 없는 블록에서는 사용할 수 없습니다.</td></tr>
+    <tr><td class="k">여기서 면 바꾸기</td><td>이 줄부터 새 페이지에서 시작하게 합니다. <span class="kbd">&lt;Ctrl&gt;+&lt;Enter&gt;</span> 키와 같은 기능입니다. <b>(준비 중)</b></td></tr>
+    <tr><td class="k">여기부터 꼬리말</td><td>단원이 바뀌는 자리에서 꼬리말을 바꿉니다. <b>(준비 중)</b></td></tr>
+    <tr><td class="k">원본 쪽 번호</td><td>이 줄이 속한 원본 쪽의 번호를 고칩니다.</td></tr>
+    <tr><td class="k">조판 설정</td><td>이 작업의 조판 설정을 엽니다(제 5 장).</td></tr>
+  </table>
+
+  <div class="box hold"><span class="t">참고 — 준비 중 표시</span>
+    <b>여기서 면 바꾸기</b>와 <b>여기부터 꼬리말</b>은 화면에서만 반영되고 내려받는 파일에는 표식이 글자로 찍히기 때문에
+    지금은 실행되지 않습니다. 누르면 그 이유를 알리는 안내가 나타납니다. 작업 전체에 하나를 넣는 꼬리말은 변환 설정과
+    조판 설정에서 지금도 사용할 수 있습니다.
+  </div>
+
+  <h3>6-4. 키보드로 다루기</h3>
+  <table class="keys">
+    <tr><th>키</th><th>기능</th></tr>
+    <tr><td class="k">&lt;F&gt;&lt;D&gt;&lt;S&gt; · &lt;J&gt;&lt;K&gt;&lt;L&gt;</td><td>화음처럼 함께 눌렀다 떼어 점자 한 글자를 입력합니다. 각 키는 차례로 1·2·3·4·5·6 점입니다. 글자는 커서 자리에 끼워 넣어집니다.</td></tr>
+    <tr><td class="k">← → Home End</td><td>커서를 좌우 끝으로 옮깁니다.</td></tr>
+    <tr><td class="k">&lt;Backspace&gt; &lt;Delete&gt;</td><td>고른 구간을 지웁니다.</td></tr>
+    <tr><td class="k">&lt;Ctrl&gt;+&lt;C&gt; / &lt;X&gt; / &lt;V&gt;</td><td>고른 구간을 복사 · 잘라내기 · 붙여넣기 합니다. 구간은 한 줄 안에서 마우스로 끌어 고릅니다.</td></tr>
+    <tr><td class="k">&lt;Ctrl&gt;+&lt;Z&gt;</td><td>되돌리기.</td></tr>
+    <tr><td class="k">&lt;Ctrl&gt;+&lt;Shift&gt;+&lt;Z&gt; · &lt;Ctrl&gt;+&lt;Y&gt;</td><td>다시 실행.</td></tr>
+    <tr><td class="k">&lt;Ctrl&gt;+&lt;S&gt;</td><td>지금까지의 수정을 즉시 저장합니다. 페이지를 넘기거나 프로그램을 닫을 때에도 자동으로 저장되며, 저장이 끝나면 판면 위에 “저장됨”이 표시됩니다.</td></tr>
+    <tr><td class="k">&lt;Ctrl&gt;+&lt;F&gt;</td><td>찾기 막대를 엽니다(제 7 장).</td></tr>
+    <tr><td class="k">&lt;Ctrl&gt;+&lt;Enter&gt;</td><td>커서가 놓인 줄부터 새 페이지에서 시작합니다. <b>(준비 중)</b></td></tr>
+  </table>
+
+  <h3>6-5. 수식 확인 (라텍스 변환기)</h3>
+  <p>수식이 들어 있는 블록에 마우스를 얹으면 화면 아래쪽 라텍스 변환기에 그 블록의 문장 전체가 수식 모양으로 표시됩니다.
+     격자에서는 수식이 기호 그대로 보이므로, 원본과 맞는지 이 자리에서 확인하십시오.</p>
+
+  <figure>
+    <figcaption>〈그림 6-4〉 라텍스 변환기</figcaption>
+    <img src="figures/latex.jpg" alt="라텍스 변환기">
+  </figure>
+
+  <table>
+    <tr><th>번호</th><th>명칭</th><th>기능</th></tr>
+    <tr><td class="n"><span class="badge">1</span></td><td class="k">원본의 해당 위치</td><td>같은 내용이 원본의 어디에 있는지 테두리로 알려 줍니다.</td></tr>
+    <tr><td class="n"><span class="badge">2</span></td><td class="k">마우스를 얹은 블록</td><td>마우스를 얹기만 하면 됩니다. 누르지 않아도 아래에 표시됩니다.</td></tr>
+    <tr><td class="n"><span class="badge">3</span></td><td class="k">라텍스 변환기</td><td>해당 블록의 문장 전체를 수식 모양으로 표시합니다.</td></tr>
+  </table>
+
+  <h3>6-6. 대체 텍스트 넣기</h3>
+  <p>그림·표 등 시각 요소 블록을 고르고 <b>대체 텍스트</b>를 누르면 후보 목록 창이 나타납니다. 창에서 다음을 할 수 있습니다.</p>
+  <ul class="plain">
+    <li>방식(짧은 제목, 자세한 설명 등)별 후보를 탭으로 넘겨 가며 비교합니다.</li>
+    <li>후보마다 묵자 원문과 점자를 함께 확인합니다.</li>
+    <li>오른쪽 <b>점역 규정</b> 단추를 누르면 해당 후보가 따른 규정을 볼 수 있습니다.</li>
+    <li><b>이 안 사용</b>을 누르면 고른 후보가 결과에 반영됩니다.</li>
+  </ul>
+</section>
+
+<!-- ══ 7장 ═══════════════════════════════════════════ -->
+<section class="chapter" id="ch7">
+  <div class="ch-head"><span class="pgmark">CHAPMARK7END</span><span class="tag">제 7 장</span><h2>찾기 및 바꾸기</h2><span class="hint">Ctrl + F</span></div>
+
+  <p>키보드의 <span class="kbd">&lt;Ctrl&gt;+&lt;F&gt;</span> 키를 누르면 화면 위쪽에 찾기 막대가 나타납니다. 원본과 결과에서
+     원하는 말을 찾고, 결과의 말을 다른 말로 바꿀 수 있습니다.</p>
+
+  <figure>
+    <figcaption>〈그림 7-1〉 찾기 막대와 바꾸기 줄</figcaption>
+    <div class="shot">
+      <img src="figures/find.jpg" alt="찾기 막대와 바꾸기 줄">
+      <span class="cal" style="left:41.6%;top:4.5%">1</span>
+      <span class="cal" style="left:49.6%;top:4.5%">2</span>
+      <span class="cal" style="left:53.5%;top:4.5%">3</span>
+      <span class="cal" style="left:57.4%;top:4.5%">4</span>
+      <span class="cal" style="left:61.8%;top:4.5%">5</span>
+      <span class="cal" style="left:66.5%;top:4.5%">6</span>
+      <span class="cal" style="left:34.4%;top:4.5%">7</span>
+      <span class="cal" style="left:41.3%;top:9.9%">8</span>
+      <span class="cal" style="left:49.5%;top:9.9%">9</span>
+      <span class="cal" style="left:54.2%;top:9.9%">10</span>
+      <span class="cal" style="left:62%;top:9.9%">11</span>
+    </div>
+  </figure>
+
+  <table>
+    <tr><th>번호</th><th>명칭</th><th>기능</th></tr>
+    <tr><td class="n"><span class="badge">1</span></td><td class="k">찾을 말</td><td>찾을 내용을 입력합니다. 입력하는 즉시 결과가 강조됩니다.</td></tr>
+    <tr><td class="n"><span class="badge">2</span></td><td class="k">찾은 개수</td><td>현재 몇 번째 결과를 보고 있는지와 전체 개수를 표시합니다.</td></tr>
+    <tr><td class="n"><span class="badge">3</span></td><td class="k">이전 · 다음</td><td>찾은 자리를 차례로 옮겨 갑니다. <span class="kbd">&lt;Enter&gt;</span> 키는 다음, <span class="kbd">&lt;Shift&gt;+&lt;Enter&gt;</span> 키는 이전입니다.</td></tr>
+    <tr><td class="n"><span class="badge">4</span></td><td class="k">찾을 범위</td><td>전체 · 원본만 · 결과만 가운데 고릅니다. 모드에 따라 없는 범위는 표시되지 않습니다.</td></tr>
+    <tr><td class="n"><span class="badge">5</span></td><td class="k">점자로 입력</td><td>켜면 찾을 말을 6점 키로 입력합니다. 점자 자체를 찾을 때 사용합니다.</td></tr>
+    <tr><td class="n"><span class="badge">6</span></td><td class="k">닫기</td><td>찾기 막대를 닫습니다. <span class="kbd">&lt;Esc&gt;</span> 키를 눌러도 됩니다.</td></tr>
+    <tr><td class="n"><span class="badge">7</span></td><td class="k">바꾸기 펼침</td><td>누르면 아래 바꾸기 줄이 나타나거나 접힙니다.</td></tr>
+    <tr><td class="n"><span class="badge">8</span></td><td class="k">바꿀 말</td><td>바꾸어 넣을 내용을 입력합니다. <b>점자로 입력</b>을 켜 두면 점자로 입력됩니다.</td></tr>
+    <tr><td class="n"><span class="badge">9</span></td><td class="k">바꾸기</td><td>현재 찾은 한 자리만 바꿉니다.</td></tr>
+    <tr><td class="n"><span class="badge">10</span></td><td class="k">모두 바꾸기</td><td>찾은 자리를 모두 한 번에 바꿉니다.</td></tr>
+    <tr><td class="n"><span class="badge">11</span></td><td class="k">안내 문구</td><td>바꾸기는 결과(출력)에만 적용된다는 안내입니다.</td></tr>
+  </table>
+
+  <p>찾은 자리는 원본과 판면 양쪽에서 색으로 표시되며, 지금 보고 있는 자리는 더 진하게 표시됩니다.</p>
+
+  <div class="box warn"><span class="t">주의</span>
+    바꾸기는 <b>결과(출력)에만</b> 적용됩니다. 원본 파일은 바뀌지 않습니다. 찾을 범위를 <b>원본만</b>으로 두면 바꾸기 줄은
+    사용할 수 없습니다. 잘못 바꾼 경우 <span class="kbd">&lt;Ctrl&gt;+&lt;Z&gt;</span> 키로 되돌리십시오.
+  </div>
+
+  <div class="box note"><span class="t">참고</span>
+    결과 창을 따로 나누어 쓰는 경우(제 9 장)에도 나뉜 창에서 같은 방법으로 찾기·바꾸기를 사용할 수 있습니다.
+  </div>
+</section>
+
+<!-- ══ 8장 ═══════════════════════════════════════════ -->
+<section class="chapter" id="ch8">
+  <div class="ch-head"><span class="pgmark">CHAPMARK8END</span><span class="tag">제 8 장</span><h2>점자 규정 찾아보기</h2><span class="hint">앱 안에서 규정 확인</span></div>
+
+  <p>조판을 하다 보면 규정을 확인할 일이 잦습니다. 화면 위쪽의 <b>책 모양</b> 단추를 누르면 점자 규정과 제작 지침을
+     앱 안에서 바로 찾아볼 수 있습니다. 별도의 문서를 열어 두지 않아도 됩니다.</p>
+
+  <figure>
+    <figcaption>〈그림 8-1〉 점자 규정 찾아보기</figcaption>
+    <img src="figures/rules.jpg" alt="점자 규정 찾아보기 창">
+  </figure>
+
+  <table>
+    <tr><th>항목</th><th>기능</th></tr>
+    <tr><td class="k">검색어</td><td>찾을 말을 입력합니다. 입력을 멈추면 잠시 뒤 자동으로 검색됩니다.</td></tr>
+    <tr><td class="k">문서</td><td><b>전체</b>와 규정 문서 이름(예: 한국 점자 규정)이 단추로 놓입니다. 원하는 문서만 골라 걸러 봅니다.</td></tr>
+    <tr><td class="k">목록</td><td>규정 항목이 20건씩 표시됩니다. 항목을 누르면 본문을 그 자리에서 볼 수 있습니다.</td></tr>
+    <tr><td class="k">쪽 넘기기</td><td>목록 아래에서 다음·이전 묶음으로 넘어갑니다.</td></tr>
+  </table>
+
+  <div class="box note"><span class="t">참고 — 목차처럼 훑어보기</span>
+    검색어를 넣지 않고 창을 열면 규정이 원문 순서 그대로 나열됩니다. 무엇을 찾을지 정하지 않았을 때 목차처럼 훑어볼 수
+    있습니다.
+  </div>
+
+  <div class="box note"><span class="t">참고 — 대체 텍스트 후보의 규정</span>
+    대체 텍스트 후보 목록 창(6-6 항)에서 오른쪽 <b>점역 규정</b> 단추를 누르면, 그 후보가 따른 규정만 바로 볼 수 있습니다.
+  </div>
+</section>
+
+<!-- ══ 9장 ═══════════════════════════════════════════ -->
+<section class="chapter" id="ch9">
+  <div class="ch-head"><span class="pgmark">CHAPMARK9END</span><span class="tag">제 9 장</span><h2>결과 저장 및 화면 나누기</h2><span class="hint">다운로드 · 반으로 나누기</span></div>
+
+  <h3>9-1. 결과 내려받기</h3>
+  <p>결과 영역 오른쪽 위의 <b>다운로드</b>를 누르면 아래 창이 나타납니다.</p>
+
+  <figure>
+    <figcaption>〈그림 9-1〉 다운로드 창</figcaption>
+    <div class="shot">
+      <img src="figures/download.jpg" alt="다운로드 창">
+      <span class="cal" style="left:45%;top:46.5%">1</span>
+      <span class="cal" style="left:61.5%;top:46.5%">2</span>
+      <span class="cal" style="left:45%;top:53.5%">3</span>
+      <span class="cal" style="left:53%;top:62%">4</span>
+      <span class="cal" style="left:59%;top:62%">5</span>
+    </div>
+  </figure>
+
+  <table>
+    <tr><th>번호</th><th>명칭</th><th>기능</th></tr>
+    <tr><td class="n"><span class="badge">1</span></td><td class="k">파일 이름</td><td>저장할 이름을 입력합니다. 날짜가 들어간 이름이 미리 채워집니다.</td></tr>
+    <tr><td class="n"><span class="badge">2</span></td><td class="k">확장자</td><td>저장되는 파일 형식입니다. 점자 결과는 <b>.brf</b>, 초안 생성 결과는 <b>.txt</b>입니다.</td></tr>
+    <tr><td class="n"><span class="badge">3</span></td><td class="k">안내 문구</td><td>지금까지 고친 내용을 저장한 뒤 파일을 만든다는 안내입니다. 쪽번호·꼬리말은 <b>업로드할 때 정한 값</b>으로 조판된다는 것도 함께 알립니다.</td></tr>
+    <tr><td class="n"><span class="badge">4</span></td><td class="k">취소</td><td>저장하지 않고 창을 닫습니다.</td></tr>
+    <tr><td class="n"><span class="badge">5</span></td><td class="k">다운로드</td><td>파일을 만들어 내려받습니다.</td></tr>
+  </table>
+
+  <div class="box hold"><span class="t">참고 — 아직 파일에 담기지 않는 표식</span>
+    쪽 바꿈·구간 꼬리말처럼 준비 중인 표식이 판면에 남아 있으면, 내려받기 전에 그 사실을 알리는 안내가 표시됩니다.
+    안내를 확인하고 표식을 지운 뒤 내려받으십시오.
+  </div>
+
+  <h3>9-2. 점역으로 보내기</h3>
+  <p>초안 생성 결과 화면에서 <b>점역으로 보내기</b>를 누르면, 지금 결과를 그대로 점자 번역 작업으로 넘깁니다.
+     초안을 확인·수정한 뒤에 사용하십시오.</p>
+  <p>이때 만들어지는 것은 <b>텍스트 점자 번역 작업</b>이므로, 파일을 직접 올렸을 때와 똑같이 <b>변환 설정</b> 창이
+     먼저 나타납니다(제 4 장). 페이지행·규격·꼬리말은 이 자리에서 정해야 하며, 변환이 끝난 뒤에는 바꿀 수 없습니다.</p>
+  <div class="box note"><span class="t">참고 — 점역 탭에 이미 작업이 있으면</span>
+    덮어쓸지 먼저 묻습니다. 앞서 만든 점역 작업은 마이페이지에 그대로 남아 있습니다.
+  </div>
+
+  <h3>9-3. 화면 반으로 나누기</h3>
+  <p><b>반으로 나누기</b>를 누르면 결과 영역이 별도의 창으로 분리되고, 본 화면에는 원본만 전체 폭으로 표시됩니다.
+     두 창의 내용은 서로 이어져 있어 한쪽에서 고치면 다른 쪽에도 바로 반영됩니다.</p>
+
+  <figure>
+    <figcaption>〈그림 9-2〉 화면을 나눈 상태</figcaption>
+    <img src="figures/split.jpg" alt="화면을 나눈 상태">
+  </figure>
+
+  <table>
+    <tr><th>번호</th><th>명칭</th><th>기능</th></tr>
+    <tr><td class="n"><span class="badge">1</span></td><td class="k">합치기</td><td>나뉜 결과 창을 닫고 본 화면으로 되돌립니다.</td></tr>
+    <tr><td class="n"><span class="badge">2</span></td><td class="k">원본 전체 보기</td><td>결과 창을 분리하는 동안 원본이 화면 전체 폭으로 표시됩니다.</td></tr>
+  </table>
+</section>
+
+<!-- ══ 10장 ══════════════════════════════════════════ -->
+<section class="chapter" id="ch10">
+  <div class="ch-head"><span class="pgmark">CHAPMARK10END</span><span class="tag">제 10 장</span><h2>마이페이지</h2><span class="hint">작업 파일 관리</span></div>
+
+  <p>화면 위쪽의 <b>마이페이지</b>를 누르면 지금까지 작업한 파일을 관리할 수 있습니다.</p>
+
+  <figure>
+    <figcaption>〈그림 10-1〉 마이페이지</figcaption>
+    <div class="shot">
+      <img src="figures/mypage.jpg" alt="마이페이지">
+      <span class="cal" style="left:15%;top:7%">1</span>
+      <span class="cal" style="left:80%;top:7%">2</span>
+      <span class="cal" style="left:22%;top:15%">3</span>
+      <span class="cal" style="left:35.5%;top:15%">4</span>
+      <span class="cal" style="left:40.5%;top:15%">5</span>
+      <span class="cal" style="left:87%;top:15%">6</span>
+      <span class="cal" style="left:31%;top:37%">7</span>
+      <span class="cal" style="left:81%;top:60%">8</span>
+      <span class="cal" style="left:41%;top:63%">9</span>
+    </div>
+  </figure>
+
+  <table>
+    <tr><th>번호</th><th>명칭</th><th>기능</th></tr>
+    <tr><td class="n"><span class="badge">1</span></td><td class="k">돌아가기</td><td>작업 화면으로 되돌아갑니다.</td></tr>
+    <tr><td class="n"><span class="badge">2</span></td><td class="k">사용량</td><td>크레딧 사용 현황 화면으로 이동합니다. 제 11 장을 참조하십시오.</td></tr>
+    <tr><td class="n"><span class="badge">3</span></td><td class="k">검색</td><td>파일 이름으로 작업을 찾습니다.</td></tr>
+    <tr><td class="n"><span class="badge">4</span></td><td class="k">정렬</td><td>최신순·이름순 등으로 목록의 차례를 바꿉니다.</td></tr>
+    <tr><td class="n"><span class="badge">5</span></td><td class="k">모드 거르기</td><td>변환 모드별로 목록을 걸러서 봅니다.</td></tr>
+    <tr><td class="n"><span class="badge">6</span></td><td class="k">휴지통</td><td>지운 작업을 모아 둔 곳으로 이동합니다.</td></tr>
+    <tr><td class="n"><span class="badge">7</span></td><td class="k">최근 작업</td><td>가장 최근에 다룬 작업을 미리보기 그림과 함께 보여 줍니다.</td></tr>
+    <tr><td class="n"><span class="badge">8</span></td><td class="k">미리보기 영역</td><td>목록에서 파일을 누르면 이 자리에 미리보기와 정보가 표시됩니다.</td></tr>
+    <tr><td class="n"><span class="badge">9</span></td><td class="k">전체 목록</td><td>모든 작업을 이름·모드·작성일과 함께 표로 보여 줍니다.</td></tr>
+  </table>
+
+  <figure>
+    <figcaption>〈그림 10-2〉 파일을 골랐을 때</figcaption>
+    <div class="shot">
+      <img src="figures/mypage-selected.jpg" alt="파일을 골랐을 때">
+      <span class="cal" style="left:71.5%;top:15%">1</span>
+      <span class="cal" style="left:77%;top:15%">2</span>
+      <span class="cal" style="left:83%;top:15%">3</span>
+      <span class="cal" style="left:87%;top:15%">4</span>
+      <span class="cal" style="left:81%;top:53%">5</span>
+      <span class="cal" style="left:77.5%;top:95%">6</span>
+      <span class="cal" style="left:86%;top:95%">7</span>
+    </div>
+  </figure>
+
+  <table>
+    <tr><th>번호</th><th>명칭</th><th>기능</th></tr>
+    <tr><td class="n"><span class="badge">1</span></td><td class="k">선택 개수</td><td>고른 파일의 수를 표시합니다.</td></tr>
+    <tr><td class="n"><span class="badge">2</span></td><td class="k">폴더로 이동</td><td>고른 파일을 다른 폴더로 옮깁니다.</td></tr>
+    <tr><td class="n"><span class="badge">3</span></td><td class="k">삭제</td><td>고른 파일을 휴지통으로 옮깁니다.</td></tr>
+    <tr><td class="n"><span class="badge">4</span></td><td class="k">선택 해제</td><td>고른 상태를 풉니다.</td></tr>
+    <tr><td class="n"><span class="badge">5</span></td><td class="k">작업 정보</td><td>모드·작성일·쪽수·상태를 표시합니다.</td></tr>
+    <tr><td class="n"><span class="badge">6</span></td><td class="k">열기</td><td>고른 작업을 작업 화면으로 불러옵니다. 원본과 결과를 함께 불러오므로 잠시 기다려 주십시오.</td></tr>
+    <tr><td class="n"><span class="badge">7</span></td><td class="k">다운로드</td><td>결과 파일을 곧바로 내려받습니다.</td></tr>
+  </table>
+
+  <div class="box note"><span class="t">참고 — 휴지통</span>
+    삭제한 작업은 휴지통에 보관되며 <b>30일이 지나면 자동으로 삭제</b>됩니다. 휴지통에서 되돌리거나 완전히 지울 수 있습니다.
+  </div>
+</section>
+
+<!-- ══ 11장 ══════════════════════════════════════════ -->
+<section class="chapter" id="ch11">
+  <div class="ch-head"><span class="pgmark">CHAPMARK11END</span><span class="tag">제 11 장</span><h2>사용량 및 점역 기본 설정</h2><span class="hint">크레딧 · 기본값</span></div>
+
+  <p>마이페이지의 <b>사용량</b>을 누르면 크레딧 사용 현황과 점역 기본 설정을 볼 수 있습니다.</p>
+
+  <figure>
+    <figcaption>〈그림 11-1〉 사용량 화면</figcaption>
+    <div class="shot">
+      <img src="figures/usage.jpg" alt="사용량 화면">
+      <span class="cal" style="left:82.5%;top:14.5%">1</span>
+      <span class="cal" style="left:30.5%;top:28%">2</span>
+      <span class="cal" style="left:80%;top:28%">3</span>
+      <span class="cal" style="left:50%;top:53%">4</span>
+      <span class="cal" style="left:78.5%;top:57.7%">5</span>
+    </div>
+  </figure>
+
+  <table>
+    <tr><th>번호</th><th>명칭</th><th>기능</th></tr>
+    <tr><td class="n"><span class="badge">1</span></td><td class="k">기간 선택</td><td>보고자 하는 달을 고릅니다.</td></tr>
+    <tr><td class="n"><span class="badge">2</span></td><td class="k">내가 쓴 크레딧</td><td>고른 기간에 내 계정이 사용한 크레딧과 할당량 대비 비율입니다.</td></tr>
+    <tr><td class="n"><span class="badge">3</span></td><td class="k">우리 기관 남은 크레딧</td><td>기관 전체 기준으로 남은 크레딧입니다. 계정별 소모량은 표시되지 않습니다.</td></tr>
+    <tr><td class="n"><span class="badge">4</span></td><td class="k">작업별 크레딧</td><td>작업 이름·모드·쪽수·크레딧·완료 시각·상태를 표로 보여 줍니다.</td></tr>
+    <tr><td class="n"><span class="badge">5</span></td><td class="k">열기</td><td>해당 작업을 작업 화면으로 불러옵니다.</td></tr>
+  </table>
+
+  <div class="box note"><span class="t">참고 — 크레딧</span>
+    크레딧은 변환 모드와 쪽수에 따라 차감됩니다. 실패한 작업에는 크레딧이 차감되지 않습니다. 크레딧이 모자라면
+    <b>문의하기</b>로 추가를 요청하십시오(제 12 장).
+  </div>
+
+  <h3>11-1. 점역 기본 설정</h3>
+  <p>같은 화면 아래쪽의 <b>점역 기본 설정</b>에서 정한 값은 <b>새 작업이 시작할 때의 초기값</b>이 됩니다. 이미 만든 작업에는
+     영향을 주지 않습니다. 값을 바꾼 뒤에는 <b>설정 저장</b>을 눌러 주십시오.</p>
+
+  <table>
+    <tr><th>항목</th><th>기능</th></tr>
+    <tr><td class="k">기본 변환 모드</td><td>새 작업을 시작할 때 처음 열릴 모드를 정합니다.</td></tr>
+    <tr><td class="k">꼬리말 기본 문구</td><td>새 작업에 기본으로 넣을 꼬리말입니다(최대 200자).</td></tr>
+    <tr><td class="k">조판 설정</td><td>페이지행·꼬리말·페이지 번호·용지 규격·점역 방식의 기본값입니다. 각 항목의 자세한 설명은 제 5 장을 참조하십시오.</td></tr>
+    <tr><td class="k">점역 옵션 <b>(준비 중)</b></td><td>점자 등급(1급 정자 / 2급 약자)과 한영 혼용 규정을 고릅니다. 아직 변환에 전달되지 않아 무엇을 골라도 결과는 같습니다.</td></tr>
+  </table>
+
+  <div class="box note"><span class="t">참고 — 서버가 정하는 규칙</span>
+    표·글상자 테두리, 그림 생략 표시, 점역자 주 시작 칸은 서버와 AI가 정합니다. 앱에서는 바꿀 수 없습니다.
+  </div>
+
+</section>
+
+<!-- ══ 12장 ══════════════════════════════════════════ -->
+<section class="chapter" id="ch12">
+  <div class="ch-head"><span class="pgmark">CHAPMARK12END</span><span class="tag">제 12 장</span><h2>문의하기</h2><span class="hint">크레딧 추가 · 계정 발급</span></div>
+
+  <p>화면 오른쪽 아래의 둥근 <b>문의</b> 단추를 누르면 문의 창이 나타납니다. 문의는 세모점 운영자에게 접수되며, 답변은
+     기관 담당자에게 전달됩니다.</p>
+
+  <figure>
+    <figcaption>〈그림 12-1〉 문의하기 창</figcaption>
+    <div class="shot">
+      <img src="figures/inquiry.jpg" alt="문의하기 창">
+      <span class="cal" style="left:45%;top:42.7%">1</span>
+      <span class="cal" style="left:50%;top:53%">2</span>
+      <span class="cal" style="left:60.5%;top:62.5%">3</span>
+      <span class="cal" style="left:52%;top:69%">4</span>
+      <span class="cal" style="left:58.5%;top:69%">5</span>
+    </div>
+  </figure>
+
+  <table>
+    <tr><th>번호</th><th>명칭</th><th>기능</th></tr>
+    <tr><td class="n"><span class="badge">1</span></td><td class="k">문의 유형</td><td>크레딧 추가 또는 계정 발급 가운데 고릅니다.</td></tr>
+    <tr><td class="n"><span class="badge">2</span></td><td class="k">문의 내용</td><td>요청 내용을 적습니다. 필요한 수량과 사유를 함께 적어 주십시오.</td></tr>
+    <tr><td class="n"><span class="badge">3</span></td><td class="k">글자 수</td><td>입력한 글자 수와 최대 글자 수(1,000자)를 표시합니다.</td></tr>
+    <tr><td class="n"><span class="badge">4</span></td><td class="k">닫기</td><td>보내지 않고 창을 닫습니다.</td></tr>
+    <tr><td class="n"><span class="badge">5</span></td><td class="k">문의 보내기</td><td>작성한 문의를 접수합니다.</td></tr>
+  </table>
+</section>
+
+<!-- ══ 13장 ══════════════════════════════════════════ -->
+<section class="chapter" id="ch13">
+  <div class="ch-head"><span class="pgmark">CHAPMARK13END</span><span class="tag">제 13 장</span><h2>기관 관리</h2><span class="hint">기관 관리자 전용</span></div>
+
+  <p>기관 관리자 계정으로 로그인하면 작업 화면 대신 기관 관리 화면이 바로 나타납니다. 일반 작업자 계정에서는 이 화면을
+     사용할 수 없습니다.</p>
+
+  <h3>13-1. 기관 현황</h3>
+  <p>화면 위쪽에서 기관 이름, 이번 달 사용한 크레딧, 남은 크레딧, 계정 수를 한눈에 볼 수 있습니다. 기간을 바꾸어 지난달
+     현황도 확인할 수 있습니다.</p>
+
+  <h3>13-2. 계정 목록</h3>
+  <p>기관에 속한 계정이 표로 표시됩니다. 각 줄에서 다음을 확인할 수 있습니다.</p>
+  <table>
+    <tr><td class="k">아이디</td><td>계정의 로그인 아이디입니다. 본인 계정에는 표시가 붙습니다.</td></tr>
+    <tr><td class="k">이름 · 역할</td><td>사용자 이름과 역할(작업자 · 기관 관리자)입니다.</td></tr>
+    <tr><td class="k">이번 달 사용량</td><td>해당 계정이 이번 달에 사용한 크레딧입니다.</td></tr>
+    <tr><td class="k">상태</td><td>사용 중 · 정지 등 계정의 상태입니다.</td></tr>
+  </table>
+
+  <h3>13-3. 계정 상세</h3>
+  <p>목록에서 계정을 누르면 상세 화면이 열립니다. 해당 계정의 작업 내역과 크레딧 사용 내역을 확인할 수 있습니다.</p>
+
+  <div class="box note"><span class="t">참고 — 계정 발급과 크레딧 추가</span>
+    새 계정 발급이나 크레딧 추가가 필요하면 <b>문의하기</b>(제 12 장)로 운영자에게 요청하십시오. 기관 관리 화면에서 직접
+    발급하거나 충전할 수는 없습니다.
+  </div>
+
+  <div class="box note"><span class="t">참고 — 로그아웃</span>
+    기관 관리 화면 오른쪽 위의 <b>로그아웃</b> 단추로 로그인을 해제합니다.
+  </div>
+</section>
+
+<!-- ══ 14장 ══════════════════════════════════════════ -->
+<section class="chapter" id="ch14">
+  <div class="ch-head"><span class="pgmark">CHAPMARK14END</span><span class="tag">제 14 장</span><h2>문제 해결</h2><span class="hint">서비스를 신청하기 전에</span></div>
+
+  <p>이상이 있을 때에는 아래 내용을 먼저 확인해 주십시오. 확인 후에도 같은 증상이 계속되면 <b>문의하기</b>로 알려 주십시오.</p>
+
+  <table>
+    <tr><td class="k">로그인이 되지 않습니다</td><td>아이디와 비밀번호를 다시 확인하십시오. 대소문자를 구분합니다. 인터넷 연결 상태도 함께 확인하십시오.</td></tr>
+    <tr><td class="k">사용 중에 갑자기 로그인 화면으로 돌아갑니다</td><td>다른 컴퓨터에서 같은 계정으로 로그인하면 먼저 쓰던 화면은 자동으로 로그아웃됩니다. 계정을 다른 사람과 함께 쓰고 있지 않은지 확인하십시오.</td></tr>
+    <tr><td class="k">파일을 넣을 수 없습니다</td><td>고른 모드가 지원하는 형식인지 확인하십시오(제 4 장). 파일 크기는 <b>95MB</b> 이하여야 합니다.</td></tr>
+    <tr><td class="k">변환이 실패했습니다</td><td>원본 문서가 손상되지 않았는지 확인한 뒤 다시 시도하십시오. 실패한 작업에는 크레딧이 차감되지 않습니다.</td></tr>
+    <tr><td class="k">한글 문서를 넣었는데 글자가 거의 없습니다</td><td>텍스트 점자 번역은 문서에서 글자를 뽑아 처리합니다. 글자 없이 이미지만 들어 있는 문서라면 초안 생성이나 이미지 점자 번역을 사용하십시오.</td></tr>
+    <tr><td class="k">“아직 준비 중입니다” 안내가 나타납니다</td><td>쪽 바꿈·구간 꼬리말·점역 옵션은 화면에서만 동작하고 결과 파일에는 아직 반영되지 않아 막아 둔 기능입니다(제 1 장). 안내 창의 설명을 확인해 주십시오.</td></tr>
+    <tr><td class="k">조판 설정을 바꿨는데 내려받은 파일이 그대로입니다</td><td>편집 중에 연 <b>이 파일의 조판 설정</b>은 화면에만 적용됩니다. 결과 파일의 규격을 바꾸려면 파일을 올릴 때 <b>변환 설정</b> 창에서 정해 주십시오(제 5 장).</td></tr>
+    <tr><td class="k">수식이 기호 그대로 보입니다</td><td>판면 격자는 점자 조판을 그대로 보여 주는 화면입니다. 수식의 모양을 확인하려면 해당 블록에 마우스를 얹어 화면 아래 라텍스 변환기에서 확인하십시오.</td></tr>
+    <tr><td class="k">대체 텍스트 단추가 눌리지 않습니다</td><td>대체 텍스트는 그림·표 등 시각 요소 블록에만 사용할 수 있습니다. 해당 블록을 먼저 고르십시오.</td></tr>
+    <tr><td class="k">복사·잘라내기가 눌리지 않습니다</td><td>먼저 판면에서 마우스를 끌어 구간을 골라야 합니다. 구간은 한 줄 안에서 고릅니다.</td></tr>
+    <tr><td class="k">바꾸기를 했는데 원본이 그대로입니다</td><td>정상입니다. 바꾸기는 결과(출력)에만 적용되며 원본 파일은 바뀌지 않습니다.</td></tr>
+    <tr><td class="k">크레딧이 부족하다고 표시됩니다</td><td>기관에 할당된 크레딧을 모두 사용한 상태입니다. 문의하기로 추가를 요청하십시오.</td></tr>
+    <tr><td class="k">“저장 실패 — 다시 시도”가 나타납니다</td><td>네트워크가 끊겼을 때 나타납니다. 연결을 확인한 뒤 그 문구를 눌러 다시 저장하십시오. 수정 내용은 화면에 그대로 남아 있습니다.</td></tr>
+    <tr><td class="k">화면이 하얗게 보이거나 반응이 없습니다</td><td>프로그램을 종료한 뒤 다시 실행하십시오. 작업 내용은 마이페이지에 보관되어 있으므로 다시 불러올 수 있습니다.</td></tr>
+  </table>
+</section>
+
+<!-- ══ 15장 ══════════════════════════════════════════ -->
+<section class="chapter" id="ch15">
+  <div class="ch-head"><span class="pgmark">CHAPMARK15END</span><span class="tag">제 15 장</span><h2>제품 사양</h2><span class="hint">사양은 예고 없이 변경될 수 있습니다</span></div>
+
+  <table>
+    <tr><td class="k">제품명</td><td>세모점(Semojum)</td></tr>
+    <tr><td class="k">종류</td><td>점자 점역·번역 데스크톱 프로그램</td></tr>
+    <tr><td class="k">소프트웨어 버전</td><td>3.2.6</td></tr>
+    <tr><td class="k">사용 환경</td><td>Windows 10 이상 (64비트)</td></tr>
+    <tr><td class="k">필수 조건</td><td>인터넷 연결, 발급받은 계정</td></tr>
+    <tr><td class="k">변환 모드</td><td>초안 생성 · 텍스트 점자 번역 · 이미지 점자 번역</td></tr>
+    <tr><td class="k">지원 파일 형식</td><td>PDF, HWP(초안 생성) / TXT, HWP, HWPX(텍스트 점자 번역) / PDF(이미지 점자 번역)</td></tr>
+    <tr><td class="k">최대 파일 크기</td><td>95MB</td></tr>
+    <tr><td class="k">저장 형식</td><td>.brf(점자 결과) / .txt(초안 생성 결과)</td></tr>
+    <tr><td class="k">기본 용지 규격</td><td>26줄 × 32칸 (칸 8~100 · 줄 4~100 범위에서 변경 가능)</td></tr>
+    <tr><td class="k">페이지 번호</td><td>원본·점자 페이지 번호 시작값 1~999 · 표지 제외 0~99쪽</td></tr>
+    <tr><td class="k">꼬리말</td><td>최대 200자</td></tr>
+    <tr><td class="k">점자 입력</td><td>6점 입력 (F D S · J K L)</td></tr>
+    <tr><td class="k">휴지통 보관 기간</td><td>30일</td></tr>
+    <tr><td class="k">업데이트</td><td>실행 시 자동 확인 · 사용자가 설치를 눌러 진행 (제 1 장 참조)</td></tr>
+  </table>
+
+  <h3>고객 지원</h3>
+  <p>프로그램 사용 중 문의 사항은 화면 오른쪽 아래의 <b>문의하기</b> 단추를 이용하시거나, 소속 기관의 담당자에게
+     문의하십시오. 문의 시 화면 왼쪽 아래에 표시된 버전 번호를 함께 알려 주시면 신속한 처리에 도움이 됩니다.</p>
+</section>
+
+</body>
+</html>
