@@ -423,6 +423,13 @@ const toLibOptions = (t: TypesetOptions): Partial<LibOptions> => ({
   coverPages: t.coverPages,
   showOrigPage: t.showOrigPage,
   showBraillePage: t.showBraillePage,
+  // 2026-09-02 braille-assist 갱신으로 열린 둘. 화면 조판이 이제 설정을 그대로 따른다.
+  showChangeLine: t.showChangeLine,
+  footerAlign: t.footerAlign,
+  // origPageStart는 넘기지 않는다 — 라이브러리는 **한 번의 호출 안에서** 순번으로
+  // 다시 매기는데, 여기서는 쪽바꿈 표식마다 토막을 나눠 여러 번 부르므로 토막마다
+  // 번호가 1로 되돌아간다. 표기 옮김은 origPageShift가 문서 전체 기준으로 한다.
+  origPageStart: null,
 });
 
 /**

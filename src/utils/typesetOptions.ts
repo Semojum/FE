@@ -9,8 +9,9 @@
 //   페이지행 전체/홀수/없음   → pageRowOn ('every' | 'odd' | 'none')
 //   표지 제외(시작 쪽 지정)   → coverPages
 //   원본/점자 쪽번호 표시     → showOrigPage · showBraillePage
-//   꼬리말 정렬(중앙/우측)    → ✗ 라이브러리에 없다. footerAlign은 여기 담아 두되
-//                              실제 적용은 braille-assist PR이 필요하다(아래 주석).
+//   꼬리말 정렬(중앙/우측)    → footerAlign
+//   원본 쪽 변경선 켜기·끄기  → showChangeLine
+// (뒤 둘은 2026-09-02 braille-assist 갱신으로 열렸다 — 그전에는 "준비 중"이었다)
 import { DEFAULT_OPTIONS } from '@semojum/braille-assist';
 
 export type PageRowOn = 'every' | 'odd' | 'none';
@@ -48,19 +49,17 @@ export interface TypesetOptions {
   /**
    * 원본 페이지가 바뀌는 자리에 변경선을 넣을지.
    *
-   * ⚠ 아직 켜고 끌 수 없다 — braille-assist의 `buildPages`가 원본 쪽이 바뀔 때마다
-   * 무조건 넣고(Options에 이 항목이 없다), 서버 조판 옵션(V30)에도 없다. FE가 결과에서
-   * 그 줄만 걷어내면 줄 수가 달라져 면 나눔이 통째로 어긋나므로 흉내 내지 않는다.
-   * 화면에서는 "준비 중"으로 막아 둔다(docs/SERVER-REQUIREMENTS-3.3.0.md L-5).
+   * 2026-09-02 braille-assist 갱신으로 `Options.showChangeLine`이 생겨 열렸다.
+   * 끄는 판단은 라이브러리가 한다 — 원본 쪽 번호를 끄면 변경선은 ⠤만 남은 빈 줄이라
+   * 함께 꺼진다(라이브러리 결정 D). 화면에서도 같은 규칙으로 묶어 둔다.
    */
   showChangeLine: boolean;
 
   /** 페이지행에 점자 면 번호를 넣을지 */
   showBraillePage: boolean;
   /**
-   * 꼬리말 정렬. 지침 기준 가운데 정렬만 braille-assist에 구현돼 있고,
-   * 우측 정렬은 아직 없다 — 고르면 화면·다운로드 모두 가운데로 나온다.
-   * (docs/SERVER-REQUIREMENTS-3.3.0.md "L-1" 참고)
+   * 꼬리말 정렬. 2026-09-02 braille-assist 갱신으로 우측 정렬이 들어왔다 —
+   * 점자 면 번호에서 두 칸 띄운 자리가 오른쪽 끝이다(`pageRow`).
    */
   footerAlign: FooterAlign;
   /** 꼬리말 본문(묵자). 점역은 서버가 한다. */
@@ -221,6 +220,11 @@ export interface LayoutOptions {
   showSourcePageNumber: boolean;
   showBraillePageNumber: boolean;
   footerAlign: FooterAlign;
+  /**
+   * 원본 페이지 변경선을 넣을지. 2026-09-02 braille-assist가 받기 시작한 항목이라
+   * 함께 저장해 둔다 — 서버가 아직 모르는 필드면 무시하고, 되읽을 때는 FE가 쓴다.
+   */
+  showChangeLine: boolean;
   /** 판면 수정 기본 적용 범위 — 서버는 저장·반환만 하고 쓰는 것은 FE다. */
   editScope: 'all' | 'page';
   advancedAi: boolean;
@@ -237,6 +241,7 @@ export const toLayoutOptions = (o: TypesetOptions): LayoutOptions => ({
   showSourcePageNumber: o.showOrigPage,
   showBraillePageNumber: o.showBraillePage,
   footerAlign: o.footerAlign,
+  showChangeLine: o.showChangeLine,
   editScope: o.footerScope === 'page' ? 'page' : 'all',
   advancedAi: o.advancedAi,
 });
@@ -263,6 +268,7 @@ export const fromLayoutOptions = (
     showOrigPage: v.showSourcePageNumber,
     showBraillePage: v.showBraillePageNumber,
     footerAlign: v.footerAlign,
+    showChangeLine: v.showChangeLine,
     footerScope: v.editScope === 'page' ? 'page' : 'rest',
     advancedAi: v.advancedAi,
     footerText: footerText ?? '',

@@ -53,19 +53,25 @@ describe('조판 설정 패널', () => {
     );
   });
 
-  it('변경선 스위치는 아직 못 바꾼다 — 누르면 안내만 부른다', async () => {
+  // 2026-09-02 braille-assist 갱신으로 Options.showChangeLine이 생겨 열렸다.
+  it('변경선 스위치를 끄면 showChangeLine이 꺼진다', async () => {
     const onChange = vi.fn();
-    const onUnavailable = vi.fn();
+    render(<TypesetSettings value={DEFAULT_TYPESET} onChange={onChange} />);
+    await userEvent.click(screen.getByRole('switch', { name: '변경선 넣기' }));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ showChangeLine: false }),
+    );
+  });
+
+  it('원본 페이지 번호가 꺼져 있으면 변경선은 켤 수 없다', async () => {
+    const onChange = vi.fn();
     render(
       <TypesetSettings
-        value={DEFAULT_TYPESET}
+        value={{ ...DEFAULT_TYPESET, showOrigPage: false, showChangeLine: false }}
         onChange={onChange}
-        onUnavailable={onUnavailable}
       />,
     );
     await userEvent.click(screen.getByRole('switch', { name: '변경선 넣기' }));
-    expect(onUnavailable).toHaveBeenCalled();
-    // 값은 그대로다 — 화면만 바꿔 놓으면 파일과 어긋난다.
     expect(onChange).not.toHaveBeenCalled();
   });
 
@@ -74,9 +80,10 @@ describe('조판 설정 패널', () => {
     expect(screen.getByText(/한국 점자 도서 규격/)).toBeTruthy();
   });
 
-  it('오른쪽 정렬은 아직 가운데로 나간다고 알린다', () => {
+  // 우측 정렬도 2026-09-02 갱신으로 라이브러리에 들어왔다 — 더 이상 경고가 아니다.
+  it('오른쪽 정렬을 고르면 어디가 오른쪽 끝인지 알린다', () => {
     setup({ footerAlign: 'right' });
-    expect(screen.getByText(/가운데로 나옵니다/)).toBeTruthy();
+    expect(screen.getByText(/두 칸 띄운 자리가 오른쪽 끝/)).toBeTruthy();
   });
 
   it('꼬리말이 페이지행에 안 들어갈 것 같으면 미리 경고한다', () => {

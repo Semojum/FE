@@ -86,6 +86,35 @@ describe('buildLayout', () => {
     expect(rows[3].source?.blockId).toBe('b2');
   });
 
+  // 2026-09-02 braille-assist 갱신 — 변경선을 끌 수 있게 됐다.
+  it('변경선을 끄면 그 줄이 사라진다', () => {
+    const blocks = { 1: [block('b1', '⠁⠃')], 2: [block('b2', '⠉⠙')] };
+    const off = flattenRows(
+      buildLayout(blocks, false, '', {
+        ...DEFAULT_TYPESET,
+        showChangeLine: false,
+      }),
+    );
+    expect(off.some((r) => r.text.startsWith('⠤'))).toBe(false);
+    // 본문은 그대로 두 블록이 남는다 — 줄만 빠진다.
+    expect(off.filter((r) => r.kind === 'body').map((r) => r.source?.blockId)).toEqual(
+      expect.arrayContaining(['b1', 'b2']),
+    );
+  });
+
+  it('꼬리말 우측 정렬은 가운데 정렬과 다른 자리에 찍힌다', () => {
+    const blocks = { 1: [block('b1', '⠁⠃')] };
+    const rowOf = (footerAlign: 'center' | 'right') =>
+      flattenRows(
+        buildLayout(blocks, true, '⠋⠕', {
+          ...DEFAULT_TYPESET,
+          footerAlign,
+        }),
+      ).find((r) => r.kind === 'fixed')?.text ?? '';
+    expect(rowOf('center')).not.toBe('');
+    expect(rowOf('right')).not.toBe(rowOf('center'));
+  });
+
   it('빈 블록도 편집할 수 있는 본문 행으로 남는다', () => {
     const pages = buildLayout(
       { 1: [block('b1', '⠁'), block('b2', ''), block('b3', '⠃')] },

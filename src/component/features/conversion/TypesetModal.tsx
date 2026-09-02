@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import Modal, { ModalButton } from '../../shared/Modal';
 import TypesetSettings from './TypesetSettings';
 import { describeTypeset, type TypesetOptions } from '../../../utils/typesetOptions';
-import UnfinishedModal from '../../shared/UnfinishedModal';
 
 // 이 파일의 조판 설정 — 판면에서 우클릭으로 연다.
 //
@@ -27,7 +26,6 @@ const TypesetModal: React.FC<Props> = ({
   onChange,
   onClose,
 }) => {
-  const [notice, setNotice] = useState(false);
   return (
   <Modal
     isOpen={isOpen}
@@ -47,15 +45,7 @@ const TypesetModal: React.FC<Props> = ({
         작업을 열 때는 <b>업로드할 때 고른 설정</b>이 쓰입니다 — 규격을 바꿔 작업하려면
         파일을 올릴 때 정해 주세요.
       </p>
-      <TypesetSettings
-        value={value}
-        onChange={onChange}
-        onUnavailable={() => setNotice(true)}
-      />
-      <UnfinishedModal
-        id={notice ? 'changeLine' : null}
-        onClose={() => setNotice(false)}
-      />
+      <TypesetSettings value={value} onChange={onChange} />
       <p className="text-[11px] text-gray-400">{describeTypeset(value)}</p>
     </div>
     </Modal>

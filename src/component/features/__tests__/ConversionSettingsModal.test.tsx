@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ConversionSettingsModal from '../conversion/ConversionSettingsModal';
+import { TABS } from '../../../types';
 
 // 쪽번호·꼬리말은 업로드 시점에 확정된다. 드롭존 안에 붙여 두면 파일을 올리기 전에
 // 눈에 띄지 않아 지나치기 쉬워, 파일을 고른 직후 이 모달로 물어본다 (Figma V3-02).
@@ -16,6 +17,7 @@ const setup = (
     <ConversionSettingsModal
       isOpen
       fileName="수학.hwp"
+      mode={TABS.BRAILLE}
       onCancel={onCancel}
       onStart={onStart}
       {...props}

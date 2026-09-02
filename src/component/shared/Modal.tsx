@@ -68,11 +68,17 @@ export const Modal: React.FC<ModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="w-full max-w-[400px] rounded-[14px] bg-white p-6 shadow-xl"
+        // 내용이 길면 카드가 화면 밖으로 자라 제목도 [닫기]도 손이 닿지 않았다
+        // (조판 설정처럼 항목이 많은 모달). 카드는 화면 안에 가두고 **본문만**
+        // 스크롤한다 — 제목과 버튼 줄은 늘 제자리에 있어야 한다.
+        className="flex max-h-[calc(100vh-48px)] w-full max-w-[400px] flex-col rounded-[14px] bg-white p-6 shadow-xl"
       >
-        <h2 className="text-[15px] font-bold text-gray-800">{title}</h2>
-        <div className="mt-3">{children}</div>
-        {footer && <div className="mt-5 flex justify-end gap-2">{footer}</div>}
+        <h2 className="shrink-0 text-[15px] font-bold text-gray-800">{title}</h2>
+        {/* min-h-0이 있어야 flex 자식이 내용 높이만큼 부풀지 않고 줄어든다. */}
+        <div className="mt-3 min-h-0 flex-1 overflow-y-auto">{children}</div>
+        {footer && (
+          <div className="mt-5 flex shrink-0 justify-end gap-2">{footer}</div>
+        )}
       </motion.div>
     </div>
   );

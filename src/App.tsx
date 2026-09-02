@@ -694,14 +694,16 @@ const Semojum: React.FC = () => {
         );
 
         setIsOverwriteOpen(false);
-        // 현재 OCR 탭 작업물을 보관하고 점역 탭으로 이동한다. 새 파일을 넣으면
-        // 업로드 effect가 모드 b로 올리고, 그 Job의 변환을 스트림으로 지켜본다.
+        // 현재 OCR 탭 작업물을 보관하고 점역 탭으로 이동한다.
         setTabSnapshots((prev) => ({ ...prev, [activeTab]: captureState() }));
         clearWorkspace();
         setTabSnapshots((prev) => ({ ...prev, [TABS.BRAILLE]: undefined }));
         setActiveTab(TABS.BRAILLE);
         lastUploadedFileRef.current = null;
-        await handleFileDrop([file], TABS.BRAILLE);
+        // 여기서 만들어지는 것은 결국 **모드 b Job**이다. 판면 옵션(페이지행·규격·
+        // 꼬리말)은 업로드 시점에만 정할 수 있으므로, 파일을 끌어다 놓았을 때와 똑같이
+        // 변환 설정을 먼저 묻는다 — 그냥 올리면 이 작업만 기본값에 갇힌다.
+        setPendingFile(file);
       } catch (err) {
         setToast(toUserMessage(err, '점역으로 보내지 못했습니다.'));
       } finally {
@@ -718,7 +720,6 @@ const Semojum: React.FC = () => {
       tabSnapshots,
       captureState,
       clearWorkspace,
-      handleFileDrop,
     ],
   );
 
@@ -2095,13 +2096,10 @@ const Semojum: React.FC = () => {
     onDrop: (files) => {
       // 새 파일 업로드 시 마이페이지 복원 원본 경로를 해제(라이브 미리보기로 전환)
       setSavedOriginalsByPage(null);
-      // 점자 판면을 만드는 모드(b·c)는 쪽번호·꼬리말을 먼저 묻는다.
-      // 초안 생성(a)은 .txt를 내므로 물을 것이 없어 바로 올린다.
-      if (activeTab !== TABS.OCR) {
-        setPendingFile(files[0] ?? null);
-        return;
-      }
-      void handleFileDrop(files, activeTab);
+      // 어느 모드든 변환 설정을 먼저 묻고 [변환 시작]을 눌러야 올라간다.
+      // 초안 생성(a)은 판면 옵션이 쓰이지 않지만 고급 점역은 골라야 한다 —
+      // 그것 하나만 있는 창을 띄운다(ConversionSettingsModal의 isDraft).
+      setPendingFile(files[0] ?? null);
     },
     onDropRejected: () => setFileError(fileValidationMessage(activeTab)),
     accept: acceptConfig,
@@ -3185,6 +3183,7 @@ const Semojum: React.FC = () => {
       <ConversionSettingsModal
         isOpen={!!pendingFile}
         fileName={pendingFile?.name ?? null}
+        mode={activeTab}
         onCancel={() => setPendingFile(null)}
         onStart={(withPageNumber, footer, nextTypeset) => {
           const picked = pendingFile;

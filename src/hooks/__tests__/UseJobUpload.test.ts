@@ -152,6 +152,7 @@ describe('useJobUpload', () => {
       showSourcePageNumber: true,
       showBraillePageNumber: false,
       footerAlign: 'right' as const,
+      showChangeLine: false,
       editScope: 'page' as const,
       advancedAi: true,
     };

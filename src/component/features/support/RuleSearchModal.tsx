@@ -15,12 +15,23 @@ import {
 //
 // 검색어 없이 열면 원문 순서 그대로 와서 목차처럼 훑을 수 있다(명세).
 
-const PUBLISHERS: Array<{ code: RulePublisher | null; label: string }> = [
-  { code: null, label: '전체' },
-  { code: 'MCST', label: '문화체육관광부' },
-  { code: 'NLD', label: '국립장애인도서관' },
-  { code: 'NISE', label: '국립특수교육원' },
-];
+// 거르개는 **문서 이름**으로 고른다. 점역사가 찾는 단위는 발행처가 아니라 문서다 —
+// "문화체육관광부"보다 "한국 점자 규정"이 어느 책인지 바로 읽힌다.
+//
+// 다만 서버가 거르는 열쇠는 여전히 publisher다(GET /api/rules?publisher=). 그래서
+// 코드는 그대로 보내고 **이름만** 응답의 source에서 받아 붙인다 — 문서 이름이 개정으로
+// 바뀌어도 앱을 고칠 것이 없다. 이름을 아직 못 받았을 때만 발행처 이름으로 버틴다.
+const PUBLISHER_CODES = ['MCST', 'NLD', 'NISE'] as const;
+
+const PUBLISHER_FALLBACK: Record<RulePublisher, string> = {
+  MCST: '문화체육관광부',
+  NLD: '국립장애인도서관',
+  NISE: '국립특수교육원',
+};
+
+/** "한국점자규정.txt" 같은 확장자는 버튼에서 떼어 낸다. */
+const documentLabel = (source: string): string =>
+  source.replace(/\.(txt|md|pdf|hwpx?|docx?)$/i, '').trim();
 
 const PAGE_SIZE = 20;
 
@@ -36,6 +47,34 @@ const RuleSearchModal: React.FC<Props> = ({ isOpen, token, onClose }) => {
   const [page, setPage] = useState(0);
   const [result, setResult] = useState<RuleSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // 거르개 버튼에 적을 문서 이름. 발행처마다 한 건만 받아 source를 읽는다.
+  const [docNames, setDocNames] = useState<Partial<Record<RulePublisher, string>>>(
+    {},
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let alive = true;
+    void Promise.all(
+      PUBLISHER_CODES.map(async (code) => {
+        const res = await searchRules({ publisher: code, page: 0, size: 1 }, token);
+        return [code, res.items[0]?.source ?? ''] as const;
+      }),
+    ).then((pairs) => {
+      if (!alive) return;
+      setDocNames(
+        Object.fromEntries(
+          pairs
+            .filter(([, source]) => source)
+            .map(([code, source]) => [code, documentLabel(source)]),
+        ),
+      );
+    });
+    return () => {
+      alive = false;
+    };
+  }, [isOpen, token]);
 
   // 검색어를 칠 때마다 부르지 않는다 — 한 글자마다 요청이 나가면 목록이 흔들린다.
   const [debounced, setDebounced] = useState('');
@@ -113,22 +152,30 @@ const RuleSearchModal: React.FC<Props> = ({ isOpen, token, onClose }) => {
           )}
         </div>
 
-        <div className="flex gap-1.5">
-          {PUBLISHERS.map(({ code, label }) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => setPublisher(code)}
-              aria-pressed={publisher === code}
-              className={`rounded-lg border px-2 py-1 text-[11px] transition-colors ${
-                publisher === code
-                  ? 'border-[#5b8ce6] bg-[#eef3fc] font-semibold text-[#407FAC]'
-                  : 'border-gray-200 text-gray-500 hover:bg-gray-50'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="flex flex-wrap gap-1.5">
+          {([null, ...PUBLISHER_CODES] as Array<RulePublisher | null>).map(
+            (code) => {
+              const label =
+                code === null
+                  ? '전체'
+                  : (docNames[code] ?? PUBLISHER_FALLBACK[code]);
+              return (
+                <button
+                  key={code ?? 'all'}
+                  type="button"
+                  onClick={() => setPublisher(code)}
+                  aria-pressed={publisher === code}
+                  className={`rounded-lg border px-2 py-1 text-[11px] transition-colors ${
+                    publisher === code
+                      ? 'border-[#5b8ce6] bg-[#eef3fc] font-semibold text-[#407FAC]'
+                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            },
+          )}
         </div>
 
         <div className="flex max-h-[44vh] flex-col gap-2 overflow-y-auto">
@@ -153,10 +200,10 @@ const RuleSearchModal: React.FC<Props> = ({ isOpen, token, onClose }) => {
                 <p className="mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-gray-600">
                   {rule.contents}
                 </p>
+                {/* 조문 경로와 출처만 남긴다 — 발행처·판은 위 거르개가 이미 말해
+                    주고, 여기서는 "어느 문서 어디"만 알면 원문을 찾아갈 수 있다. */}
                 <p className="mt-1.5 text-[11px] text-gray-400">
-                  {rule.section}
-                  {rule.publisher ? ` · ${rule.publisher}` : ''}
-                  {rule.version ? ` ${rule.version}` : ''}
+                  {[rule.section, rule.source].filter(Boolean).join(' · ')}
                 </p>
               </div>
             ))

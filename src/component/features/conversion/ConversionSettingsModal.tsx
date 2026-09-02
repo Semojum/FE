@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Hash, Settings2 } from 'lucide-react';
+import { Hash, Settings2, Sparkles } from 'lucide-react';
 import Modal, { ModalButton } from '../../shared/Modal';
+import { TABS, type ConversionTab } from '../../../types';
 import { loadBrailleDefaults } from '../../../utils/brailleDefaults';
 import {
   DEFAULT_TYPESET,
@@ -8,7 +9,6 @@ import {
   type TypesetOptions,
 } from '../../../utils/typesetOptions';
 import TypesetSettings from './TypesetSettings';
-import UnfinishedModal from '../../shared/UnfinishedModal';
 
 // Figma V3-02 변환 설정 — 파일 선택 직후 (페이지 번호 · 꼬리말 · 조판 규격)
 //
@@ -23,6 +23,8 @@ import UnfinishedModal from '../../shared/UnfinishedModal';
 interface Props {
   isOpen: boolean;
   fileName: string | null;
+  /** 지금 올리는 모드 — 초안 생성(a)은 물을 것이 고급 점역 하나뿐이다. */
+  mode: ConversionTab;
   onCancel: () => void;
   onStart: (
     insertPageNumber: boolean,
@@ -34,14 +36,17 @@ interface Props {
 const ConversionSettingsModal: React.FC<Props> = ({
   isOpen,
   fileName,
+  mode,
   onCancel,
   onStart,
 }) => {
+  // 초안 생성(a)은 .txt를 내므로 판면 옵션(페이지행·규격·꼬리말)이 쓰이지 않는다.
+  // 그래도 고급 점역은 골라야 한다 — 그림·표가 많은 교재일수록 더 큰 모델이 필요한데,
+  // 지금까지 이 모드만 창 없이 바로 올라가 고를 자리가 없었다.
+  const isDraft = mode === TABS.OCR;
   const [insertPageNumber, setInsertPageNumber] = useState(false);
   const [typeset, setTypeset] = useState<TypesetOptions>(DEFAULT_TYPESET);
   const [expanded, setExpanded] = useState(false);
-  // 변경선 끄기처럼 아직 안 되는 항목을 눌렀을 때.
-  const [notice, setNotice] = useState(false);
 
   // 열릴 때마다 초기값으로 — 직전 파일의 설정이 흘러들면 안 된다.
   // 초기값은 점역 기본 설정(V3-06 사용량 화면)에서 정한 값이다.
@@ -78,7 +83,9 @@ const ConversionSettingsModal: React.FC<Props> = ({
       }
     >
       <p className="text-[13px] text-gray-500">
-        점자 판면 옵션을 정한 뒤 변환을 시작합니다.
+        {isDraft
+          ? '읽는 방식을 정한 뒤 변환을 시작합니다.'
+          : '점자 판면 옵션을 정한 뒤 변환을 시작합니다.'}
       </p>
       {fileName && (
         <p title={fileName} className="mt-1 truncate text-[12px] text-gray-400">
@@ -86,6 +93,33 @@ const ConversionSettingsModal: React.FC<Props> = ({
         </p>
       )}
 
+      {isDraft ? (
+        <div className="mt-4 border-t border-gray-100 pt-4">
+          <div className="rounded-[10px] bg-[#f5f8fc] px-3 py-2.5">
+            <label className="flex cursor-pointer items-center justify-between gap-3">
+              <span className="flex items-center gap-1.5 text-[13px] font-bold text-gray-800">
+                <Sparkles size={13} className="text-[#5b8ce6]" />
+                고급 점역
+              </span>
+              <input
+                type="checkbox"
+                checked={typeset.advancedAi}
+                onChange={(e) =>
+                  setTypeset((t) => ({ ...t, advancedAi: e.target.checked }))
+                }
+                className="h-4 w-4 accent-[#5b8ce6]"
+              />
+            </label>
+            <p className="mt-1 text-[11px] leading-snug text-gray-400">
+              표와 그림이 많은 지면을 더 큰 모델로 읽습니다. 변환이 느려집니다.
+            </p>
+          </div>
+          <p className="mt-3 text-[11px] leading-snug text-gray-400">
+            · 초안 생성은 묵자 초안을 만듭니다 — 페이지행·규격 같은 판면 옵션은
+            점역으로 보낼 때 정합니다
+          </p>
+        </div>
+      ) : (
       <div className="mt-4 border-t border-gray-100 pt-4">
         {/* 페이지 번호 삽입 — 켜야 아래 조판 설정의 페이지행 항목이 의미를 갖는다 */}
         <div className="rounded-[10px] bg-[#f5f8fc] px-3 py-2.5">
@@ -126,16 +160,7 @@ const ConversionSettingsModal: React.FC<Props> = ({
           </button>
           {expanded ? (
             <div className="mt-3">
-              <TypesetSettings
-                value={typeset}
-                onChange={setTypeset}
-                compact
-                onUnavailable={() => setNotice(true)}
-              />
-              <UnfinishedModal
-                id={notice ? 'changeLine' : null}
-                onClose={() => setNotice(false)}
-              />
+              <TypesetSettings value={typeset} onChange={setTypeset} compact />
             </div>
           ) : (
             <p className="mt-1 text-[11px] leading-snug text-gray-400">
@@ -144,6 +169,7 @@ const ConversionSettingsModal: React.FC<Props> = ({
           )}
         </div>
       </div>
+      )}
 
       <p className="mt-3 text-[11px] text-gray-400">
         · 여기서 정한 값은 변환이 끝난 뒤 에디터에서 바꿀 수 없습니다

@@ -137,16 +137,9 @@ interface Props {
   onChange: (next: TypesetOptions) => void;
   /** 변환 설정 모달처럼 좁은 자리에서는 설명을 줄인다. */
   compact?: boolean;
-  /** 변경선 켜고 끄기처럼 아직 안 되는 항목을 눌렀을 때. */
-  onUnavailable?: () => void;
 }
 
-const TypesetSettings: React.FC<Props> = ({
-  value,
-  onChange,
-  compact,
-  onUnavailable,
-}) => {
+const TypesetSettings: React.FC<Props> = ({ value, onChange, compact }) => {
   const set = <K extends keyof TypesetOptions>(key: K, v: TypesetOptions[K]) =>
     onChange({ ...value, [key]: v });
 
@@ -254,11 +247,9 @@ const TypesetSettings: React.FC<Props> = ({
             ]}
             onChange={(v) => set('footerAlign', v)}
           />
-          {value.footerAlign === 'right' && (
-            <p className={warnCls}>
-              <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-              오른쪽 정렬은 아직 조판 라이브러리에 없습니다. 지금은 가운데로 나옵니다
-              — 설정만 저장해 둡니다.
+          {value.footerAlign === 'right' && !compact && (
+            <p className={hintCls}>
+              점자 페이지 번호에서 두 칸 띄운 자리가 오른쪽 끝입니다.
             </p>
           )}
         </div>
@@ -289,17 +280,13 @@ const TypesetSettings: React.FC<Props> = ({
           checked={value.showChangeLine && value.showOrigPage}
           label="변경선 넣기"
           hint="원본 페이지가 바뀌는 자리의 구분선"
-          onChange={() => onUnavailable?.()}
+          // 원본 페이지 번호가 꺼져 있으면 변경선에 적을 번호가 없다 — 라이브러리도
+          // 같은 규칙으로 함께 끈다(결정 D). 여기서는 켜는 길만 막는다.
+          onChange={(on) => value.showOrigPage && set('showChangeLine', on)}
         />
-        {!value.showOrigPage ? (
+        {!value.showOrigPage && (
           <p className={hintCls}>
             원본 페이지 번호를 끄면 변경선에 적을 번호가 없어 함께 꺼집니다.
-          </p>
-        ) : (
-          <p className={warnCls}>
-            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-            아직 끌 수 없습니다 — 조판 라이브러리가 원본 페이지가 바뀔 때마다 항상
-            넣습니다.
           </p>
         )}
       </section>

@@ -333,7 +333,6 @@ const UsageView: React.FC<Props> = ({
             <TypesetSettings
               value={defaults.typeset}
               onChange={(typeset) => setDefaults((d) => ({ ...d, typeset }))}
-              onUnavailable={() => setNotice('changeLine')}
             />
 
             {/* 점역 옵션 — 1차 PoC 부가 기능. 서버가 받을 준비가 되기 전이라
