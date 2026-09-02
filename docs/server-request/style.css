@@ -1,0 +1,73 @@
+/* 서버 요청서 — 인쇄용. 설명서(docs/manual)와 같은 결이되 더 촘촘하게 둔다. */
+@page { size: A4; margin: 16mm 15mm 14mm 15mm; }
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body {
+  margin: 0;
+  font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+  font-size: 9pt; line-height: 1.6; color: #333a45; letter-spacing: -0.01em;
+}
+p { margin: 0 0 5pt; }
+b, strong { font-weight: 700; color: #1f2733; }
+code, .mono { font-family: 'SF Mono', Consolas, monospace; font-size: 8pt; }
+
+/* 머리 */
+.head { border-bottom: 1.6px solid #2b3340; padding-bottom: 8pt; margin-bottom: 12pt; }
+.head .kicker { font-size: 8pt; font-weight: 700; letter-spacing: 0.4em; color: #6f9de0; }
+.head h1 { font-size: 19pt; font-weight: 800; color: #1f2733; margin: 6pt 0 4pt; letter-spacing: -0.03em; }
+.head .meta { display: flex; flex-wrap: wrap; gap: 4pt 14pt; font-size: 8.5pt; color: #7d8794; }
+.head .meta b { color: #333a45; font-weight: 600; }
+
+/* 절 — 절 통째로 붙들면 앞 쪽에 빈자리가 크게 남는다. 제목만 뒤 내용과 붙인다. */
+h2, h3 { page-break-after: avoid; break-after: avoid; }
+h2 {
+  font-size: 12pt; font-weight: 800; color: #1f2733; margin: 16pt 0 6pt;
+  padding-bottom: 4pt; border-bottom: 1px solid #dde4ec; letter-spacing: -0.02em;
+}
+h2 .tag {
+  display: inline-block; background: #2b3340; color: #fff; font-size: 7.5pt;
+  font-weight: 700; padding: 2pt 6pt; margin-right: 6pt; vertical-align: 2px;
+}
+h3 { font-size: 9.5pt; font-weight: 700; color: #1f2733; margin: 10pt 0 4pt; }
+h3 .id {
+  font-family: 'SF Mono', Consolas, monospace; font-size: 8.5pt;
+  color: #2f5ea8; margin-right: 5pt;
+}
+
+/* 담당·상태 딱지 */
+.pill {
+  display: inline-block; border-radius: 999px; padding: 1pt 6pt;
+  font-size: 7.5pt; font-weight: 700; vertical-align: 1px; margin-left: 4pt;
+}
+.be   { background: #e8f0fd; color: #2f5ea8; }
+.ai   { background: #f1e9fa; color: #6b3fa0; }
+.lib  { background: #e6f4ec; color: #216e43; }
+.fe   { background: #f0f2f5; color: #5b6675; }
+.new  { background: #fdece1; color: #a85b1c; }
+.done { background: #e6f4ec; color: #216e43; }
+
+/* 개조식 목록 */
+ul { margin: 3pt 0 6pt; padding-left: 0; list-style: none; }
+ul li { position: relative; padding-left: 11pt; margin-bottom: 2.5pt; }
+ul li::before { content: '·'; position: absolute; left: 3pt; color: #98a2b0; font-weight: 700; }
+ul li .lab { font-weight: 700; color: #1f2733; margin-right: 4pt; }
+ul ul { margin: 2pt 0 2pt; }
+ul ul li::before { content: '–'; font-weight: 400; }
+
+/* 표 */
+table { width: 100%; border-collapse: collapse; font-size: 8.5pt; margin: 5pt 0 8pt; page-break-inside: avoid; }
+th, td { border: 1px solid #dde4ec; padding: 4pt 6pt; vertical-align: top; text-align: left; }
+th { background: #f4f7fb; font-weight: 700; color: #1f2733; font-size: 8pt; }
+td.id { width: 20mm; white-space: nowrap; font-family: 'SF Mono', Consolas, monospace; color: #2f5ea8; font-weight: 700; }
+td.own { width: 26mm; }
+td.c { text-align: center; }
+
+/* 알림 */
+.box { padding: 6pt 9pt; margin: 6pt 0; font-size: 8.5pt; line-height: 1.75; page-break-inside: avoid; }
+.box .t { display: block; font-weight: 700; margin-bottom: 1pt; }
+.box.warn { background: #fdf3ec; border-left: 3px solid #e2823f; }
+.box.warn .t { color: #a85b1c; }
+.box.note { background: #f2f6fc; border-left: 3px solid #4b7fd0; }
+.box.note .t { color: #2f5ea8; }
+
+.foot { margin-top: 14pt; padding-top: 6pt; border-top: 1px solid #dde4ec; font-size: 8pt; color: #98a2b0; }
