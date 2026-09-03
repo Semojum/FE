@@ -72,6 +72,9 @@ export interface JobPageResponse {
   // 업로드 시 선택한 쪽번호 삽입 여부 — 에디터 격자를 26줄 전체로 그릴지,
   // 본문 25줄 + 마지막 줄 쪽번호로 그릴지 판단하는 기준.
   insertPageNumber?: boolean;
+  // 업로드 때 고른 꼬리말을 서버가 점역한 값(2026-09-03 · 요청서 S-4).
+  // SSE page_done의 footer_braille와 같은 값이다.
+  footerBraille?: string | null;
   result: StreamPageResult;
   original?: JobPageOriginal;
 }
@@ -88,6 +91,8 @@ export interface JobDetail {
   startPage?: number;
   // 업로드 시 쪽번호 삽입을 선택했는지 — 결과 렌더링 격자 기준
   insertPageNumber?: boolean;
+  // 점역된 꼬리말 — 판면 페이지행 가운데에 그대로 찍는다(S-4).
+  footerBraille?: string;
   // 변환에 실패한 페이지 번호 — 복원 시 해당 페이지에 실패 안내를 띄운다.
   failedPages: number[];
   blocksByPage: Record<number, TranslationBlock[]>;

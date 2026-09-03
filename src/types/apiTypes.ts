@@ -139,6 +139,13 @@ export interface StreamPageData {
   page_no: number;
   status?: PageEventStatus;
   result: StreamPageResult;
+  /**
+   * **이미 점역된** 꼬리말(2026-09-03 서버 반영 · 요청서 S-4). 업로드 때 받은 묵자
+   * 꼬리말을 서버가 점역해 매 page_done에 같은 값으로 실어 준다. FE에는 점역기가
+   * 없으므로 판면 페이지행의 꼬리말 자리는 이 값으로만 채울 수 있다.
+   * 페이지 조회(GET)에서는 같은 값이 `footerBraille`(캐멀)로 온다.
+   */
+  footer_braille?: string | null;
 }
 
 // event: job_done

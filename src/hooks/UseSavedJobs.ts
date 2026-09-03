@@ -74,6 +74,7 @@ export const useSavedJobs = ({
       let failedPages: number[] = [];
       let insertPageNumber = false;
       let originalFileName = '';
+      let footerBraille = '';
 
       try {
         // 쪽별 조회를 여러 개씩 겹쳐 부른다.
@@ -120,6 +121,7 @@ export const useSavedJobs = ({
           failedPages = pageData.failedPages ?? failedPages;
           insertPageNumber = pageData.insertPageNumber ?? insertPageNumber;
           originalFileName = pageData.originalFileName || originalFileName;
+          footerBraille = pageData.footerBraille || footerBraille;
         };
 
         try {
@@ -130,6 +132,7 @@ export const useSavedJobs = ({
             ...meta,
             failedPages,
             insertPageNumber,
+            footerBraille,
             originalFileName: originalFileName || undefined,
             blocksByPage: { ...blocksByPage },
             bboxDataByPage: { ...bboxDataByPage },
@@ -177,6 +180,7 @@ export const useSavedJobs = ({
           ...meta,
           failedPages,
           insertPageNumber,
+          footerBraille,
           originalFileName: originalFileName || undefined,
           blocksByPage,
           bboxDataByPage,

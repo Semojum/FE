@@ -105,12 +105,12 @@ const SectionFooterModal: React.FC<Props> = ({
             </>
           )}
         </p>
-        {/* 화면 판면에는 아직 점자로 찍히지 않는다 — 묵자를 점역해 주는 것은
-            서버 몫이다(SERVER-REQUIREMENTS-3.3.0.md S-4). 모르고 "안 들어갔다"고
-            읽지 않도록 그 자리에서 알린다. */}
-        <p className="text-[11px] leading-relaxed text-gray-400">
-          꼬리말이 어느 면에 걸렸는지는 면 아래에 표시됩니다. 페이지행에 점자로
-          찍히는 것은 서버가 꼬리말을 점역해 주기 시작한 뒤입니다.
+        {/* 화면 판면에는 찍히지만 내려받는 파일에는 아직 안 들어간다 — 서버가
+            구간 꼬리말 표식을 해석하지 않는다(SERVER-REQUIREMENTS-3.3.0.md L-3).
+            마지막에야 알게 되는 일이라 넣는 자리에서 미리 알린다. */}
+        <p className="text-[11px] leading-relaxed text-[#8a5a00]">
+          이 꼬리말은 <b>화면에만</b> 들어갑니다 — 내려받는 파일에는 아직
+          반영되지 않습니다. 작업 전체 꼬리말(변환 설정)은 파일에도 들어갑니다.
         </p>
       </div>
     </Modal>

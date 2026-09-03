@@ -342,9 +342,6 @@ interface PageProps {
   cols: number;
   // 이 면 안에 걸린 선택 구간(없으면 undefined).
   selection?: GridSelection;
-  // 페이지행에 얹어 보여 줄 꼬리말(묵자)과 정렬. 점역 전이라 **미리보기**다.
-  footerPreview?: string;
-  footerAlign?: 'center' | 'right';
 }
 
 // 배경색은 여기 한 곳에서만 정한다 — 클래스를 뒤에 덧붙이는 방식은 CSS 순서에
@@ -442,8 +439,6 @@ const GridPage = React.memo<PageProps>(
     intrinsic,
     cols,
     selection,
-    footerPreview,
-    footerAlign = 'center',
   }) => {
     // 이 면의 표식 마스크만 만든다 — 붙어 있는 면만 계산하므로 문서가 아무리 길어도
     // 값이 일정하다(위 buildTagMask 주석). 이 조각이 메모돼 있어 스크롤로 창이
@@ -522,28 +517,6 @@ const GridPage = React.memo<PageProps>(
           );
         })}
 
-        {/* 꼬리말 미리보기 — 페이지행 가운데(또는 우측)에 얹는다.
-            ⚠ **묵자 그대로**다. 점역은 AI 서버 몫이라 FE에는 점역기가 없고
-            (SERVER-REQUIREMENTS-3.3.0.md S-4), 우측 정렬도 아직 라이브러리에
-            없다(L-1). 그래서 점자처럼 보이지 않게 회색 기울임으로 그리고, 실제
-            파일에 들어가는 값이 아니라는 것을 툴팁으로 밝힌다.
-            페이지행은 그 면의 마지막 줄이고 가운데가 비어 있어 겹칠 글자가 없다. */}
-        {!!footerPreview && page.rows[page.rows.length - 1]?.kind === 'fixed' && (
-          <div
-            aria-hidden
-            title="점역 전 묵자입니다 — 실제 파일에는 서버가 점역한 점자가 들어갑니다"
-            className={`pointer-events-none absolute bottom-0 left-[26px] h-[19px] leading-[19px] text-[11px] italic text-gray-400 ${
-              footerAlign === 'right' ? 'text-right' : 'text-center'
-            }`}
-            style={{
-              // 양 끝 쪽번호와 두 칸씩 띄운다(지침 1장3-1) — 칸 폭 19px 기준.
-              width: cols * ROW_H - 4 * ROW_H,
-              marginLeft: 2 * ROW_H,
-            }}
-          >
-            {footerPreview}
-          </div>
-        )}
       </div>
     </div>
     );
@@ -626,9 +599,6 @@ interface Props {
   zoom?: GridZoom;
   // 실제로 적용된 배율 — 위쪽 배지에 "폭 맞춤 148%"처럼 보여 주려고 올려 보낸다.
   onResolvedZoom?: (z: number) => void;
-  // 꼬리말 미리보기를 페이지행에 얹을지와 그 정렬(점역 전 묵자 — 위 GridPage 주석).
-  showFooterPreview?: boolean;
-  footerAlign?: 'center' | 'right';
 }
 
 // 격자 자체도 메모한다 — 위쪽(App)이 다른 이유로 다시 그려질 때 판면까지 딸려
@@ -653,8 +623,6 @@ const BrailleGrid: React.FC<Props> = React.memo(
     cols = CELLS_PER_ROW,
     zoom = 'fit',
     onResolvedZoom,
-    showFooterPreview = false,
-    footerAlign = 'center',
   }) => {
     const scrollRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -1409,8 +1377,6 @@ const BrailleGrid: React.FC<Props> = React.memo(
               findCells={findByPage?.[pageIdx]}
               activeFindCells={activeFindByPage?.[pageIdx]}
               cols={cols}
-              footerPreview={showFooterPreview ? page.footerText : undefined}
-              footerAlign={footerAlign}
               selection={
                 selection &&
                 selection.rowIndex >= start &&

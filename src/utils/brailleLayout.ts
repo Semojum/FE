@@ -14,9 +14,10 @@ import { DEFAULT_TYPESET, type TypesetOptions } from './typesetOptions';
 // 그대로 그린다 — 그래서 에디터 화면이 다운로드 .brf와 같은 모양이 된다.
 // (실측: 페이지 조회 응답을 buildBrf에 넣으면 BE 다운로드 파일과 78줄 전부 일치)
 //
-// ⚠ 꼬리말은 화면에 뜨지 않는다. braille-assist는 "이미 점역된" 꼬리말을 받는데,
-//   묵자→점자 변환은 AI 서버가 하고 페이지 조회 응답에 점역된 꼬리말이 없다.
-//   그래서 화면 페이지행은 원본 쪽번호와 점자 면 번호만 채운다(다운로드 파일에는 들어간다).
+// 꼬리말은 서버가 점역해 준 값을 그대로 얹는다. braille-assist는 "이미 점역된"
+// 꼬리말을 받고 배치만 하며, 묵자→점자 변환은 AI 서버 몫이다 — 2026-09-03부터
+// SSE page_done의 `footer_braille` · 페이지 조회의 `footerBraille`로 내려온다
+// (그전에는 받을 곳이 없어 화면 페이지행의 꼬리말 자리가 늘 빈칸이었다).
 
 // 면 규격도 라이브러리 값을 그대로 쓴다(32칸 × 26줄).
 export const CELLS_PER_ROW = DEFAULT_OPTIONS.cols;
@@ -52,9 +53,8 @@ export interface LayoutPage {
   braillePage: number;
   rows: LayoutRow[];
   // 이 면에 적용되는 꼬리말(묵자). 구간 표식이 없으면 작업 전체 꼬리말이다.
-  // ⚠ 판면 페이지행에는 아직 찍히지 않는다 — 점역된 꼬리말은 서버가 준다
-  //   (docs/SERVER-REQUIREMENTS-3.3.0.md S-4). 지금은 어느 면에 무슨 꼬리말이
-  //   걸렸는지 화면에 보여 주는 데 쓴다.
+  // 페이지행에 실제로 찍히는 것은 점역된 쪽(buildLayout의 footerBraille)이고,
+  // 이 값은 어느 면에 무슨 꼬리말이 걸렸는지 화면에 보여 주는 데 쓴다.
   footerText: string;
 }
 
@@ -299,31 +299,67 @@ export const footerTagOf = (text: string): string | null => {
   return t.slice(FOOTER_TAG_OPEN.length, -1).trim();
 };
 
+/**
+ * 문서에 들어 있는 **구간 꼬리말 묵자 문구**들(중복·빈 값 제외).
+ *
+ * 이 문구들은 점역사가 판면에서 만든 것이라 서버가 점역해 준 값이 없다 — 화면에
+ * 찍으려면 따로 점역해 와야 한다(api/FooterBrailleService, 개발 빌드 임시 경로).
+ */
+export const sectionFooterTexts = (
+  blocksByPage: Record<number, TranslationBlock[]>,
+): string[] => {
+  const found = new Set<string>();
+  for (const blocks of Object.values(blocksByPage)) {
+    for (const b of blocks ?? []) {
+      const tagged = footerTagOf(b.currentText);
+      if (tagged) found.add(tagged);
+    }
+  }
+  return [...found];
+};
+
 // 한 번에 조판할 토막. 표식에서 잘리고, 토막마다 제 꼬리말을 들고 간다.
+//
+// 꼬리말은 묵자(화면 배지용)와 점자(페이지행에 실제로 찍히는 값) 둘 다 들고 간다.
+// 둘을 여기서 함께 정하는 이유: 첫 토막의 점자는 **서버가 점역해 준 작업 전체
+// 꼬리말**이고 그 뒤는 표식이 바꾼다. 나중에 묵자 문자열을 견줘 되찾으려 하면
+// "작업 전체 꼬리말이 빈 문서"와 "표식으로 꼬리말을 뺀 자리"를 가릴 수 없다.
 interface Segment {
   lines: LogicalLine[];
   footer: string;
+  footerBraille: string;
 }
 
 /** 표식(쪽바꿈·꼬리말)에서 논리 줄을 토막낸다. 표식 자체는 판면에 그리지 않는다. */
 const splitIntoSegments = (
   lines: LogicalLine[],
   baseFooter: string,
+  baseBraille: string,
+  // 구간 꼬리말의 묵자 → 점자. 없는 문구는 빈 자리로 둔다(틀린 점자보다 낫다).
+  sectionBraille: Record<string, string>,
 ): Segment[] => {
-  const segments: Segment[] = [{ lines: [], footer: baseFooter }];
+  const segments: Segment[] = [
+    { lines: [], footer: baseFooter, footerBraille: baseBraille },
+  ];
   let footer = baseFooter;
+  let braille = baseBraille;
   for (const line of lines) {
     const tagged = footerTagOf(line.text);
     if (tagged === null && !isPageBreakLine(line.text)) {
       segments[segments.length - 1].lines.push(line);
       continue;
     }
-    if (tagged !== null) footer = tagged;
+    if (tagged !== null) {
+      footer = tagged;
+      braille = tagged ? (sectionBraille[tagged] ?? '') : '';
+    }
     const last = segments[segments.length - 1];
     // 앞 토막이 비어 있으면(문서 첫 줄이 표식·표식 두 개가 잇달아) 새 면을 만들
     // 필요가 없다. 꼬리말만 그 토막에 얹는다.
-    if (last.lines.length === 0) last.footer = footer;
-    else segments.push({ lines: [], footer });
+    if (last.lines.length === 0) {
+      last.footer = footer;
+      last.footerBraille = braille;
+    } else segments.push({ lines: [], footer, footerBraille: braille });
   }
   return segments.filter((s) => s.lines.length > 0);
 };
@@ -458,16 +494,20 @@ export const origPageShift = (
  * 만든 줄(변경선·페이지행)인지, 본문이라면 어느 블록 몇 번째 칸부터인지 알 수 있다.
  * 조판 규칙을 FE가 한 줄도 다시 구현하지 않기 위한 방법이다.
  *
- * footerBraille — **이미 점역된** 꼬리말. braille-assist는 점역을 하지 않고 배치만 한다
- * (묵자→점자는 AI 서버 담당). 페이지 조회 응답에 이 값이 아직 없어 지금은 빈 문자열이
- * 들어가고, 그래서 화면 페이지행의 꼬리말 자리만 비어 보인다(다운로드 파일은 정상).
- * BE가 응답에 점역된 꼬리말을 실어 주면 여기로 넘기기만 하면 된다.
+ * footerBraille — **이미 점역된** 작업 전체 꼬리말. braille-assist는 점역을 하지 않고
+ * 배치만 한다(묵자→점자는 AI 서버 담당). 서버가 SSE page_done의 `footer_braille`와
+ * 페이지 조회의 `footerBraille`로 내려주므로(2026-09-03) 호출부가 그 값을 그대로 넘긴다.
+ *
+ * sectionFooterBraille — 구간 꼬리말의 `묵자 → 점자` 표. 서버가 주지 않는 값이라
+ * 개발 빌드에서만 채워진다(api/FooterBrailleService). 없거나 못 찾은 문구는 빈 자리로
+ * 두어 그 면의 꼬리말을 비운다 — 틀린 점자를 찍는 것보다 낫다.
  */
 export const buildLayout = (
   blocksByPage: Record<number, TranslationBlock[]>,
   insertPageNumber: boolean,
   footerBraille = '',
   typeset: TypesetOptions = DEFAULT_TYPESET,
+  sectionFooterBraille: Record<string, string> = {},
 ): LayoutPage[] => {
   const logical = flattenLogicalLines(blocksByPage);
   if (logical.length === 0) return [];
@@ -485,7 +525,12 @@ export const buildLayout = (
   // 채운다"를 계산하면 면 나눔 규칙을 다시 구현하는 셈이라(README 금지) 대신
   // 토막을 나눠 각각 조판하고, 다음 토막의 시작 면 번호를 앞 토막이 끝난 다음 면으로
   // 준다. 규칙은 전부 라이브러리가 그대로 적용한다.
-  const segments = splitIntoSegments(logical, typeset.footerText);
+  const segments = splitIntoSegments(
+    logical,
+    typeset.footerText,
+    footerBraille,
+    sectionFooterBraille,
+  );
   // 표식 줄을 뺀 "실제로 조판된" 줄 목록. 아래 출처 복원이 이 순서를 기준으로 센다 —
   // 원본(logical)을 그대로 쓰면 표식 줄만큼 번호가 밀린다.
   const laidOut = segments.flatMap((s) => s.lines);
@@ -501,7 +546,12 @@ export const buildLayout = (
   let lineBase = 0;
   // 토막이 하나면 메모할 것이 없다(위 SegMemo 주석).
   const memoing = segments.length > 1;
-  const optsKey = JSON.stringify([opts, footerBraille, pageShift]);
+  const optsKey = JSON.stringify([
+    opts,
+    footerBraille,
+    sectionFooterBraille,
+    pageShift,
+  ]);
   const prev = lastRun;
   const next = new Map<string, SegMemo>();
   for (const seg of segments) {
@@ -515,7 +565,7 @@ export const buildLayout = (
       reuse?.real ??
       buildPages(
         toSources(seg.lines, (l) => l.text, pageShift),
-        footerBraille,
+        seg.footerBraille,
         startPage,
         opts,
       );
@@ -528,7 +578,7 @@ export const buildLayout = (
           (l, idx) => markerFor(lineBase + idx).repeat([...l.text].length),
           pageShift,
         ),
-        footerBraille,
+        seg.footerBraille,
         startPage,
         opts,
       );

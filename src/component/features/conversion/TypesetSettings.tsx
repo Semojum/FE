@@ -241,8 +241,9 @@ const TypesetSettings: React.FC<Props> = ({ value, onChange, compact }) => {
             placeholder="예: 수학1-2. 다항함수"
             className={boxCls}
           />
-          {/* 페이지행에 다 들어가는지 — 넘치면 라이브러리가 뒤를 자른다.
-              FE는 점역을 하지 않으므로 한글을 넉넉히 3칸으로 잡은 어림값이다. */}
+          {/* 넘치면 라이브러리가 뒤를 자른다. 다만 몇 칸이 될지는 점역해 봐야 알고
+              약자가 크게 줄이므로(한글 6자 = 10칸인 실례가 있다), 글자 수가 이미
+              자리보다 많아 **확실히** 넘치는 때만 경고한다. */}
           {footerHint ? (
             <p className="mt-0.5 flex items-start gap-1 text-[11px] leading-snug text-[#f47726]">
               <AlertTriangle size={12} className="mt-px shrink-0" />
@@ -250,8 +251,9 @@ const TypesetSettings: React.FC<Props> = ({ value, onChange, compact }) => {
             </p>
           ) : (
             <p className={hintCls}>
-              페이지행의 가운데에 들어갑니다. 쓸 수 있는 자리는 약{' '}
-              {footerCellBudget(value)}칸입니다(한글은 한 글자에 2~3칸).
+              페이지행의 가운데에 들어갑니다. 쓸 수 있는 자리는{' '}
+              {footerCellBudget(value)}칸이고, 한글은 약자로 줄어 한 글자에 두 칸이
+              안 될 때도 있습니다.
             </p>
           )}
         </div>

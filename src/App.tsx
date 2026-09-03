@@ -110,6 +110,7 @@ import { hasMath } from './utils/mathText';
 import { replaceRanges, searchGrid, searchTextBlocks } from './utils/docSearch';
 import { saveBlob } from './utils/download';
 import { brailleSourceFileName, mergePagesToText } from './utils/mergePages';
+import { translateFooterTexts } from './api/FooterBrailleService';
 import { isTextOriginal, renderableOriginals } from './utils/pageOriginals';
 import { onAppClose } from './utils/appLifecycle';
 import { loadBrailleDefaults } from './utils/brailleDefaults';
@@ -133,8 +134,6 @@ import { getJobOptions } from './api/JobService';
 import { logDiag } from './utils/diagLog';
 import { brfFromLayout, countPendingMarks } from './utils/localBrf';
 import { useIsDevBuild } from './hooks/UseIsDevBuild';
-import UnfinishedModal from './component/shared/UnfinishedModal';
-import type { UnfinishedId } from './utils/unfinished';
 import {
   blockTextWithRowEdit,
   footerMarkBefore,
@@ -144,6 +143,7 @@ import {
   pageIndexOfBlock,
   setSectionFooterBefore,
   buildLayout,
+  sectionFooterTexts,
   firstRowIndexOfPage,
   flattenRows,
 } from './utils/brailleLayout';
@@ -194,8 +194,10 @@ interface TabState {
   jobId: string | null;
   // 업로드 시 정해진 쪽번호 삽입 여부 — 판면 격자를 26줄 전체로 그릴지 본문 25줄로 그릴지
   insertPageNumber: boolean;
-  // 업로드 시 정해진 꼬리말(묵자). 다운로드(.brf) 조판에서만 쓰이고 화면에는 그리지 않는다.
+  // 업로드 시 정해진 꼬리말(묵자). 업로드 폼과 다운로드(.brf) 조판이 쓴다.
   footerText: string;
+  // 서버가 점역해 내려준 꼬리말 — 판면 페이지행에 그대로 찍는다.
+  footerBraille: string;
   // 페이지별 변환 상태(BLOCKED 페이지 안내용)
   pageStatuses: Record<number, PageEventStatus>;
   // 마이페이지에서 복원한 작업의 원본 파일명(라이브 업로드는 fileState.file.name).
@@ -301,6 +303,10 @@ const Semojum: React.FC = () => {
   // 페이지행 가운데에 들어갈 꼬리말(묵자). 쪽번호와 마찬가지로 업로드 시점에 확정된다
   // (2026-08-07 명세 추가). 점역은 다운로드 시점에 서버가 한다.
   const [footerText, setFooterText] = useState('');
+  // 위 꼬리말을 서버가 점역한 값(SSE page_done의 footer_braille · 페이지 조회의
+  // footerBraille). FE에는 점역기가 없어 판면 페이지행의 꼬리말 자리는 이 값으로만
+  // 채울 수 있다 — 서버가 주기 전에는 늘 빈칸이었다(요청서 S-4, 2026-09-03 반영).
+  const [footerBraille, setFooterBraille] = useState('');
   // 조판 설정(규격·페이지행 범위·표지 제외·꼬리말 정렬). 1차 PoC 요청으로 들어왔고
   // 쪽번호·꼬리말과 같은 시점(업로드)에 확정된다 — 판면이 통째로 다시 짜이기 때문이다.
   const [typeset, setTypeset] = useState<TypesetOptions>(
@@ -494,6 +500,7 @@ const Semojum: React.FC = () => {
       jobId: workingJobId,
       insertPageNumber,
       footerText,
+      footerBraille,
       pageStatuses,
       originalFileName,
     }),
@@ -508,6 +515,7 @@ const Semojum: React.FC = () => {
       workingJobId,
       insertPageNumber,
       footerText,
+      footerBraille,
       pageStatuses,
       originalFileName,
     ],
@@ -532,6 +540,8 @@ const Semojum: React.FC = () => {
     editor.resetEditor();
     setPageStatuses({});
     setOriginalFileName(null);
+    // 점역된 꼬리말은 그 작업의 것이다 — 남겨 두면 다음 문서의 페이지행에 찍힌다.
+    setFooterBraille('');
     setOriginalLoadError(null);
     // 커서는 줄 번호(rowIndex)로만 가리킨다 — 다른 작업물로 갈아타면 그 번호가
     // 새 문서의 엉뚱한 줄을 가리켜, 아무것도 누르지 않았는데 블록 도구(대체 텍스트
@@ -625,6 +635,7 @@ const Semojum: React.FC = () => {
       setWorkingJobId(saved.jobId);
       setInsertPageNumber(saved.insertPageNumber ?? false);
       setFooterText(saved.footerText ?? '');
+      setFooterBraille(saved.footerBraille ?? '');
       editor.resetEditor();
       editor.registerServerBlocks(Object.values(saved.blocksByPage).flat());
       setPageStatuses(saved.pageStatuses ?? {});
@@ -664,8 +675,14 @@ const Semojum: React.FC = () => {
   };
 
   // OCR 결과를 점역 변환으로 넘긴다. 전용 API(`POST .../send-to-braille`)는 만들지
-  // 않기로 했으므로, 교정된 전체 페이지를 FE가 하나의 텍스트로 합쳐 모드 b Job으로
-  // 재업로드한다(V2와 같은 방식). 사용자에게는 저장·재업로드 수작업이 보이지 않는다.
+  // 않기로 했으므로, 교정된 전체 페이지를 하나의 .txt로 합쳐 모드 b Job으로 재업로드한다.
+  // 사용자에게는 저장·내려받기·재업로드 수작업이 보이지 않는다.
+  //
+  // 합치는 일은 **서버에 맡긴다** — 다운로드 API가 내는 그 .txt를 그대로 올린다.
+  // 예전에는 FE가 화면 블록을 이어 붙였는데, 그 텍스트에는 원본 쪽 경계 표식이 없어
+  // 모드 b가 30줄마다 자르는 쪽으로 되돌아갔다. 그래서 손으로 "모드 a 다운로드 →
+  // 모드 b 업로드"를 하면 원본 쪽이 살아나는데 이 버튼으로는 죽는 차이가 났다
+  // (2026-09-03). 같은 파일을 쓰면 두 길이 한 글자도 다르지 않다.
   const runSendToBraille = useCallback(
     async (overwrite: boolean) => {
       if (!auth.token) return;
@@ -679,20 +696,31 @@ const Semojum: React.FC = () => {
 
       setIsSending(true);
       try {
-        // 남은 교정을 먼저 서버에 밀어낸다 — 화면 블록이 곧 병합 대상이라 실패해도
-        // 합쳐지는 내용은 같지만, 원본 OCR 작업의 최종본을 잃지 않게 한다.
+        // 남은 교정을 먼저 서버에 밀어낸다. 다운로드는 늘 DB의 현재 편집본으로
+        // 만들어지므로, 밀어내지 않으면 마지막 교정이 빠진 텍스트가 점역으로 간다.
         await editor.saveAllDirty();
 
-        const merged = mergePagesToText(blocksByPage);
-        if (!merged) {
+        const name = brailleSourceFileName(
+          fileState.file?.name ?? originalFileName,
+        );
+        // jobId를 모르는 경우(팝업 복원 등)에만 화면 블록으로 대신 합친다.
+        // mergePagesToText도 같은 쪽 경계 표식을 넣는다.
+        const merged: Blob | string = workingJobId
+          ? (
+              await downloadJobResult(
+                workingJobId,
+                name.replace(/\.txt$/, ''),
+                auth.token,
+              )
+            ).blob
+          : mergePagesToText(blocksByPage);
+        const isEmpty =
+          typeof merged === 'string' ? merged.length === 0 : merged.size === 0;
+        if (isEmpty) {
           setToast('점역으로 보낼 내용이 없습니다.');
           return;
         }
-        const file = new File(
-          [merged],
-          brailleSourceFileName(fileState.file?.name ?? originalFileName),
-          { type: 'text/plain' },
-        );
+        const file = new File([merged], name, { type: 'text/plain' });
 
         setIsOverwriteOpen(false);
         // 현재 OCR 탭 작업물을 보관하고 점역 탭으로 이동한다.
@@ -721,6 +749,7 @@ const Semojum: React.FC = () => {
       tabSnapshots,
       captureState,
       clearWorkspace,
+      workingJobId,
     ],
   );
 
@@ -801,23 +830,56 @@ const Semojum: React.FC = () => {
   // 개발 빌드에서만 여는 임시 경로들(화면 그대로 내려받기). 프로덕션에는 안 보인다.
   const isDevBuild = useIsDevBuild();
 
-  // 아직 완성되지 않은 기능 — 프로덕션에서는 막고 이유를 알린다.
-  // 화면에서만 되고 내려받는 파일에는 반영되지 않는 것들이라, 되는 척하면 점역사가
-  // 마지막에야 알게 된다(utils/unfinished.ts 머리말).
-  const [unfinished, setUnfinished] = useState<UnfinishedId | null>(null);
-  /** 막았으면 true — 호출부는 그대로 돌아간다. */
-  const blockUnfinished = useCallback(
-    (id: UnfinishedId): boolean => {
-      if (isDevBuild) return false;
-      setUnfinished(id);
-      return true;
-    },
-    [isDevBuild],
+  // ── 구간 꼬리말 점역 (임시 경로 · L-3이 열리면 지운다) ────────────────────
+  //
+  // 작업 전체 꼬리말은 서버가 점역해 준다(footerBraille). 구간 꼬리말은 점역사가
+  // 판면에서 만든 문구라 그 길이 없어 판면 페이지행이 비어 있었다. 외부 점역기를
+  // 임시로 끼워 화면에서만 먼저 연다.
+  //
+  // ⚠ **화면에만 들어간다.** 내려받는 .brf는 BE가 만들고 BE는 구간 꼬리말 표식을
+  //   모르므로 파일에는 여전히 표식이 글자로 찍힌다(L-3). 그 사실은 구간 꼬리말을
+  //   넣는 자리(SectionFooterModal)에서 알린다.
+  //   점역기의 한계(영문 로마자 표시 누락·로마 숫자 거절)는
+  //   api/FooterBrailleService 머리말에 대조 결과와 함께 적혀 있다.
+  const [sectionFooterBraille, setSectionFooterBraille] = useState<
+    Record<string, string>
+  >({});
+  // 이미 물어본 문구(실패 포함). 같은 문구를 다시 묻지 않게 막는다.
+  const askedFootersRef = useRef(new Set<string>());
+  const sectionFooters = useMemo(
+    () => sectionFooterTexts(blocksByPage),
+    [blocksByPage],
   );
+  useEffect(() => {
+    const missing = sectionFooters.filter(
+      (t) => !askedFootersRef.current.has(t),
+    );
+    if (missing.length === 0) return;
+    missing.forEach((t) => askedFootersRef.current.add(t));
+    let alive = true;
+    void translateFooterTexts(missing).then((map) => {
+      if (!alive) return;
+      // 못 바꾼 문구(null)는 담지 않는다 — 그 면의 꼬리말 자리는 비워 둔다.
+      const got = Object.entries(map).filter(
+        (e): e is [string, string] => typeof e[1] === 'string' && e[1] !== '',
+      );
+      if (got.length > 0) {
+        setSectionFooterBraille((prev) => ({
+          ...prev,
+          ...Object.fromEntries(got),
+        }));
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [sectionFooters]);
 
+  // 쪽바꿈은 화면에서만 면을 가른다 — 내려받는 파일에는 표식이 글자로 찍히고 면도
+  // 갈리지 않는다(L-2). 그래도 쓸 수 있게 열어 두고, 넣는 자리에서 한 번,
+  // 다운로드 모달에서 표식 개수와 함께 한 번 더 알린다(DownloadModal pendingMarks).
   const handlePageBreak = useCallback(
     (page: number, blockId: string) => {
-      if (blockUnfinished('pageBreak')) return;
       // 넣을 배열은 insertPageBreakBefore가 통째로 만들어 준다 — 여기서 넣고 다시
       // 읽는 방식은 ref가 아직 갱신되기 전이라 엉뚱한 배열을 조립한다.
       const result = insertPageBreakBefore(readBlocks(page), blockId);
@@ -829,9 +891,11 @@ const Semojum: React.FC = () => {
       editor.pushHistory(page);
       setBlocksForPage(page, result.blocks);
       editor.markDirty(page);
-      setToast('이 자리에서 면을 바꿉니다. (Ctrl+Z로 되돌리기)');
+      setToast(
+        '이 자리에서 면을 바꿉니다 — 화면에만 반영됩니다. (Ctrl+Z로 되돌리기)',
+      );
     },
-    [readBlocks, setBlocksForPage, editor, blockUnfinished],
+    [readBlocks, setBlocksForPage, editor],
   );
 
 
@@ -905,10 +969,22 @@ const Semojum: React.FC = () => {
   // 흘린다 — 재지 않으면 느려졌을 때 조판인지 그리기인지 가릴 수가 없다.
   const layout = useMemo(() => {
     const at = now();
-    const out = buildLayout(blocksByPage, insertPageNumber, '', typeset);
+    const out = buildLayout(
+      blocksByPage,
+      insertPageNumber,
+      footerBraille,
+      typeset,
+      sectionFooterBraille,
+    );
     endOp('판면 조판', at);
     return out;
-  }, [blocksByPage, insertPageNumber, typeset]);
+  }, [
+    blocksByPage,
+    insertPageNumber,
+    footerBraille,
+    typeset,
+    sectionFooterBraille,
+  ]);
   const gridRows = useMemo(() => flattenRows(layout), [layout]);
   // 지금 보고 있는 면에 걸린 꼬리말 (구간 표식이 없으면 작업 전체 꼬리말).
   const visibleFooterText = layout[visibleOutputPage - 1]?.footerText ?? '';
@@ -945,8 +1021,9 @@ const Semojum: React.FC = () => {
         const nextLayout = buildLayout(
           { ...blocksRef.current, [page]: next },
           insertPageNumber,
-          '',
+          footerBraille,
           typeset,
+          sectionFooterBraille,
         );
         const pageIdx = pageIndexOfBlock(nextLayout, blockId);
         const endBlock =
@@ -970,7 +1047,16 @@ const Semojum: React.FC = () => {
           : `${where} 꼬리말을 넣지 않습니다. (Ctrl+Z로 되돌리기)`,
       );
     },
-    [readBlocks, setBlocksForPage, editor, layout, typeset, insertPageNumber],
+    [
+      readBlocks,
+      setBlocksForPage,
+      editor,
+      layout,
+      typeset,
+      insertPageNumber,
+      footerBraille,
+      sectionFooterBraille,
+    ],
   );
 
   // 이 파일의 조판 설정 — 판면 우클릭에서 연다.
@@ -1514,6 +1600,8 @@ const Semojum: React.FC = () => {
         ...prev,
         [data.page_no]: data.status ?? 'COMPLETED',
       }));
+      // 점역된 꼬리말은 쪽마다 같은 값으로 실려 온다 — 처음 받은 값을 그대로 쓴다.
+      if (data.footer_braille) setFooterBraille(data.footer_braille);
       handlePageMapped(data);
     },
     [handlePageMapped],
@@ -1721,9 +1809,11 @@ const Semojum: React.FC = () => {
       );
       // 업로드 시 정해진 쪽번호 삽입 여부를 그대로 되살린다(판면 격자 기준이 달라진다).
       setInsertPageNumber(job.insertPageNumber ?? false);
-      // 꼬리말은 페이지 조회 응답에 없다(다운로드 때 서버가 저장값을 쓴다). 복원한 작업의
-      // 값을 다음 업로드에 흘리지 않도록 비운다.
+      // 묵자 꼬리말은 페이지 조회 응답에 없다(다운로드 때 서버가 저장값을 쓴다). 복원한
+      // 작업의 값을 다음 업로드에 흘리지 않도록 비운다. 점역된 쪽은 응답에 있으므로
+      // 그대로 되살려 판면 페이지행을 채운다.
       setFooterText('');
+      setFooterBraille(job.footerBraille ?? '');
       // 원본 File은 없으므로 이름만 기억해 둔다(점역으로 보내기가 물려받는다).
       setOriginalFileName(job.originalFileName ?? null);
       // 재시작 복구·마이페이지 복원은 마지막 편집 페이지로 바로 이동한다.
@@ -2915,11 +3005,6 @@ const Semojum: React.FC = () => {
                       activeFindCells={activeFindCells}
                       onPageBreak={handlePageBreak}
                       cols={typeset.cols}
-                      // 꼬리말은 아직 점역본이 없어 묵자로 얹어 보여 준다(S-4).
-                      // 어느 면에 어떤 꼬리말이 걸렸는지·정렬이 어떻게 보이는지를
-                      // 확인하는 미리보기다 — 개발 빌드에서만 켠다.
-                      showFooterPreview={isDevBuild}
-                      footerAlign={typeset.footerAlign}
                       zoom={gridZoom}
                       onResolvedZoom={setResolvedZoom}
                     />
@@ -3073,9 +3158,6 @@ const Semojum: React.FC = () => {
           onClose={() => setOrigPageOpen(false)}
         />
       )}
-
-      {/* 아직 완성되지 않은 기능 안내 — 다른 모달 위에도 떠야 해서 한 겹 위다. */}
-      <UnfinishedModal id={unfinished} onClose={() => setUnfinished(null)} />
 
       <RuleSearchModal
         isOpen={isRuleSearchOpen}

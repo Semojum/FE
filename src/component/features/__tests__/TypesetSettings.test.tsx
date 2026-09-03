@@ -86,9 +86,16 @@ describe('조판 설정 패널', () => {
     expect(screen.getByText(/두 칸 띄운 자리가 오른쪽 끝/)).toBeTruthy();
   });
 
-  it('꼬리말이 페이지행에 안 들어갈 것 같으면 미리 경고한다', () => {
+  it('글자 수가 이미 자리를 넘으면 미리 경고한다', () => {
     setup({ footerText: '아주 긴 꼬리말을 넣어 봅니다 정말 아주 길게 넣습니다' });
-    expect(screen.getByText(/잘릴 수 있습니다/)).toBeTruthy();
+    expect(screen.getByText(/뒤가 잘립니다/)).toBeTruthy();
+  });
+
+  // 약자로 줄어 들어가는 꼬리말에까지 경고를 띄우면 점역사가 쓸 수 있는 문구를
+  // 지우게 된다. 이 꼬리말은 점역하면 17칸이라 18칸 자리에 들어간다(2026-09-03 실측).
+  it('들어가는 꼬리말에는 경고하지 않는다', () => {
+    setup({ footerText: '수학 1-2. 다항함수' });
+    expect(screen.queryByText(/잘립니다/)).toBeNull();
   });
 
   it('용어를 페이지로 통일한다 — 면·쪽이 라벨에 남지 않는다', () => {

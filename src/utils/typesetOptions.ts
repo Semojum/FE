@@ -49,14 +49,11 @@ export interface TypesetOptions {
   /**
    * 원본 페이지가 바뀌는 자리에 변경선을 넣을지.
    *
-   * 2026-09-02 braille-assist 갱신으로 `Options.showChangeLine`이 생겨 **화면 조판은**
-   * 열렸다. 끄는 판단은 라이브러리가 한다 — 원본 쪽 번호를 끄면 변경선은 ⠤만 남은
-   * 빈 줄이라 함께 꺼진다(라이브러리 결정 D).
-   *
-   * ⏳ 서버 조판 옵션(V30)에는 아직 이 항목이 없다 — BE에 추가를 요청해 둔 상태다
-   * (docs/서버_요청사항.pdf A-1). 아래 toLayoutOptions가 이미 함께 보내고
-   * fromLayoutOptions가 읽으므로, **서버가 받기 시작하면 FE는 고칠 것이 없다.**
-   * 그때까지는 번호를 켠 채 변경선만 끈 상태가 화면에만 적용된다(파일엔 남는다).
+   * 2026-09-02 braille-assist 갱신으로 `Options.showChangeLine`이 생겨 화면 조판이,
+   * 2026-09-03 서버 반영(요청서 A-1)으로 다운로드 .brf가 함께 열렸다 — 화면과 파일이
+   * 같은 값을 쓴다(실측: 끄면 `------#b` 줄이 파일에서도 사라진다).
+   * 끄는 판단은 라이브러리가 한다 — 원본 쪽 번호를 끄면 변경선은 ⠤만 남은 빈 줄이라
+   * 함께 꺼진다(라이브러리 결정 D).
    */
   showChangeLine: boolean;
 
@@ -151,10 +148,17 @@ export const normalizeTypeset = (
 // 1차 PoC(2026-08-26) 피드백: "꼬리말 길이 검증 필요(32칸 중 30칸 이상이면 버그 발생)".
 // 페이지행 한 줄에는 원본 쪽 번호(왼쪽)·점자 면 번호(오른쪽)가 먼저 자리를 잡고,
 // 항목 사이는 두 칸 이상 띄운다(지침 1장3-1). 꼬리말은 그 사이에 들어가고, 넘치면
-// 뒤가 잘린다(braille-assist `pageRow`). 그래서 몇 자까지 되는지 화면에서 미리 알린다.
+// 뒤가 잘린다(braille-assist `pageRow`).
 //
-// ⚠ FE는 점역을 하지 않으므로 정확한 칸 수는 알 수 없다 — 어림값이다. 실제 검증은
-//    점역한 뒤에 서버가 한다(docs/SERVER-REQUIREMENTS-3.3.0.md).
+// ⚠ **FE는 몇 칸이 될지 알 수 없다.** 점역은 서버가 하고, 약자 규정이 글자를 크게
+//    줄인다 — "수학 1-2. 다항함수"(한글 6자)는 17칸이다(2026-09-03 실측: "다항함수"
+//    네 글자가 6칸). 예전에는 한글을 한 글자에 3칸으로 세어 이것을 24칸으로 보고
+//    "잘릴 수 있습니다"를 띄웠는데, 18칸 자리에 멀쩡히 들어가는 꼬리말이었다.
+//    잘 들어가는 꼬리말에 계속 경고가 뜨면 점역사는 쓸 수 있는 문구를 지우게 된다.
+//
+//    그래서 **틀릴 수 없는 선에서만** 경고한다 — 점자 한 칸에 묵자 한 글자보다 더
+//    담기는 경우는 없으므로, 글자 수가 이미 자리보다 많으면 그때는 확실히 넘친다.
+//    그 아래는 조용히 두고, 실제 길이는 점역된 값이 온 뒤에 눈으로 본다.
 
 // 쪽 번호가 쓰는 칸 — `#` + 세 자리까지 보고, 이어지는 면 표시(a·b…) 한 칸을 더 본다.
 const PAGE_NO_CELLS = 5;
@@ -168,20 +172,18 @@ export const footerCellBudget = (o: TypesetOptions): number => {
   return Math.max(0, o.cols - left - right);
 };
 
-// 한글 한 글자는 점자로 두세 칸을 쓴다(초성+중성, 받침이 있으면 한 칸 더).
-// 잘리는 것을 놓치는 쪽이 나쁘므로 넉넉한 쪽(3칸)으로 센다.
-const HANGUL = /[가-힣]/;
+/**
+ * 점역했을 때 **최소** 몇 칸인지. 약자로 아무리 줄여도 묵자 한 글자가 점자 한 칸보다
+ * 적어지지는 않으므로 글자 수가 하한이다. 이 값조차 자리를 넘으면 확실히 잘린다.
+ */
+export const minFooterCells = (footer: string): number => [...footer.trim()].length;
 
-/** 묵자 꼬리말이 점자로 몇 칸이 될지(어림). */
-export const estimateFooterCells = (footer: string): number =>
-  [...footer.trim()].reduce((n, ch) => n + (HANGUL.test(ch) ? 3 : 1), 0);
-
-/** 페이지행에 다 들어가지 못할 것 같으면 알림 문구, 넉넉하면 null. */
+/** 확실히 넘칠 때만 알림 문구, 아니면 null(모르면 조용히 둔다). */
 export const footerOverflowHint = (o: TypesetOptions): string | null => {
   const budget = footerCellBudget(o);
-  const cells = estimateFooterCells(o.footerText);
+  const cells = minFooterCells(o.footerText);
   if (cells <= budget) return null;
-  return `페이지행에 들어갈 자리는 약 ${budget}칸인데 이 꼬리말은 약 ${cells}칸입니다 — 뒤가 잘릴 수 있습니다.`;
+  return `페이지행에 들어갈 자리는 ${budget}칸인데 이 꼬리말은 ${cells}자입니다 — 뒤가 잘립니다.`;
 };
 
 /** 규격이 기본값(32×26)에서 벗어났는지 — 화면에 눈에 띄게 알리는 데 쓴다. */
@@ -225,12 +227,7 @@ export interface LayoutOptions {
   showSourcePageNumber: boolean;
   showBraillePageNumber: boolean;
   footerAlign: FooterAlign;
-  /**
-   * 원본 페이지 변경선을 넣을지.
-   *
-   * ⚠ **서버 명세(V30)에 없는 항목이다.** 서버가 받기 시작하면 그대로 붙도록 미리
-   * 보내 두지만, 지금은 무시되고 조회 응답에도 오지 않는다(그래서 다시 열면 기본값).
-   */
+  /** 원본 페이지 변경선을 넣을지. 서버가 2026-09-03부터 받아 .brf에도 반영한다. */
   showChangeLine: boolean;
   /** 판면 수정 기본 적용 범위 — 서버는 저장·반환만 하고 쓰는 것은 FE다. */
   editScope: 'all' | 'page';

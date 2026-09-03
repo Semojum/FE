@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPagesFromJob } from '@semojum/braille-assist';
+import { buildPagesFromJob, pageChangeLine } from '@semojum/braille-assist';
 import {
   blockTextWithRowEdit,
   buildLayout,
@@ -12,6 +12,7 @@ import {
   insertPageBreakBefore,
   makeFooterTag,
   PAGE_BREAK_TAG,
+  sectionFooterTexts,
   setSectionFooterBefore,
 } from '../brailleLayout';
 import { DEFAULT_TYPESET } from '../typesetOptions';
@@ -65,6 +66,44 @@ describe('buildLayout', () => {
   it('쪽번호를 끄면 페이지행이 없다', () => {
     const pages = buildLayout({ 1: [block('b1', long)] }, false);
     expect(pages[0].rows.every((r) => r.kind !== 'fixed')).toBe(true);
+  });
+
+  // QA 2026-09-02: "꼬리말이 빈칸이라 정렬을 테스트하지 못했다."
+  // 2026-09-03 실서버 대조: 아래 두 줄이 BE가 만든 .brf의 페이지행과 글자까지 같다.
+  //   center  #a     ,mja #a-#b4 ij7j5,m    #a
+  //   right   #a       ,mja #a-#b4 ij7j5,m  #a
+  it('꼬리말 정렬 — 오른쪽은 점자 면 번호에서 두 칸 띄운 자리가 끝이다', () => {
+    const footer = '⠠⠍⠚⠁⠀⠼⠁⠤⠼⠃⠲⠀⠊⠚⠶⠚⠢⠠⠍';
+    const rowFor = (footerAlign: 'center' | 'right') => {
+      const rows = buildLayout({ 1: [block('b1', '⠁')] }, true, footer, {
+        ...DEFAULT_TYPESET,
+        footerAlign,
+        pageRowOn: 'every',
+      })[0].rows;
+      return rows[rows.length - 1].text;
+    };
+
+    const center = rowFor('center');
+    const right = rowFor('right');
+    expect(center).not.toBe(right);
+    expect(center).toHaveLength(DEFAULT_TYPESET.cols);
+    expect(right).toHaveLength(DEFAULT_TYPESET.cols);
+    expect(right.endsWith(`${footer}⠀⠀⠼⠁`)).toBe(true);
+  });
+
+  // QA 2026-09-02: "꼬리말 내용이 아예 점역이 안 되고 빈칸으로 나온다."
+  // 원인은 서버가 점역된 꼬리말을 안 주던 것이었고, 2026-09-03 SSE page_done의
+  // footer_braille · 페이지 조회의 footerBraille로 들어왔다. 받은 값을 그대로
+  // 넘기면 페이지행 가운데에 찍힌다.
+  it('점역된 꼬리말을 넘기면 페이지행 가운데에 들어간다', () => {
+    const footer = '⠍⠣⠚⠁'; // 서버가 점역해 준 꼬리말
+    const pages = buildLayout({ 1: [block('b1', long)] }, true, footer);
+    const pageRowText = pages[0].rows[25].text;
+    expect(pageRowText).toContain(footer);
+    // 안 넘기면 그 자리가 빈칸이던 것이 종전 동작이다.
+    expect(buildLayout({ 1: [block('b1', long)] }, true)[0].rows[25].text).not.toContain(
+      footer,
+    );
   });
 
   it('원본 쪽이 바뀌는 자리에 변경선이 들어간다', () => {
@@ -323,6 +362,63 @@ describe('조판 설정', () => {
 describe('구간 꼬리말', () => {
   const withFooter = (footerText: string) => ({ ...DEFAULT_TYPESET, footerText });
 
+  it('문서에 든 구간 꼬리말 묵자를 중복 없이 모은다', () => {
+    const texts = sectionFooterTexts({
+      1: [block('a', '⠁'), block('m1', makeFooterTag('제3장 함수'))],
+      2: [block('m2', makeFooterTag('부록')), block('m3', makeFooterTag('제3장 함수'))],
+      3: [block('m4', makeFooterTag(''))], // 꼬리말 빼기 — 점역할 것이 없다
+    });
+    expect(texts.sort()).toEqual(['부록', '제3장 함수']);
+  });
+
+  // 토막마다 제 꼬리말 점자를 넘긴다. 작업 전체 꼬리말은 서버가 준 값(footerBraille),
+  // 구간 꼬리말은 표에서 찾는다 — 표에 없으면 그 면의 꼬리말 자리를 비운다
+  // (틀린 점자를 찍는 것보다 낫다).
+  it('면마다 그 구간의 꼬리말 점자가 페이지행에 들어간다', () => {
+    const base = '⠠⠍⠚⠁'; // 작업 전체 꼬리말 (서버 점역)
+    const section = '⠨⠝⠼⠉⠨⠶'; // 구간 꼬리말 (임시 점역)
+    const pages = buildLayout(
+      {
+        1: [
+          block('b1', '⠁'),
+          block('mark', makeFooterTag('제3장 함수')),
+          block('b2', '⠃'),
+        ],
+      },
+      true,
+      base,
+      { ...withFooter('수학 I'), pageRowOn: 'every' },
+      { '제3장 함수': section },
+    );
+
+    expect(pages).toHaveLength(2);
+    const rowOf = (i: number) => pages[i].rows[pages[i].rows.length - 1].text;
+    expect(rowOf(0)).toContain(base);
+    expect(rowOf(0)).not.toContain(section);
+    expect(rowOf(1)).toContain(section);
+    expect(rowOf(1)).not.toContain(base);
+  });
+
+  it('점역하지 못한 구간 꼬리말은 그 면의 꼬리말 자리를 비운다', () => {
+    const base = '⠠⠍⠚⠁';
+    const pages = buildLayout(
+      {
+        1: [
+          block('b1', '⠁'),
+          block('mark', makeFooterTag('Ⅱ. 문학')),
+          block('b2', '⠃'),
+        ],
+      },
+      true,
+      base,
+      { ...withFooter('수학 I'), pageRowOn: 'every' },
+      {}, // 못 바꿨다
+    );
+    const second = pages[1].rows[pages[1].rows.length - 1].text;
+    expect(second).not.toContain(base);
+    expect(second).toHaveLength(DEFAULT_TYPESET.cols);
+  });
+
   it('표식 자리에서 면이 갈리고, 뒤 면부터 새 꼬리말을 쓴다', () => {
     const pages = buildLayout(
       {
@@ -463,6 +559,26 @@ describe('시작 번호 지정', () => {
   it('기본값은 1면부터', () => {
     const pages = buildLayout({ 1: [block('b1', '⠁')] }, false, '', DEFAULT_TYPESET);
     expect(pages[0].braillePage).toBe(1);
+  });
+
+  // QA 2026-09-02: "원본 페이지 번호 시작을 올리면 페이지행의 점자는 바뀌는데
+  // 원본 페이지 변경선의 점자는 안 바뀐다." 둘 다 같은 옮긴 번호를 써야 한다.
+  it('원본 쪽 번호 시작을 옮기면 변경선 번호도 함께 옮겨진다', () => {
+    const pages = buildLayout(
+      { 1: [block('b1', '⠁')], 2: [block('b2', '⠃')] },
+      true,
+      '',
+      opts({ origPageStart: 5 }),
+    );
+    const rows = flattenRows(pages);
+    // 두 번째 원본 쪽(=옮기면 6쪽) 앞에 들어가는 변경선.
+    const changeLine = rows.find((r) => r.text.startsWith('⠤'));
+    expect(changeLine?.text).toBe(
+      pageChangeLine(6, { cols: DEFAULT_TYPESET.cols }),
+    );
+    // 페이지행 왼쪽에도 옮긴 번호(5쪽)가 찍힌다 — 둘이 같은 기준을 쓴다.
+    const pageRowText = rows[rows.length - 1].text;
+    expect(pageRowText.startsWith('⠼⠑')).toBe(true);
   });
 
   it('원본 쪽 번호 시작을 옮겨도 편집 좌표는 그대로다', () => {
