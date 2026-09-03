@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>세모점 — 화면에서는 되고 파일에는 안 들어가는 것</title>
+<link rel="stylesheet" href="../server-request/style.css">
+<style>
+  /* 이 문서만 쓰는 것 — 화면/파일 두 칸 대조표 */
+  td.vs { width: 38mm; }
+  .ex {
+    font-family: 'SF Mono', Consolas, monospace; font-size: 7.5pt; line-height: 1.5;
+    background: #f7f9fc; border: 1px solid #e3e9f1; padding: 4pt 6pt; margin: 4pt 0 6pt;
+    white-space: pre; overflow: hidden; page-break-inside: avoid;
+  }
+  .why { display: block; margin-top: 2pt; }
+  .why b { color: #a85b1c; }
+</style>
+</head>
+<body>
+
+<div class="head">
+  <div class="kicker">SEMOJUM</div>
+  <h1>화면에서는 되고 파일에는 안 들어가는 것</h1>
+  <div class="meta">
+    <span><b>작성</b> 2026-09-03</span>
+    <span><b>기준</b> FE v3.2.8</span>
+    <span><b>확인</b> api.semojum.app 실측</span>
+    <span><b>대상</b> 점역사 · BE · AI · braille-assist</span>
+  </div>
+</div>
+
+<p>판면(화면)과 내려받는 파일이 어긋나는 자리를 모았습니다. 점역사가 <b>파일을 받고 나서야</b>
+   알게 되는 것이 가장 나쁘므로, 각 항목마다 <b>왜 그런지</b>와 <b>앱이 어디서 알리는지</b>를
+   함께 적습니다. 항목 번호는 리포의 <span class="mono">SERVER-REQUIREMENTS-3.3.0.md</span>를 따릅니다.</p>
+
+<div class="box note"><span class="t">한눈에</span>
+  <table style="margin:4pt 0 0">
+    <tr><th class="id">번호</th><th>무엇이</th><th class="own">막힌 곳</th><th class="own">풀리는 조건</th></tr>
+    <tr><td class="id">1</td><td>쪽바꿈 <span class="mono">&lt;!쪽바꿈&gt;</span></td>
+        <td>조판<span class="pill lib">라이브러리</span></td><td>표식 해석 (L-2)</td></tr>
+    <tr><td class="id">2</td><td>구간 꼬리말 <span class="mono">&lt;!꼬리말:…&gt;</span></td>
+        <td>조판<span class="pill lib">라이브러리</span><span class="pill be">BE</span></td><td>표식 해석 + 점역 (L-3)</td></tr>
+    <tr><td class="id">3</td><td>편집 중에 바꾼 <b>조판 설정 전부</b></td>
+        <td>API<span class="pill be">BE</span></td><td>조판 옵션 수정 API</td></tr>
+    <tr><td class="id">4</td><td>점역 옵션 (등급 · 영어 · 혼용)</td>
+        <td>변환<span class="pill be">BE</span><span class="pill ai">AI</span></td><td>값을 변환에 싣기 (S-2·S-3)</td></tr>
+  </table>
+</div>
+
+<h2><span class="tag">1</span>쪽바꿈 <span class="mono">&lt;!쪽바꿈&gt;</span><span class="pill lib">braille-assist</span></h2>
+
+<table>
+  <tr><th class="vs">화면(판면)</th><th>내려받는 .brf</th></tr>
+  <tr><td>그 자리에서 <b>면이 갈린다</b></td>
+      <td>표식이 <b>점자 글자로 찍히고</b> 면은 갈리지 않는다</td></tr>
+</table>
+
+<div class="ex">7  ------------------------------#b
+8  ⟨003C⟩⟨0021⟩⟨CABD⟩⟨BC14⟩⟨AFC8⟩⟨003E⟩  #b,.x ;s',.r .&amp;obcoi4</div>
+
+<ul>
+  <li><span class="lab">왜</span>파일은 BE가 <b>braille-assist(java)</b>로 만든다. 그 라이브러리에 <b>쪽바꿈이라는 개념이 없다</b> —
+      <span class="mono">buildPages</span>가 표식을 모르는 글자로 보고 본문에 그대로 흘린다.</li>
+  <li><span class="lab">왜 FE가 못 메우나</span>화면은 FE가 표식에서 <b>토막을 나눠 각각 조판</b>해 면을 가른다.
+      같은 일을 파일에서 하려면 BE가 그 규칙을 다시 구현해야 하고, 그러면 조판 규칙의 단일 출처가 둘이 된다.</li>
+  <li><span class="lab">파급</span>표식 줄이 <b>본문 한 줄을 차지</b>하므로 그 뒤 줄 흐름이 통째로 밀린다 —
+      틀린 자리에 표식이 하나 찍히는 정도가 아니라 <b>그 뒤 면 수가 화면과 달라진다.</b></li>
+  <li><span class="lab">서버에 도착은 하나</span><b>한다.</b> <span class="mono">PUT /api/jobs/{id}/pages/{n}/elements</span>가
+      표식 블록을 그대로 받아 저장한다(2026-09-03 실측 200). <b>해석만 없다.</b></li>
+  <li><span class="lab">필요한 것</span><span class="mono">buildPages</span>가 표식 줄을 만나면 남은 줄을 채우고 다음 면으로 넘어가는 것.
+      python · ts · java 세 구현과 <span class="mono">vectors.json</span>을 한 PR로.</li>
+</ul>
+
+<h2><span class="tag">2</span>구간 꼬리말 <span class="mono">&lt;!꼬리말:…&gt;</span><span class="pill lib">braille-assist</span><span class="pill be">BE</span></h2>
+
+<table>
+  <tr><th class="vs">화면(판면)</th><th>내려받는 .brf</th></tr>
+  <tr><td>페이지행에 <b>점자로 찍힌다</b><br><span style="color:#7d8794">(v3.2.8부터 · 임시 점역기)</span></td>
+      <td>표식이 <b>글자로 찍히고</b>, 페이지행에는 <b>업로드 때 정한 전체 꼬리말</b>만 들어간다</td></tr>
+</table>
+
+<div class="ex">14  ⟨003C⟩⟨0021⟩⟨AF2C⟩⟨B9AC⟩⟨B9D0⟩⟨003A⟩⟨C81C⟩⟨0033⟩⟨C7A5⟩ ⟨D568⟩⟨C218⟩⟨003E⟩  #c,.x ...</div>
+
+<ul>
+  <li><span class="lab">왜</span>1번과 <b>같은 이유</b>다 — 파일을 만드는 쪽이 표식을 모른다. 줄이 밀리는 것도 같다.</li>
+  <li><span class="lab">왜 화면은 되나</span>배치는 라이브러리가 원래 한다(<span class="mono">buildPages</span>의 다섯째 인자
+      <span class="mono">footers</span>). 없던 것은 <b>점자 문자열</b>뿐이었다 —
+      <b>braille-assist는 점역을 하지 않는다.</b> 묵자→점자는 AI 서버 몫이다.</li>
+  <li><span class="lab">전체 꼬리말은 왜 되나</span>업로드 때 넣으므로
+      <b>FE → BE → AI <span class="mono">TranslateText</span> → <span class="mono">footer_braille</span> → 페이지행</b>
+      이 길을 탄다. 2026-09-03 서버 반영으로 열렸고, FE가 그 값을 판면에 그린다.</li>
+  <li><span class="lab">구간 꼬리말은 왜 못 타나</span>점역사가 <b>판면 편집 중에</b> 만드는 문구라 업로드 시점에 없다.
+      표식은 위 <span class="mono">PUT .../elements</span>로 서버에 도착하지만 BE가 해석하지 않아 점역될 데가 없다.</li>
+  <li><span class="lab">지금 화면은 무엇으로 찍나</span>외부 점역기(<span class="mono">braillify.kr</span>)를 <b>임시로</b> 끼웠다.
+      AI 서버와 6건 대조 — 한글·숫자만이면 글자까지 같고, <b>영문이 섞이면 로마자 표시 ⠴가 빠지며</b>,
+      로마 숫자는 거절돼 그 꼬리말은 화면에서도 빈칸이 된다.</li>
+  <li><span class="lab">필요한 것</span>BE가 저장된 요소에서 표식을 읽어 묵자를 점역하고, 페이지 조회·SSE 응답에 실어 주는 것.
+      범위 해석(“이 면부터 / 이 면만” → 면별 값)은 <b>FE 몫</b>이고 이미 하고 있다.</li>
+</ul>
+
+<div class="box note"><span class="t">새 API는 필요 없다</span>
+  묵자 문구는 이미 <span class="mono">PUT /api/jobs/{id}/pages/{n}/elements</span>로 서버에 가 있습니다.
+  <b>도착은 하는데 해석을 안 할 뿐</b>입니다. 응답은
+  <span class="mono">footersBraille: { "제3장 함수": "⠨⠝⠼⠉⠨⠶⠀⠚⠢⠠⠍" }</span>처럼
+  <b>묵자를 키로</b> 점역 결과만 주면 FE가 면별로 펼칩니다.
+</div>
+
+<h2><span class="tag">3</span>편집 중에 바꾼 조판 설정 전부<span class="pill be">BE</span></h2>
+
+<p>판면 도구 줄의 <b>[조판 설정]</b>과 <b>[원본 쪽 번호]</b>에서 바꾼 값은 <b>모두</b> 화면에만 적용됩니다.
+   가장 넓은 항목이고, 가장 놓치기 쉽습니다.</p>
+
+<table>
+  <tr><th class="vs">해당하는 값</th><th>화면 / 파일</th></tr>
+  <tr><td>칸 수 · 줄 수<br>페이지행 넣을 범위<br>표지 페이지 수<br>원본 · 점자 쪽 번호 표시<br>원본 페이지 변경선<br>꼬리말 정렬 · 문구<br>원본 · 점자 시작 번호</td>
+      <td>화면 — <b>[적용]을 누르면 즉시 다시 조판</b><br>
+          파일 — <b>업로드할 때 고른 값</b>으로 조판<br>
+          작업을 다시 열어도 <b>업로드 값으로 되돌아감</b></td></tr>
+</table>
+
+<ul>
+  <li><span class="lab">왜</span>조판 옵션은 <b>업로드 시점에 확정</b>되고(<span class="mono">POST /api/jobs</span> 폼),
+      <b>이를 고치는 API가 없다</b>(V3 명세 조판 옵션 V30). 서버는 <span class="mono">jobs.layout_options</span>에 적힌 값으로만 파일을 만든다.</li>
+  <li><span class="lab">헷갈리기 쉬운 자리</span>변경선 켜고 끄기(<span class="mono">showChangeLine</span>)와 꼬리말 우측 정렬은
+      2026-09-03 실측에서 <b>파일에 잘 반영됐다.</b> 다만 그것은 <b>업로드할 때 지정한 경우</b>다 —
+      편집 중에 바꾼 것은 화면뿐이다.</li>
+  <li><span class="lab">파급</span>규격을 40칸으로 바꿔 하루를 작업했는데 내려받은 파일이 32칸으로 나오면
+      그 사이 작업이 통째로 헛일이 된다. 그래서 조판 설정 창이 이 사실을 노란 상자로 먼저 알린다.</li>
+  <li><span class="lab">필요한 것</span>업로드 뒤에도 조판 옵션을 고치는 API. <b>요청서에 아직 항목이 없다.</b></li>
+</ul>
+
+<h2><span class="tag">4</span>점역 옵션 — 점자 등급 · 영어 점자 · 한영 혼용<span class="pill be">BE</span><span class="pill ai">AI</span></h2>
+
+<ul>
+  <li><span class="lab">증상</span>고르면 <b>저장만 되고</b> 무엇을 고르든 결과가 같다.</li>
+  <li><span class="lab">왜</span>업로드 폼과 조판 옵션 <b>열한 항목 어디에도 이 값이 없다</b>(2026-09-03 응답 확인).
+      값을 실을 자리 자체가 없어 변환에 전달되지 않는다.</li>
+  <li><span class="lab">이것만 막아 두는 이유</span>다른 셋은 화면에서라도 결과가 보이므로 “화면에만”이라고 알리면 된다.
+      이것은 <b>고르는 것만으로 화면에 아무 변화가 없어</b> 무엇이 빠졌는지 알 방법이 없다 —
+      그래서 <b>누르면 준비 중 안내</b>를 띄운다.</li>
+  <li><span class="lab">필요한 것</span>서버·AI가 이 값을 받아 변환에 싣는 것(S-2 · S-3).</li>
+</ul>
+
+<h2>앱이 알리는 자리</h2>
+
+<p>“되는 척하지 않는다”가 원칙입니다. 표식은 <b>넣을 때 한 번, 내려받기 직전에 한 번 더</b> 알립니다.</p>
+
+<table>
+  <tr><th class="own">언제</th><th>무엇을</th></tr>
+  <tr><td>쪽바꿈을 넣을 때</td><td>토스트 — <b>“이 자리에서 면을 바꿉니다 — 화면에만 반영됩니다”</b></td></tr>
+  <tr><td>구간 꼬리말을 넣을 때</td><td>모달 안내 — <b>“이 꼬리말은 화면에만 들어갑니다 — 내려받는 파일에는 아직 반영되지 않습니다”</b></td></tr>
+  <tr><td>조판 설정을 열 때</td><td>모달 안내 — <b>“이 창에서 바꾼 값은 화면에만 적용됩니다. 내려받는 파일과 다음에 이 작업을 열 때는 업로드할 때 고른 설정이 쓰입니다”</b></td></tr>
+  <tr><td><b>다운로드 직전</b></td><td><b>“서버가 아직 읽지 못하는 표식이 쪽바꿈 N개 · 구간 꼬리말 N개 있습니다. 파일에는 표식이 글자로 찍히고 면도 갈리지 않습니다”</b> — 표식 개수를 세어 보여 준다</td></tr>
+  <tr><td>점역 옵션을 누를 때</td><td>준비 중 안내 — 무엇이 왜 안 되는지</td></tr>
+</table>
+
+<div class="box warn"><span class="t">방침을 바꿨습니다 (2026-09-03)</span>
+  전에는 이런 기능을 프로덕션에서 <b>아예 막았습니다</b>. 이제는 <b>막는 대신 열고, 쓰는 자리에서 한계를 밝힙니다</b> —
+  반쪽이라도 쓸 수 있는 편이 낫다는 판단입니다. 다만 <b>쓰는 자리에서 알릴 데가 없는 기능</b>(4번)만은 계속 막습니다.
+</div>
+
+<div class="foot">세모점 FE v3.2.8 기준 · 실측 2026-09-03 (api.semojum.app) ·
+  자세한 배경은 리포의 <span class="mono">docs/SERVER-REQUIREMENTS-3.3.0.md</span></div>
+
+</body>
+</html>
